@@ -313,11 +313,21 @@ works unchanged. Proven pattern for remote-backed libraries; implemented in `Sti
    plus the folder ids it belongs to), so one folder is what makes a peer's copy a **version** of a
    film rather than a second entry beside it. `StingStream.Core/Library/LibraryLayoutService.cs`
    owns the layout and both the first-run wiring and the materializer call it.
-   `Recordings` stays a third library, and only because its folder shape suits neither of the other
-   two (see "DVR recordings" below).
+   `Recordings` is a separate library, and only because its folder shape suits neither of the other
+   two (see "DVR recordings" below). **It is not there by default** (2026-09-13): an owner adds it
+   from Settings → Libraries, and with no row `LibraryLayoutPlan` plans no Recordings library and
+   the materializer writes no recording pointers.
    The federated tree is never an arr root folder, since both arrs treat `.strm` as video.
 
-   **Each of the three can be switched off** (`LibrarySettings.Enabled`, 2026-09-10), and off means
+   **An owner can add more libraries of either type, with any number of folders each**
+   (2026-09-13, `POST /libraries`). An added library holds its own folders only: the built-in
+   `Movies` / `TV Shows` stays the host of the pointer tree (`LibraryLayoutPlan.Host`) and the home
+   of new imports (`RootFolderResolver.ForDownloads`), because a second collection folder carrying
+   the tree would break the merge above. Every local folder of a type is still registered as an
+   arr root folder (`RootFolderResolver.AllLocal`). Movies and TV Shows cannot be removed; any other
+   library can, and removing one withdraws it from the media server and keeps its files.
+
+   **Each library can be switched off** (`LibrarySettings.Enabled`, 2026-09-10), and off means
    the owner saying "not on this server": the library is withdrawn from the media server's view,
    the manager that fills it is stopped through `config.toml`, and the materializer stops writing
    pointers into it. Nothing on disk is touched, and because Jellyfin derives an item id from its

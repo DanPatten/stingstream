@@ -101,6 +101,60 @@ export function policyForSelection(
     : { ...policy, EnableAllFolders: false, EnabledFolders: selected };
 }
 
+/** Whether this account can see one library. */
+export function hasLibrary(
+  policy: UserPolicy | null | undefined,
+  libraryId: string,
+): boolean {
+  if (policy?.IsAdministrator || policy?.EnableAllFolders) return true;
+  return (policy?.EnabledFolders ?? []).some((id) =>
+    sameLibraryId(id, libraryId),
+  );
+}
+
+/**
+ * The policy to save when one library is granted or taken away, from a library's own page.
+ *
+ * Works on the stored list rather than on {@link selectionForPolicy}, because that one keeps only
+ * the ids in `available`: an id the list does not know about (a library the invite endpoint does
+ * not offer) would otherwise be revoked by a change that was about a different library.
+ *
+ * Taking one away from an account that sees everything becomes an explicit list of every other
+ * library it can pick from. Granting the last missing one collapses back to `EnableAllFolders`,
+ * for the reason {@link policyForSelection} gives.
+ */
+export function policyWithLibrary(
+  policy: UserPolicy,
+  libraryId: string,
+  grant: boolean,
+  available: PickableLibrary[],
+): UserPolicy {
+  if (policy.EnableAllFolders) {
+    if (grant) return policy;
+    return {
+      ...policy,
+      EnableAllFolders: false,
+      EnabledFolders: available
+        .map((library) => library.id)
+        .filter((id) => !sameLibraryId(id, libraryId)),
+    };
+  }
+
+  const without = (policy.EnabledFolders ?? []).filter(
+    (id) => !sameLibraryId(id, libraryId),
+  );
+  const next = grant ? [...without, libraryId] : without;
+  const everything =
+    available.length > 0 &&
+    available.every((library) =>
+      next.some((id) => sameLibraryId(id, library.id)),
+    );
+
+  return everything
+    ? { ...policy, EnableAllFolders: true, EnabledFolders: [] }
+    : { ...policy, EnableAllFolders: false, EnabledFolders: next };
+}
+
 /**
  * Why this account's administrator switch is locked, or `null` when it is not.
  *

@@ -20,6 +20,7 @@
 //! | `POST` | `/peer/v1/watch/{join,leave,report,command}` | The bridge itself — see [`crate::watch`]. |
 //! | `GET` | `/peer/v1/group/rekey` | The newest secret rotation this node holds, so a member that missed one can catch up (M8b). |
 //! | `POST` | `/peer/v1/group/rekey` | Push a rotation to this node. |
+//! | `POST` | `/peer/v1/group/unlink` | The sender removed this group; remove it here too. |
 //!
 //! Everything else is a 404. There is deliberately no path that takes a filesystem path: a peer
 //! names an `item_key` and a `file_hash`, and the *serving* node resolves that to a path through
@@ -301,13 +302,23 @@ impl iroh::protocol::ProtocolHandler for PeerProtocol {
             &conn,
             &state.node_key,
             &state.server_name(),
-            move |gid| {
-                let group = db.group(gid).ok().flatten()?;
+            move |gid, dialer| {
+                let Some(group) = db.group(gid).ok().flatten() else {
+                    // Removed here, and this member has not been told. Admitted on the secret the
+                    // group had, and only to hear that it is gone. Anybody else is refused exactly
+                    // as for a group this node never had.
+                    let secret = db.pending_unlink(gid, &dialer.to_string()).ok().flatten()?;
+                    return Some(auth::GroupAuth {
+                        unlinked: true,
+                        ..auth::GroupAuth::just(secret)
+                    });
+                };
                 let state = db.rekey_state(gid).unwrap_or_default();
                 Some(auth::GroupAuth {
                     secret: group.secret,
                     previous: state.previous,
                     revoked: db.revoked(gid).unwrap_or_default(),
+                    unlinked: false,
                 })
             },
         )
@@ -335,6 +346,40 @@ impl iroh::protocol::ProtocolHandler for PeerProtocol {
         };
 
         let peer = session.peer.to_string();
+
+        // A member of a group this node has removed. Every request it makes is answered 410, which
+        // is what tells it to remove the group too, and the notice is then considered delivered.
+        if session.unlinked {
+            tracing::info!(
+                group = %session.group_id,
+                peer = %session.peer.fmt_short(),
+                "telling a member that this group was removed"
+            );
+            while let Ok((send, recv)) = conn.accept_bi().await {
+                let db = state.db.clone();
+                let group = session.group_id;
+                let peer = peer.clone();
+                tokio::spawn(async move {
+                    let io = TokioIo::new(tokio::io::join(recv, send));
+                    let svc = hyper::service::service_fn(move |_req: Request<Incoming>| {
+                        let _ = db.drop_pending_unlink(&group, &peer);
+                        async move {
+                            Ok::<_, std::convert::Infallible>(status(
+                                StatusCode::GONE,
+                                "this group was removed",
+                            ))
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .timer(hyper_util::rt::TokioTimer::new())
+                        .header_read_timeout(HEADER_TIMEOUT)
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+            return Ok(());
+        }
+
         let _ = state
             .db
             .note_member(&session.group_id, &peer, &session.peer_name);
@@ -576,6 +621,24 @@ async fn serve(
             Method::POST => serve_rekey(state, group, peer, req).await,
             _ => status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed"),
         },
+        ["peer", "v1", "group", "unlink"] => {
+            if method != Method::POST {
+                return status(StatusCode::METHOD_NOT_ALLOWED, "method not allowed");
+            }
+            let Some(node) = state.node.get().and_then(|w| w.upgrade()) else {
+                return status(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "this node cannot remove a group",
+                );
+            };
+            match node.receive_unlink(&group, &peer.to_string()).await {
+                Ok(()) => json_response(&serde_json::json!({ "removed": true })),
+                Err(e) => {
+                    tracing::warn!(%group, peer = %peer.fmt_short(), error = %e, "removing a group on a member's notice");
+                    status(StatusCode::INTERNAL_SERVER_ERROR, "the group could not be removed")
+                }
+            }
+        }
         _ => status(StatusCode::NOT_FOUND, "no such peer route"),
     }
 }

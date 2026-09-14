@@ -25,9 +25,25 @@ Read it before the first commit in a session. The two that catch people first:
 
 - **Rule 3**: never run a node out of `mesh/target/debug/` or `server/*/bin/`. A running node holds
   those open and nobody — including you — can rebuild. Copy them and use `--install-root`.
-- **Rule 4**: `git add <explicit paths>`, never `git add -A` or `git add .`, and stage and commit in
-  one invocation. A broad add sweeps up another session's in-flight work and publishes it under
-  your name at a moment its author did not choose.
+- **Rule 4**: suspended while we are in dev mode, see "Dev mode" below. After release it is
+  `git add <explicit paths>`, never `git add -A` or `git add .`, and stage and commit in one
+  invocation.
+
+## Dev mode: commit everything
+
+**Until Dan says StingStream is officially released, commit and push the whole working tree.**
+`git add -A && git commit && git push`, including other sessions' uncommitted work and work that is
+only half done. Do not hold a commit because a file holds somebody else's hunks, and do not ask.
+Dan, 2026-09-13: *"during dev mode (until I say we are officially released) always commit and its
+safe to do so even if it contain others sessions, even half way."*
+
+Losing work that sat uncommitted is the risk that matters right now. A half-finished change landing
+on `master` early is not. Still say in the commit message that other sessions' work rode along.
+
+This lifts only the staging rules below. Every other git write (`checkout`, `restore`, `reset`,
+`stash`, `clean`, `rebase`, `--force`, …) stays forbidden without an explicit ask, and a rejected
+push still means stop and ask. When Dan announces the release, delete this section and the rules
+below apply again.
 
 ## Finishing means committed and pushed
 
@@ -210,6 +226,16 @@ code, comments, logs, `docs/**` or this file.
   server could not be reached".
 - **No jokes, no apologies, no exclamation marks, no scare quotes, and nothing chatty.** Never
   editorialise about the software's own behaviour.
+- **Neutral about where media comes from.** StingStream manages media its owner has the right to
+  use. Describe indexers, download clients and quality in plain technical terms, and never write
+  copy that reads as a way to get content: no "disc rips", no "grab", no "seedbox", no "request
+  something and StingStream will fetch it". `apps/stingstream/brand.test.ts` fails on the worst of
+  these. Dan, 2026-09-13: *"we dont condone piracy"*.
+- **Movies and TV shows. Never "film" or "series".** American words throughout: "Movies", "a
+  movie", "TV shows", and "show" for one programme ("Entire show", "View show"). Not "Films", not
+  "Series", not in a label, a card title or a compound like "Film downloads". Internal names stay:
+  `films`/`series` wire keys, `radarr`/`sonarr`. Dan, 2026-09-10, and again 2026-09-13 on finding
+  "Film downloads" on the status screen.
 - **One idea per string.** If a message needs three clauses to be true, the screen probably needs a
   title and a line, not a longer sentence.
 

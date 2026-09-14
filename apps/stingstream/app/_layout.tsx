@@ -700,6 +700,15 @@ function Layout() {
                                             title: "",
                                           }}
                                         />
+                                        {/* Where a link that connects two servers lands. Outside
+                                            `(auth)` for the reasons `/authorize` is. */}
+                                        <Stack.Screen
+                                          name='link'
+                                          options={{
+                                            headerShown: false,
+                                            title: "",
+                                          }}
+                                        />
                                         <Stack.Screen name='+not-found' />
                                         <Stack.Screen
                                           name='(auth)/tv-option-modal'

@@ -618,7 +618,7 @@ public sealed class FederatedLibraryService : BackgroundService
 
         if (isRecording)
         {
-            return LibraryLayoutPlan.Recordings(settings)?.Enabled != false;
+            return LibraryLayoutPlan.Recordings(settings)?.Enabled == true;
         }
 
         var type = isEpisode ? LibraryTypes.TvShows : LibraryTypes.Movies;

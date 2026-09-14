@@ -76,27 +76,10 @@ public sealed class IdentityStore
                 CREATE UNIQUE INDEX IF NOT EXISTS ux_linked_identities_local
                     ON linked_identities (local_user);
 
-                -- "I run a server too -- may it join yours?"
-                --
-                -- One row per asking node, not per asking person: what is being asked for is a
-                -- link between two *servers*, and two people on the same server asking twice is
-                -- one question. The primary key says so.
-                --
-                -- `code` holds the mesh invite an administrator minted on approval. It is a
-                -- credential, and it is single-use and cleared when the row is deleted -- the same
-                -- bounded trade `invites.token` makes, and for the same reason: the person it is
-                -- for has to be able to come back and find it.
-                CREATE TABLE IF NOT EXISTS link_requests (
-                    issuer_node   TEXT PRIMARY KEY,
-                    issuer_name   TEXT NOT NULL DEFAULT '',
-                    requested_by  TEXT NOT NULL DEFAULT '',
-                    created_at    TEXT NOT NULL,
-                    status        TEXT NOT NULL DEFAULT 'pending',
-                    decided_at    TEXT,
-                    decided_by    TEXT,
-                    group_id      TEXT,
-                    code          TEXT
-                );
+                -- The old approve-then-finish link requests. Replaced by connection_requests
+                -- (Sharing/ConnectionRequestStore), and dropped because an approved row kept a
+                -- dead code forever and left a "Finish linking your server" panel nobody could clear.
+                DROP TABLE IF EXISTS link_requests;
                 """);
 
             // Additive, nullable, swallowed when already there -- the same shape and the same
@@ -110,12 +93,6 @@ public sealed class IdentityStore
                      {
                          "ALTER TABLE linked_identities ADD COLUMN password_salt TEXT;",
                          "ALTER TABLE linked_identities ADD COLUMN password_iterations INTEGER;",
-
-                         // Where the asking server answers a browser, so the link that finishes
-                         // the join can be built for it. Null on every row written before the
-                         // Add server flow existed, and on any request that arrived without one:
-                         // those still approve, they just have no link to offer.
-                         "ALTER TABLE link_requests ADD COLUMN issuer_address TEXT;",
                      })
             {
                 try
@@ -246,189 +223,6 @@ public sealed class IdentityStore
             cancellationToken).ConfigureAwait(false);
         return removed > 0;
     }
-
-    // --- link requests -------------------------------------------------------------------------
-
-    private const string SelectRequest =
-        "SELECT issuer_node, issuer_name, requested_by, created_at, status, decided_at, "
-        + "decided_by, group_id, code, issuer_address FROM link_requests";
-
-    /// <summary>Every request, newest first.</summary>
-    /// <returns>The rows.</returns>
-    public IReadOnlyList<LinkRequest> AllRequests()
-    {
-        EnsureSchema();
-        return _db.Read(c => CoreDatabase.Query(
-            c,
-            SelectRequest + " ORDER BY created_at DESC;",
-            MapRequest));
-    }
-
-    /// <summary>One server's request, or null.</summary>
-    /// <param name="issuerNodeId">The asking node.</param>
-    /// <returns>The row, or null.</returns>
-    public LinkRequest? FindRequest(string issuerNodeId)
-    {
-        EnsureSchema();
-        var rows = _db.Read(c => CoreDatabase.Query(
-            c,
-            SelectRequest + " WHERE lower(issuer_node) = $i;",
-            MapRequest,
-            ("$i", (issuerNodeId ?? string.Empty).Trim().ToLowerInvariant())));
-        return rows.Count > 0 ? rows[0] : null;
-    }
-
-    /// <summary>The request one account here made, or null.</summary>
-    /// <param name="localUserId">The Jellyfin user id of whoever asked.</param>
-    /// <returns>The row, or null.</returns>
-    /// <remarks>
-    /// The other way round from <see cref="FindRequest"/>, and the only way to find the request of
-    /// somebody whose account has always been local. An account that arrived from another server
-    /// can be found through its <c>linked_identities</c> row; one that pressed <em>Add server</em>
-    /// has no such row and never will, so without this its own request would be invisible to it.
-    /// <para>
-    /// Newest first, and one is taken. A person can be the requester of at most one row in
-    /// practice — the table is keyed by asking node and a person offers the server they run — but
-    /// ordering it makes that an answer rather than an assumption.
-    /// </para>
-    /// </remarks>
-    public LinkRequest? FindRequestByRequester(string localUserId)
-    {
-        EnsureSchema();
-        var id = (localUserId ?? string.Empty).Trim();
-        if (id.Length == 0)
-        {
-            return null;
-        }
-
-        var rows = _db.Read(c => CoreDatabase.Query(
-            c,
-            SelectRequest + " WHERE requested_by = $u ORDER BY created_at DESC;",
-            MapRequest,
-            ("$u", id)));
-        return rows.Count > 0 ? rows[0] : null;
-    }
-
-    /// <summary>Record a request, or refresh what a pending one remembers.</summary>
-    /// <param name="row">The request.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>A task.</returns>
-    /// <remarks>
-    /// <b>A decision is never overwritten by another ask.</b> The <c>WHERE</c> on the upsert means
-    /// somebody asking again after being declined does not quietly reset the row to pending — an
-    /// administrator who said no has said no, and undoing that is their decision to make, not a
-    /// retry's. Asking again while it is still pending is free and changes only the names.
-    /// </remarks>
-    public async Task SaveRequestAsync(LinkRequest row, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(row);
-        EnsureSchema();
-        await _db.WriteAsync(
-            c => CoreDatabase.Execute(
-                c,
-                """
-                INSERT INTO link_requests
-                    (issuer_node, issuer_name, requested_by, created_at, status, decided_at,
-                     decided_by, group_id, code, issuer_address)
-                VALUES ($i, $n, $by, $ca, $st, $da, $db, $g, $code, $addr)
-                ON CONFLICT(issuer_node) DO UPDATE SET
-                    issuer_name = excluded.issuer_name,
-                    requested_by = excluded.requested_by,
-                    -- Only when the fresh ask carries one. An older client sends none, and
-                    -- forgetting an address somebody has already given us would take away the
-                    -- link an administrator is about to need.
-                    issuer_address = COALESCE(excluded.issuer_address, link_requests.issuer_address)
-                WHERE link_requests.status = 'pending';
-                """,
-                ("$i", row.IssuerNodeId.Trim().ToLowerInvariant()),
-                ("$n", row.IssuerName),
-                ("$by", row.RequestedBy),
-                ("$ca", Stamp(row.CreatedAt)),
-                ("$st", row.Status),
-                ("$da", row.DecidedAt is { } d ? Stamp(d) : null),
-                ("$db", row.DecidedBy),
-                ("$g", row.GroupId),
-                ("$code", row.Code),
-                ("$addr", string.IsNullOrWhiteSpace(row.IssuerAddress) ? null : row.IssuerAddress)),
-            cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>Record an administrator's answer, but only on a request still waiting for one.</summary>
-    /// <param name="issuerNodeId">The asking node.</param>
-    /// <param name="status">`approved` or `declined`.</param>
-    /// <param name="groupId">The group it was approved into, or null.</param>
-    /// <param name="code">The invite minted for it, or null.</param>
-    /// <param name="decidedBy">Who decided.</param>
-    /// <param name="at">When.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when this call is the one that decided it.</returns>
-    /// <remarks>
-    /// One <c>UPDATE ... WHERE status = 'pending'</c> rather than a read and then a write, so two
-    /// administrators pressing Approve at the same moment mint one invite between them and not
-    /// two. Same shape, and the same reason, as <c>InviteStore.TryRedeemAsync</c>.
-    /// </remarks>
-    public async Task<bool> TryDecideRequestAsync(
-        string issuerNodeId,
-        string status,
-        string? groupId,
-        string? code,
-        string decidedBy,
-        DateTimeOffset at,
-        CancellationToken cancellationToken)
-    {
-        EnsureSchema();
-        var changed = 0;
-        await _db.WriteAsync(
-            c => changed = CoreDatabase.Execute(
-                c,
-                """
-                UPDATE link_requests
-                   SET status = $st, decided_at = $da, decided_by = $db,
-                       group_id = $g, code = $code
-                 WHERE lower(issuer_node) = $i AND status = 'pending';
-                """,
-                ("$st", status),
-                ("$da", Stamp(at)),
-                ("$db", decidedBy),
-                ("$g", groupId),
-                ("$code", code),
-                ("$i", (issuerNodeId ?? string.Empty).Trim().ToLowerInvariant())),
-            cancellationToken).ConfigureAwait(false);
-        return changed > 0;
-    }
-
-    /// <summary>Forget a request entirely.</summary>
-    /// <param name="issuerNodeId">The asking node.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when a row went.</returns>
-    public async Task<bool> DeleteRequestAsync(
-        string issuerNodeId,
-        CancellationToken cancellationToken)
-    {
-        EnsureSchema();
-        var removed = 0;
-        await _db.WriteAsync(
-            c => removed = CoreDatabase.Execute(
-                c,
-                "DELETE FROM link_requests WHERE lower(issuer_node) = $i;",
-                ("$i", (issuerNodeId ?? string.Empty).Trim().ToLowerInvariant())),
-            cancellationToken).ConfigureAwait(false);
-        return removed > 0;
-    }
-
-    private static LinkRequest MapRequest(IDataRecord r) => new()
-    {
-        IssuerNodeId = r.GetString(0),
-        IssuerName = r.GetString(1),
-        RequestedBy = r.GetString(2),
-        CreatedAt = ReadStamp(r.GetString(3)),
-        Status = r.GetString(4),
-        DecidedAt = r.IsDBNull(5) ? null : ReadStamp(r.GetString(5)),
-        DecidedBy = r.IsDBNull(6) ? null : r.GetString(6),
-        GroupId = r.IsDBNull(7) ? null : r.GetString(7),
-        Code = r.IsDBNull(8) ? null : r.GetString(8),
-        IssuerAddress = r.IsDBNull(9) ? null : r.GetString(9),
-    };
 
     private static string Stamp(DateTimeOffset at)
         => at.ToString("O", CultureInfo.InvariantCulture);

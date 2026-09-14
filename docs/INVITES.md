@@ -220,6 +220,8 @@ All under `/stingstream/api/v1/invites`.
 | `DELETE /{id}` | Admin | Delete. By id, never by token, so deleting never means handling the credential again. The row is gone |
 | `POST /lookup` | Anonymous | `{Token}` → the server's name, who invited you, the username it suggests, and the libraries. `404` for a token nobody minted — **which now includes a deleted one**; `410` with a sentence for one that is spent |
 | `POST /accept` | Anonymous | `{Token, Username, Password}` → creates the account, applies the policy, returns a session |
+| `POST /accept/passkey/begin` | Anonymous | `{Token, Username}` → checks the invite and that the name is usable and free, returns a WebAuthn challenge. **Creates nothing** |
+| `POST /accept/passkey/finish` | Anonymous | `{Token, Username, Ceremony, Credential}` → verifies the passkey, then creates the account (with a password nobody knows), saves the passkey, returns a session |
 
 **Why `404` and `410` are told apart.** Distinguishing them reveals that a particular 256-bit string
 was once an invite — which requires already holding that string, and whoever holds it is the person
@@ -279,6 +281,24 @@ then asks `POST /invites/lookup`:
   row that has expired or been withdrawn. The node's own sentence, which already ends in what to do
   next.
 
+### 9a. Passkeys on the landing page
+
+Offered only where `usePasskeySupport` says a passkey would work: a browser with WebAuthn, and a node
+with a `sharing.public_address` the page is served on. Two ways in, both Dan's choice:
+
+* **"Use a passkey instead"**, under Create account. The account has no password anyone knows.
+  **It is created only by `finish`**, after the passkey verifies, so a dismissed prompt leaves no
+  account and an unspent invite. The ceremony records the invite id and the name it was begun for,
+  and `finish` is refused for any other pair.
+* **After a password sign-up**, a card offering to add a passkey, with "Not now". Adding uses the
+  ordinary session-authenticated `passkeys/register` routes.
+
+**The user handle is not the account id on these passkeys.** A handle is fixed when the
+authenticator creates the credential, and at `begin` the account does not exist yet —
+`CreateUserAsync` picks its own `Guid`. So `begin` mints a random handle, and the row records it in
+`passkeys.user_handle`. Sign-in compares against `PasskeyService.HandleFor(row)`: the recorded handle
+when there is one, the account id otherwise, which is every passkey made before this.
+
 ## 10. Acceptance
 
 `tools/e2e-invite.ps1` is the harness: server A mints an invite for one library out of two, a cold
@@ -304,7 +324,8 @@ which is exactly the reason the decision is a pure static and the controller onl
 
 The other half of the same invite. Dan: *"during the invite flow offer the option to sign in with
 their own server or create an account — signing in with their own server will re-use their same
-login on this new server AND submit a request to link their server to this one."*
+login on this new server AND submit a request to link their server to this one."* The request became
+the connection itself: see "Connecting the two servers on the way through" below.
 
 So `/join` offers two doors. **Create account** is §9 and §10, unchanged. **I already run
 StingStream** is this section.
@@ -440,146 +461,122 @@ already succeeded may be abandoned because the effect was torn down.
 `tools/e2e-invite.ps1` is the harness for the password half. The identity half is two `ui-node.ps1`
 nodes on separate ports and data directories, a person invite minted on one, and a browser.
 
-### Asking to link the two servers
+### Connecting the two servers on the way through
 
-Signing in this way also submits a **request**, and a request is all it is: only an administrator
-here decides which servers join their group, which is what keeps §3's first row true. Approving
-mints an ordinary single-use mesh invite — there is no second kind of link and no new protocol —
-and the code goes back to the person who asked, who finishes it on their own server.
+When the person being invited administers their own server, the same sign-in also connects the two
+servers, and nobody approves anything afterwards. Dan: *"one user does EVERYTHING once and they are
+done. The other user does everything once and they are done - there isnt any more back and forth."*
 
-A decline is remembered: the upsert refuses to reset a decided row to pending, so asking again
-cannot get a different answer by itself. **"By itself" now means something**, because there is a way
-back: `DELETE /identity/link-requests/{issuer}` forgets the row, and the *Requests to link* list
-draws declined servers with that one control on them. Until there was one, an administrator who
-declined by mistake had shut that server out permanently and the screen showed no trace of it. That
-was survivable while being invited was the only way to ask; it is not now that §11e makes asking
-something anybody does. It deletes rather than re-opens, so the next ask is a fresh question with a
-fresh answer.
+1. `/join` sends them to their own server's `/authorize` with `link=1`.
+2. After signing in, an administrator there chooses what their server shares.
+   `POST /connections/invite` on their server makes an invite for this one.
+3. Its code comes back beside the assertion, as `linkcode` in the fragment.
+4. `IdentityService.SignInAsync` creates the account first. Then, in the background, it joins with
+   the code (`ConnectionService.ConnectAsync`) and shares the person invite's libraries, or every
+   library for an administrator invite.
 
-### 11e. Add server, which is the same request asked from the other end
+**The person invite is this server's consent, and choosing what their server shares is theirs.**
+That is both halves, so there is no request and no queue.
 
-The flow above only ever begins on the *other* server. You invite the person who runs it, they sign
-in here with it, and the ask arrives. That is right for somebody you are introducing to the product
-and it is kept unchanged. It was never a flow for two people who both turn up on this page:
+- A member of their own server gets the account only. What that server shares is not theirs to
+  decide.
+- A connection that fails is logged and never fails the sign-in. They can add the server from
+  Servers afterwards.
 
-* you already run a second server of your own, and there is nobody to invite;
-* you are an ordinary member here who runs a server at home and wants to offer it.
+### 11e. Connecting servers
 
-Dan: *"if you are already on a server you may either own a 2nd server or you are an end user who
-has their own server. In this case clicking Add Server starts the same workflow as invite: Start by
-asking for that other server's address and complete the wizard, same as invite."*
+This replaced a flow that took up to six hand-offs:
+1. sign in on the other server,
+2. an administrator here approves,
+3. come back to a *Finish linking your server* panel,
+4. open or forward a link,
+5. an administrator there accepts,
+6. choose libraries on two separate pages.
 
-So **Settings → Servers → `+ Add server`** is that wizard, and it is deliberately the same one:
-type the other server's address, get sent to its `/authorize`, come back with an assertion. The
-only differences are where it starts and what it ends in.
+Dan, after going through it: *"its wayyy too overly complicated. I couldnt tell what was mine"*.
+
+**Each side now acts once.**
+
+#### The invite link
 
 ```
-Server A (you are here)                         Server B (theirs)
-──────────────────────────────────────────────────────────────────────────────
-+ Add server
-  type B's address, probed with
-  /sidedoor/v1/hello, https then http
-  POST /identity/challenge on A   ->  nonce + A's node id
-  navigate to  ───────────────────────────────>  B/authorize#aud&nonce&return&server&link=1
-                                                 sign in on B, consent, Ed25519 sign
-  back at  <───────────────────────────────────  A/settings/servers?link_to=<B>#assertion=…
-  POST /identity/link-requests/start
-    administrator here?  approved as it is asked
-    member?              pending, as above
-  the panel: a link to open on B, and the libraries this link gets
-                                                 <- they open or forward the link
-                                              B/join -> B/settings/servers/join
-                                                 an administrator there accepts
-                                                 and picks what B shares back
+https://<server that made it>/link#code=…&node=<its node id>&server=<its name>
 ```
 
-**`POST /identity/link-requests/start` is the new route**, and it is a member route.
-`IdentityGate.DecideLinkStart` is its rule, and the difference from `DecideSignIn` is the whole
-reason it is a second decision: **no invite**. `DecideSignIn` demands one the first time because a
-genuine assertion from a stranger is not permission to have an account here. Nobody is asking for
-an account on this path — they already hold one, the session proves it, and all the assertion adds
-is which node is being offered. Requiring an invite as well would mean an administrator needed an
-invite to their own server in order to add their second one. A node offering *itself* is refused
-outright, because approving a link with yourself mints an invite to your own group and lists this
-server twice.
+An administrator makes it with **Add server**. They choose what their server shares first: making
+the invite is their consent, so the choice belongs to the same step.
+`POST /connections/invite` creates the group (named after this server), saves the shared libraries
+and mints the code, all in one call.
 
-**It writes no `linked_identities` row and accepts no verifier.** `/authorize` derives one whatever
-it is asked for, and the app drops it on this path. The caller already has a password on this
-server, and quietly replacing it with a derivation of their *other* server's password would change
-how they sign in here as a side effect of adding a server.
+There is no prompt for the other server's address. One link covers both people it is for: somebody
+who runs both servers opens it, and somebody who does not sends it.
 
-**An administrator's own offer is approved as it is made.** The pending queue exists so that a
-member cannot decide what their server links to; putting that question to the person who answers it
-is not a safeguard, it is a second click. A member's offer waits, exactly as §11's does.
+`utils/mesh/connectionLink.ts` builds and reads it. The code rides in the fragment, like every
+credential here.
 
-**Consent is still required at both ends, and the second one is structural.** Only an administrator
-on B can redeem the code: the Accept screen refuses anybody else and `POST /mesh/groups/join` is
-`RequiresElevation`. That is why the answer is a link rather than a button — the person who added
-the server may not be the person who can accept it, so they send it on.
+#### `/link`, which does the same thing wherever it is opened
 
-#### The link, rather than a code to paste
+| Link | Page served by | Signed in as | Result |
+|---|---|---|---|
+| invite | the server that made it | anyone | asks for **Server address**, then continues there |
+| invite | another server | administrator | choose libraries, **Connect** (`POST /connections/connect`). Done. |
+| invite | another server | member | saved as a connection request. Done for them. |
+| start | the reader's own server | administrator | choose libraries, then back to the other server with an invite |
+| start | the reader's own server | member | "Administrator access required" |
 
-Dan: *"after they enter their server url they should get a URL they can visit to link it (they
-either share that link or open it right away - make sure its clickable, authenticate and complete
-the link)"*.
+**Nobody signed in?** The page signs them in itself, so the link it is holding is not lost to a trip
+to `/login`.
 
-It is `https://<their-server>/join#<code>` — `buildInviteLink`, the same shape `sharing::invite_link`
-builds, with the code in the fragment for the reason every credential here is. The code has not
-changed; what is new is that this flow knows the address to wrap it in, because somebody typed it.
-`link_requests.issuer_address` is why it survives to an administrator who never saw it.
+**Which server is the page on?** It compares the link's `node` with `/sidedoor/v1/hello`. A link with
+no node id is treated as the maker's until it has been forwarded once (`fwd=1`).
 
-Two things had to be fixed for *"authenticate and complete the link"* to be true rather than
-aspirational, and both were found by opening the link in a signed-out browser:
+#### A member who runs a server of their own
+
+**Add server** for a member asks only for the address of a server they administer. They are taken
+to that server's `/link#start=1&return=…`, choose what it shares, and come back with an invite. Here
+it becomes a **connection request**: `connection_requests` in `core.db`
+(`Sharing/ConnectionRequestStore`).
+
+An administrator here approves it once, choosing what this server shares, and the connection is
+complete. The same request is what a member files when they open an administrator's invite link on
+a server where they are only a member.
+
+| Route | Who | |
+|---|---|---|
+| `POST /connections/invite` | administrator | `{libraries?}` → `{code, node, server}`. Absent libraries shares every library |
+| `POST /connections/connect` | administrator | `{code, libraries?}` → the joined group |
+| `GET /connections/requests` | any member | an administrator sees all; a member sees their own. Never the code |
+| `POST /connections/requests` | any member | `{code, node, serverName}`. One per other server; a newer one replaces it |
+| `POST /connections/requests/{id}/approve` | administrator | `{libraries?}` → joins, shares, removes the request |
+| `DELETE /connections/requests/{id}` | administrator, or the member who brought it | decline or withdraw |
+
+**Invitations and requests last seven days**, which is how long the mesh honours an unspent invite.
+An invitation nobody opened shows as *Invitation pending* with **Cancel invitation**, and the mesh
+removes it once it has expired.
+
+#### Removing a server
+
+**Remove server** is `POST /mesh/groups/{g}/unlink`. It removes the connection on both sides:
+- a server that answers removes it at once;
+- one that is away is told when it is back, through the mesh's removal records (`docs/MESH.md`,
+  "Removing a connection").
+
+`DELETE /mesh/groups/{g}` is still the silent, one-sided leave, which the harnesses use.
+
+#### What went away
+
+- `link_requests`, dropped on upgrade, and its routes: `link-requests/start`, `/mine`, approve,
+  decline and forget.
+- `IdentityGate.DecideLinkStart` and `MayHoldTheCode`.
+- The *Requests to link* list and the *Finish linking your server* panel. An approved row there kept
+  a dead code for ever, and nothing could clear the panel.
+- `/settings/servers/join` and its Accept-an-invite screen.
+- Rotate secret and per-member removal in the app. Dan: *"lets remove the rotate secret feature - we
+  dont need that - just delete and re-add."*
 
 | | |
 |---|---|
-| **The code still does not survive signing in, and that is on purpose** | A signed-out visitor following a server link is bounced to `/login`, and after signing in lands on Home rather than the Accept screen, so the link has to be opened again. A guard that preferred the Accept screen while `hasPendingInvite()` was true was tried and **reverted**: the code lives in a module variable, the web sign-in does not carry it that far, and the branch never fired. `utils/mesh/pendingInvite.ts` says why the variable is deliberately never written to storage, since it carries the group secret, and calls this trade out in as many words: *"they still have the link, and opening it again is one tap."* Making it survive properly means keeping the code in the URL across the sign-in and returning to `/join#<code>`, which is a real change and is not made. |
-| **A member at the far end hit a bare refusal** | `/settings/servers/join` was wrapped in `RequiresAdmin`, so somebody who had been deliberately sent a link got "you do not have permission" and no next step. The gate moved inside `JoinGroupScreen`, which has the code and can hand the link back to forward. |
-| **The fragment stayed in the address bar** | `clearFragment()` ran in the return-leg effect and was undone a tick later: the router parses the URL at mount and writes its own back, hash and all. So a spent assertion, and the salt and verifier `/authorize` returns whatever it is asked for, sat in the address bar and the history entry. It is cleared again once the request settles, which is the call that holds. Only visible in a browser. |
-| **The panel outlived the job** | An approval is not the end of anything — the code stands until somebody redeems it — so the server goes on reporting one long after the other side has accepted. *Finish linking your server* sat above a list with that very server on it, working. `MyOffer` checks the peer list now. |
-
-#### Who gets handed the code
-
-`IdentityGate.MayHoldTheCode`: an administrator here, or the account the request names. Nobody else,
-and the narrowing is load-bearing rather than tidy.
-
-A standing approval can be met again — offering an already-approved server returns its answer, which
-is what makes the wizard safe to repeat — and the code is **bearer** while the approval was a
-decision about one *server*. Without the rule, a second, ordinary member of that server, anybody who
-can get it to vouch for them, could meet the standing approval, be handed the code and redeem it on
-a node of their own. That is a link nobody approved. An administrator is exempt because they can
-mint another in a tap, so withholding this one buys nothing.
-
-`MyRequest` answers the same question from the other side, and had to learn a second way of asking
-it. It found the asker through their `linked_identities` row, which is right for somebody who
-arrived from another server and useless for somebody who pressed *Add server* — a local account that
-has no such row and never will. It now falls back to `requested_by`. Without that a member could
-offer their server, be told it was pending, reload the page and find no trace of it.
-
-#### One link per server
-
-Approving used to put every server into a single group called *Linked servers*, and ask which one
-when there was more than one. It now creates a link **named after the asking server**, so that what
-this server shares can be chosen per server rather than once for everybody, and so a row on the
-Servers page and a link's own page are the same thing. That deleted the question as well as
-answering it: with no pool to choose from, *"which of your links should they join?"* has nothing
-left to mean, and `ApproveRequestAsync` no longer refuses when there is none or several. An explicit
-`GroupId` is still honoured, which is what keeps adding a third server to an existing link possible.
-
-A link it creates and then cannot use — the mint failed, or another administrator won the race to
-decide the row — is left again rather than orphaned on the page with nobody in it. Only one it
-created: a group the caller named may already hold members.
-
-#### What the panel ends with
-
-The libraries. A link starts closed (`SharedLibraryStore`: a group with no row shares nothing), so
-the moment it is made is the one moment its owner is certainly thinking about what to put in it. It
-is the same control over the same endpoint as the link's own page, and it stays editable there
-afterwards. Each side still picks its own.
-
-| | |
-|---|---|
-| Mesh | `mesh/crates/stingstream-mesh/src/vouch.rs`, `api.rs` (`/mesh/v1/identity/{assert,verify}`, loopback) |
-| Server | `StingStream.Core/Identity/`, `Controllers/IdentityController.cs` |
-| App | `app/authorize.tsx`, `components/stingstream/identity/`, `components/stingstream/mesh/AddServer{Sheet,Finish}.tsx`, `lib/stingstream/identity{Api,}.ts`, `utils/identity/{handoff,verifier,resolveServer}.ts` |
-| Tests | `vouch.rs`'s own module, `IdentityGateTests.cs`, `utils/identity/{handoff,verifier}.test.ts`, `utils/mesh/serverList.test.ts` |
+| Mesh | `mesh/crates/stingstream-mesh/src/vouch.rs`, `api.rs` (`/mesh/v1/identity/{assert,verify}`, `/mesh/v1/groups/{g}/unlink`), `node.rs` (`unlink`, `run_link_maintenance`) |
+| Server | `StingStream.Core/Identity/`, `Controllers/IdentityController.cs`, `Controllers/ConnectionsController.cs`, `Sharing/Connection{Service,RequestStore}.cs` |
+| App | `app/{authorize,join,link}.tsx`, `components/stingstream/identity/`, `components/stingstream/mesh/{AddServerWizard,ServersScreen,ShareLibrariesPicker}.tsx`, `lib/stingstream/{connections,identity,identityApi}.ts`, `utils/identity/{handoff,verifier,resolveServer}.ts`, `utils/mesh/connectionLink.ts` |
+| Tests | `vouch.rs`'s own module, `db.rs` (removal records, invite expiry), `IdentityGateTests.cs`, `utils/identity/{handoff,verifier}.test.ts`, `utils/mesh/{connectionLink,serverList}.test.ts` |

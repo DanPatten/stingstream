@@ -174,11 +174,11 @@ public interface IMeshClient
     /// <returns>What the rotation did.</returns>
     Task<MeshRotation> RemoveMemberAsync(string group, string node, CancellationToken cancellationToken);
 
-    /// <summary>Rotate a group's secret without removing anybody.</summary>
+    /// <summary>Remove a group here and on every other member.</summary>
     /// <param name="group">The group id, hex.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>What the rotation did.</returns>
-    Task<MeshRotation> RotateSecretAsync(string group, CancellationToken cancellationToken);
+    /// <returns>Who was told now and who will be told later, or null when this node is not a member.</returns>
+    Task<MeshUnlinked?> UnlinkGroupAsync(string group, CancellationToken cancellationToken);
 
     /// <summary>Leave a group.</summary>
     /// <param name="group">The group id.</param>
@@ -704,18 +704,25 @@ public sealed class MeshClient : IMeshClient
     }
 
     /// <inheritdoc />
-    public async Task<MeshRotation> RotateSecretAsync(string group, CancellationToken cancellationToken)
+    public async Task<MeshUnlinked?> UnlinkGroupAsync(string group, CancellationToken cancellationToken)
     {
         using var http = Client();
-        http.Timeout = TimeSpan.FromMinutes(3);
+        // Each member gets five seconds to answer before it is left for later, so a link with a
+        // few sleeping phones in it is a short wait rather than a hung request.
+        http.Timeout = TimeSpan.FromMinutes(2);
         using var response = await http.PostAsync(
-                $"/mesh/v1/groups/{Uri.EscapeDataString(group)}/rotate",
+                $"/mesh/v1/groups/{Uri.EscapeDataString(group)}/unlink",
                 content: null,
                 cancellationToken)
             .ConfigureAwait(false);
-        await ThrowIfFailedAsync(response, "rotating the group secret", cancellationToken)
+        if (response.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        await ThrowIfFailedAsync(response, "removing a group", cancellationToken)
             .ConfigureAwait(false);
-        return await ReadAsync<MeshRotation>(response, cancellationToken).ConfigureAwait(false);
+        return await ReadAsync<MeshUnlinked>(response, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc />

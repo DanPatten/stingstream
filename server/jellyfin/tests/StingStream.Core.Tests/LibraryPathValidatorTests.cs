@@ -167,4 +167,39 @@ public class LibraryPathValidatorTests
     [Fact]
     public void AnExistingFolderHasNothingToWarnAbout()
         => Assert.Empty(LibraryPathValidator.Warnings(Elsewhere("films"), _ => true));
+
+    [Fact]
+    public void SeveralGoodFoldersAreAccepted()
+    {
+        var folders = new[] { Elsewhere("kids/one"), Elsewhere("kids/two") };
+
+        Assert.Null(LibraryPathValidator.ValidateSet(
+            folders, folders, "Kids TV", Settings(), Runtime, FederatedRoot));
+    }
+
+    [Fact]
+    public void TwoFoldersInOneLibraryThatOverlapAreRefused()
+    {
+        // One file reachable through both locations is one item with two parents, whether the two
+        // locations belong to two libraries or to one.
+        var folders = new[] { Elsewhere("kids"), Elsewhere("kids/two") };
+
+        var problem = LibraryPathValidator.ValidateSet(
+            folders, folders, "Kids TV", Settings(), Runtime, FederatedRoot)!;
+
+        Assert.Equal("path_overlaps", problem.Code);
+        Assert.Equal("Kids TV", problem.ConflictsWith);
+    }
+
+    [Fact]
+    public void ANewFolderIsStillCheckedAgainstOtherLibraries()
+    {
+        var folders = new[] { Elsewhere("kids/one"), Rooted("media/Movies") };
+
+        var problem = LibraryPathValidator.ValidateSet(
+            new[] { Rooted("media/Movies") }, folders, "Kids TV", Settings(), Runtime, FederatedRoot)!;
+
+        Assert.Equal("path_duplicate", problem.Code);
+        Assert.Equal(LibraryLayoutService.MoviesLibrary, problem.ConflictsWith);
+    }
 }

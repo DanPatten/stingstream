@@ -39,42 +39,6 @@
 /** Where `/authorize` lives, on whichever server is being asked to vouch. */
 export const AUTHORIZE_PATH = "/authorize";
 
-/**
- * The query parameter that carries the other server's address home again.
- *
- * The page that asks is replaced by a navigation to another origin, so nothing it was holding
- * survives to the answer. The assertion and the invite ride back in the fragment for that reason;
- * an address is not a credential, so it rides in the query string, where it also survives a
- * reload of the page that lands on it.
- *
- * Both doors set it -- `/join`'s "I already run StingStream" and Settings' *Add server* -- because
- * both end in the same place: a request whose approval should hand back a link to open rather than
- * a code to paste.
- */
-export const LINK_TO_PARAM = "link_to";
-
-/** Add the resolved address to a return target, so it comes back with the answer. */
-export const withLinkTo = (returnTo: string, origin: string): string => {
-  const target = returnTo?.trim();
-  if (!target || !origin?.trim()) return target ?? "";
-  const separator = target.includes("?") ? "&" : "?";
-  return `${target}${separator}${LINK_TO_PARAM}=${encodeURIComponent(origin.trim())}`;
-};
-
-/** Read it back off the page that was returned to, or null. */
-export const linkToFromLocation = (): string | null => {
-  if (typeof globalThis === "undefined") return null;
-  const search = (globalThis as { location?: { search?: string } }).location
-    ?.search;
-  try {
-    return new URLSearchParams(search ?? "").get(LINK_TO_PARAM);
-  } catch {
-    // A query string somebody hand-edited. The assertion still names the node, so the offer is
-    // recorded without an address and the screen shows the code instead of a link.
-    return null;
-  }
-};
-
 /** What the signing server is being asked for. */
 export interface AuthorizeRequest {
   /** Node id of the server that wants the assertion. */
@@ -94,10 +58,11 @@ export interface AuthorizeRequest {
    */
   invite?: string;
   /**
-   * Whether they also asked for the two servers to be linked.
+   * Also connect the two servers, when the person signing in administers their own.
    *
-   * Round-tripped for the same reason the invite is: the page that asked is replaced by a
-   * navigation to another origin, so nothing it was holding survives to the answer.
+   * Set by the invite flow. `/authorize` then asks what their server shares, makes an invite for
+   * this one, and sends its code back beside the assertion. Dan: *"one user does EVERYTHING once
+   * and they are done."*
    */
   link?: boolean;
 }
@@ -185,17 +150,19 @@ export interface ReturnCredential {
 /**
  * Build the link that sends somebody back, with the signed assertion.
  *
- * `link` comes back as well as going out: the page that asked the question was replaced by a
- * navigation to another origin, so the answer has to be carried rather than remembered. The
- * credential rides the same way and for the same reason, and is the one thing here that does not
- * expire — which is why the page that reads it drops it out of the address bar straight away.
+ * The page that asked was replaced by a navigation to another origin, so everything the answer
+ * needs is carried rather than remembered. The credential is the one thing here that does not
+ * expire, which is why the page that reads it drops it out of the address bar straight away.
  */
 export const buildReturnUrl = (
   returnTo: string,
   assertion: string,
   extras: {
-    /** Whether they also asked for the two servers to be linked. */
-    link?: boolean;
+    /**
+     * An invite their own server made for the server being signed in to, so one step connects the
+     * two. Present only when they administer their own server and asked to connect.
+     */
+    linkCode?: string;
     /**
      * The invite that started this, handed straight back.
      *
@@ -228,7 +195,7 @@ export const buildReturnUrl = (
     rounds > 0;
   return `${base}#${encodePairs([
     ["assertion", assertion.trim()],
-    ["link", extras.link ? "1" : undefined],
+    ["linkcode", extras.linkCode?.trim() || undefined],
     ["invite", extras.invite?.trim() || undefined],
     ["salt", complete ? salt : undefined],
     ["verifier", complete ? verifier : undefined],
@@ -276,12 +243,12 @@ export const parseReturnCredential = (
   return { salt: parts.salt, verifier: parts.verifier, iterations };
 };
 
-/** Whether the assertion coming back also asked for the two servers to be linked. */
-export const parseReturnLink = (
+/** The invite their own server made on the way back, or null. */
+export const parseReturnLinkCode = (
   fragment: string | null | undefined,
-): boolean => {
-  if (!fragment) return false;
-  return decodePairs(fragment).link === "1";
+): string | null => {
+  if (!fragment) return null;
+  return decodePairs(fragment).linkcode || null;
 };
 
 /**

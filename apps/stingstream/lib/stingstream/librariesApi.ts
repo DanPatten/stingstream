@@ -52,15 +52,50 @@ export interface Library {
    * where this node's own recordings go rather than a library the managers import into.
    */
   managed: boolean;
+  /** The media server's id for it, which is the id a library page is opened with. Empty while off. */
+  jellyfinItemId: string;
 }
 
 /** What to change. An omitted property is left alone. */
 export interface LibraryUpdate {
-  /** The folder on this server. An empty string means "follow the supervisor's default". */
-  path?: string;
+  /** Every folder, in order. Empty means "follow the supervisor's default" (built-in libraries only). */
+  paths?: string[];
   enabled?: boolean;
   hidden?: boolean;
 }
+
+/** What Add library sends. Recordings takes no name and at most one folder. */
+export interface LibraryCreate {
+  name: string;
+  type: LibraryType | "recordings";
+  paths: string[];
+}
+
+/** Recordings is found by its name, which is fixed. Matches `LibraryLayoutService.RecordingsLibrary`. */
+export const RECORDINGS_LIBRARY = "Recordings";
+
+export const isRecordings = (library: Library): boolean =>
+  !library.managed &&
+  library.name.toLowerCase() === RECORDINGS_LIBRARY.toLowerCase();
+
+/** Movies and TV Shows. The server refuses to remove them. */
+export const isRemovable = (library: Library): boolean =>
+  !(library.builtin && library.managed);
+
+const normalizeId = (id: string) => id.replace(/-/g, "").toLowerCase();
+
+/** The settings row behind a library page, which is opened with the media server's id. */
+export const libraryForJellyfinId = (
+  libraries: Library[] | undefined,
+  jellyfinId: string | undefined,
+): Library | undefined =>
+  jellyfinId
+    ? libraries?.find(
+        (library) =>
+          library.jellyfinItemId &&
+          normalizeId(library.jellyfinItemId) === normalizeId(jellyfinId),
+      )
+    : undefined;
 
 /**
  * Why a folder was refused, in the shape the form renders against a field.
@@ -119,6 +154,7 @@ export const toLibrary = (body: unknown): Library => {
     hidden: field<boolean>(raw, "hidden") ?? false,
     builtin: field<boolean>(raw, "builtin") ?? false,
     managed: field<boolean>(raw, "managed") ?? true,
+    jellyfinItemId: field<string>(raw, "jellyfinItemId") ?? "",
   };
 };
 
@@ -194,4 +230,33 @@ export async function saveLibrary(
   });
   if (!res.ok) throw await readError(res, "PUT /libraries");
   return toLibrary(await res.json());
+}
+
+export async function createLibrary(
+  apiBaseUrl: string,
+  create: LibraryCreate,
+  accessToken?: string | null,
+): Promise<Library> {
+  const res = await fetch(`${apiBaseUrl}${PATH}`, {
+    method: "POST",
+    headers: {
+      ...authHeaders(accessToken),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(create),
+  });
+  if (!res.ok) throw await readError(res, "POST /libraries");
+  return toLibrary(await res.json());
+}
+
+export async function deleteLibrary(
+  apiBaseUrl: string,
+  id: string,
+  accessToken?: string | null,
+): Promise<void> {
+  const res = await fetch(`${apiBaseUrl}${PATH}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: authHeaders(accessToken),
+  });
+  if (!res.ok) throw await readError(res, "DELETE /libraries");
 }

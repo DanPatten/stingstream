@@ -246,14 +246,11 @@ export async function signInWithAssertion(
   input: {
     assertion: string;
     inviteToken?: string | null;
-    requestLink?: boolean;
     /**
-     * Where their own server answers a browser, when the client resolved one.
-     *
-     * Only used to build the link that finishes the link request, so an approval here ends in
-     * something to open rather than a code to paste.
+     * An invite their own server made for this one, when they administer it, so the one sign-in
+     * also connects the two servers.
      */
-    address?: string | null;
+    linkCode?: string | null;
     /** The salt their own server derived the verifier with, for this one to keep. */
     salt?: string | null;
     /** PBKDF2 of their password. Becomes their password here; this server never sees the real one. */
@@ -269,8 +266,7 @@ export async function signInWithAssertion(
     jsonPost({
       Assertion: input.assertion,
       InviteToken: input.inviteToken ?? null,
-      RequestLink: input.requestLink === true,
-      Address: input.address ?? null,
+      LinkCode: input.linkCode ?? null,
       // All three or none. The server treats a partial as none and keeps generating a password
       // nobody knows, which is the old behaviour and the safe one.
       Salt: input.salt ?? null,
@@ -354,232 +350,6 @@ const toLink = (raw: unknown): LinkedIdentity => {
     lastSeenAt: typeof r.LastSeenAt === "string" ? r.LastSeenAt : null,
   };
 };
-
-// --- link requests ------------------------------------------------------------------------------
-
-/** One server asking to be linked with this one, as the administrator's list shows it. */
-export interface LinkRequestSummary {
-  issuerNodeId: string;
-  issuerName: string;
-  /** Where that server answers a browser, or null. What the finishing link is built from. */
-  issuerAddress: string | null;
-  requestedByName: string;
-  createdAt: string;
-  status: "pending" | "approved" | "declined";
-  groupId: string | null;
-}
-
-/** What the person who asked is told about their own request. */
-export interface MyLinkRequest {
-  exists: boolean;
-  status: "" | "pending" | "approved" | "declined";
-  issuerNodeId: string;
-  serverName: string;
-  /** The invite to redeem on your own server, once it has been approved. */
-  code: string | null;
-  /** Where your own server answers a browser, or null. */
-  issuerAddress: string | null;
-}
-
-/** What came of offering the server you run. */
-export interface LinkStartResult {
-  status: "pending" | "approved" | "declined";
-  issuerNodeId: string;
-  issuerName: string;
-  issuerAddress: string | null;
-  groupId: string | null;
-  /** The invite to redeem over there, once there is one. */
-  code: string | null;
-}
-
-const readStatus = (raw: unknown): LinkRequestSummary["status"] =>
-  raw === "approved" || raw === "declined" ? raw : "pending";
-
-/** Ask for the server you run to be linked with this one. */
-export async function requestLink(
-  apiBaseUrl: string,
-  accessToken?: string | null,
-): Promise<void> {
-  const res = await fetch(`${apiBaseUrl}/identity/link-requests`, {
-    method: "POST",
-    headers: authHeaders(accessToken),
-  });
-  if (!res.ok) {
-    throw new IdentityRequestError(
-      "refused",
-      (await refusalSentence(res)) ?? "That request could not be made.",
-    );
-  }
-}
-
-/**
- * Offer the server you run to this one, with an assertion it has just signed.
- *
- * The other end of `requestLink` above. That one reads the node being offered out of the caller's
- * link row, so it only works for an account that arrived from somewhere else; this one reads it
- * out of a signature, which is what lets an account that has always been local offer a server too.
- *
- * The address is only ever used to build the link that finishes the join over there. Nothing is
- * decided by it: the node id comes from the signature, which is the half nobody can choose for
- * themselves.
- */
-export async function startLinkRequest(
-  apiBaseUrl: string,
-  input: { assertion: string; address?: string | null },
-  accessToken?: string | null,
-): Promise<LinkStartResult> {
-  const res = await fetch(`${apiBaseUrl}/identity/link-requests/start`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...authHeaders(accessToken),
-    },
-    body: JSON.stringify({
-      Assertion: input.assertion,
-      Address: input.address ?? null,
-    }),
-  });
-
-  if (!res.ok) {
-    // Core writes every sentence this can fail with, and each one already ends in what to do
-    // next -- the address was wrong, the nonce went stale, an administrator has said no.
-    throw new IdentityRequestError(
-      "refused",
-      (await refusalSentence(res)) ?? "That server could not be added.",
-    );
-  }
-
-  const body = (await res.json()) as Record<string, unknown>;
-  return {
-    status: readStatus(body?.Status),
-    issuerNodeId:
-      typeof body?.IssuerNodeId === "string" ? body.IssuerNodeId : "",
-    issuerName: typeof body?.IssuerName === "string" ? body.IssuerName : "",
-    issuerAddress:
-      typeof body?.IssuerAddress === "string" ? body.IssuerAddress : null,
-    groupId: typeof body?.GroupId === "string" ? body.GroupId : null,
-    code: typeof body?.Code === "string" ? body.Code : null,
-  };
-}
-
-/** What your own request is doing, and the invite once it is approved. */
-export async function fetchMyLinkRequest(
-  apiBaseUrl: string,
-  accessToken?: string | null,
-): Promise<MyLinkRequest> {
-  const res = await fetch(`${apiBaseUrl}/identity/link-requests/mine`, {
-    headers: authHeaders(accessToken),
-  });
-  if (!res.ok) throw await readError(res, "GET /identity/link-requests/mine");
-  const body = (await res.json()) as Record<string, unknown>;
-  return {
-    exists: body?.Exists === true,
-    status:
-      typeof body?.Status === "string"
-        ? (body.Status as MyLinkRequest["status"])
-        : "",
-    issuerNodeId:
-      typeof body?.IssuerNodeId === "string" ? body.IssuerNodeId : "",
-    serverName: typeof body?.ServerName === "string" ? body.ServerName : "",
-    code: typeof body?.Code === "string" ? body.Code : null,
-    issuerAddress:
-      typeof body?.IssuerAddress === "string" ? body.IssuerAddress : null,
-  };
-}
-
-/** Which servers have asked. Administrator only. */
-export async function fetchLinkRequests(
-  apiBaseUrl: string,
-  accessToken?: string | null,
-): Promise<LinkRequestSummary[]> {
-  const res = await fetch(`${apiBaseUrl}/identity/link-requests`, {
-    headers: authHeaders(accessToken),
-  });
-  if (!res.ok) throw await readError(res, "GET /identity/link-requests");
-  const body = (await res.json()) as unknown;
-  return Array.isArray(body)
-    ? body.map((raw) => {
-        const r = (raw ?? {}) as Record<string, unknown>;
-        return {
-          issuerNodeId:
-            typeof r.IssuerNodeId === "string" ? r.IssuerNodeId : "",
-          issuerName: typeof r.IssuerName === "string" ? r.IssuerName : "",
-          issuerAddress:
-            typeof r.IssuerAddress === "string" ? r.IssuerAddress : null,
-          requestedByName:
-            typeof r.RequestedByName === "string" ? r.RequestedByName : "",
-          createdAt: typeof r.CreatedAt === "string" ? r.CreatedAt : "",
-          status: readStatus(r.Status),
-          groupId: typeof r.GroupId === "string" ? r.GroupId : null,
-        };
-      })
-    : [];
-}
-
-/** Let one in, into a group of your choosing. */
-export async function approveLinkRequest(
-  apiBaseUrl: string,
-  issuerNodeId: string,
-  groupId: string | null,
-  accessToken?: string | null,
-): Promise<void> {
-  const res = await fetch(
-    `${apiBaseUrl}/identity/link-requests/${encodeURIComponent(issuerNodeId)}/approve`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...authHeaders(accessToken),
-      },
-      body: JSON.stringify({ GroupId: groupId }),
-    },
-  );
-  if (!res.ok) {
-    // A 400 here is an administrator's own choice still to make -- which link to add them to --
-    // and Core writes the sentence for it.
-    throw new IdentityRequestError(
-      "refused",
-      (await refusalSentence(res)) ?? "That could not be approved.",
-    );
-  }
-}
-
-/** Say no to one. */
-export async function declineLinkRequest(
-  apiBaseUrl: string,
-  issuerNodeId: string,
-  accessToken?: string | null,
-): Promise<void> {
-  const res = await fetch(
-    `${apiBaseUrl}/identity/link-requests/${encodeURIComponent(issuerNodeId)}/decline`,
-    { method: "POST", headers: authHeaders(accessToken) },
-  );
-  if (!res.ok && res.status !== 404) {
-    throw await readError(res, "POST /identity/link-requests/decline");
-  }
-}
-
-/**
- * Forget one entirely, so that server can ask again.
- *
- * The way back from a decline. A decision is sticky on purpose -- asking again does not get a
- * different answer -- which without this meant an administrator who declined by mistake had shut
- * that server out for good, with nothing anywhere able to undo it.
- */
-export async function forgetLinkRequest(
-  apiBaseUrl: string,
-  issuerNodeId: string,
-  accessToken?: string | null,
-): Promise<void> {
-  const res = await fetch(
-    `${apiBaseUrl}/identity/link-requests/${encodeURIComponent(issuerNodeId)}`,
-    { method: "DELETE", headers: authHeaders(accessToken) },
-  );
-  // A row that is already gone is the outcome asked for, not a failure.
-  if (!res.ok && res.status !== 404) {
-    throw await readError(res, "DELETE /identity/link-requests");
-  }
-}
 
 /**
  * How this server wants a password sent for one username.

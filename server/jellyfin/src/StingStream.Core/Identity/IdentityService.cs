@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 using StingStream.Core.Invites;
 using StingStream.Core.Mesh;
+using StingStream.Core.Sharing;
 
 namespace StingStream.Core.Identity;
 
@@ -50,6 +51,7 @@ public sealed class IdentityService
     private readonly IUserManager _users;
     private readonly IServerApplicationHost _host;
     private readonly IMeshClient _mesh;
+    private readonly ConnectionService _connections;
     private readonly ILogger<IdentityService> _logger;
 
     public IdentityService(
@@ -60,6 +62,7 @@ public sealed class IdentityService
         IUserManager users,
         IServerApplicationHost host,
         IMeshClient mesh,
+        ConnectionService connections,
         ILogger<IdentityService> logger)
     {
         _store = store;
@@ -69,6 +72,7 @@ public sealed class IdentityService
         _users = users;
         _host = host;
         _mesh = mesh;
+        _connections = connections;
         _logger = logger;
     }
 
@@ -159,19 +163,22 @@ public sealed class IdentityService
     /// <param name="now">The current time.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The account, or a sentence saying why not.</returns>
-    /// <param name="requestLink">Also ask for the two servers to be linked.</param>
     /// <param name="credential">
     /// The salt and derived password their client made on their own origin, or null. Never their
     /// password: this server is not told it and does not need to be.
+    /// </param>
+    /// <param name="linkCode">
+    /// An invite their own server made on the way through, when they administer it, so the two
+    /// servers are connected by the same step. Used only with a first sign-in on an invite: the
+    /// invite is this server's consent, and the code is theirs.
     /// </param>
     public async Task<(User? User, string? Problem)> SignInAsync(
         string? assertion,
         string? inviteToken,
         DateTimeOffset now,
         CancellationToken cancellationToken,
-        bool requestLink = false,
         (string Salt, string Verifier, int Iterations)? credential = null,
-        string? address = null)
+        string? linkCode = null)
     {
         MeshVouchClaims? claims;
         try
@@ -223,26 +230,41 @@ public sealed class IdentityService
             : await FirstTimeAsync(claims!, invite!, now, credential, cancellationToken)
                 .ConfigureAwait(false);
 
-        // After the account exists, and never instead of it: a request that failed to record is a
-        // question somebody can ask again from Settings, while a sign-in that failed because of one
-        // would be a person locked out of an account they now have.
-        if (requestLink && result.User is not null)
+        // After the account exists, never instead of it, and in the background: connecting dials
+        // their server, which can take longer than a browser waits for a sign-in, and a connection
+        // that fails is something they can add again from Servers while a sign-in that failed
+        // because of one would be a person locked out of an account they now have.
+        if (existing is null
+            && invite is not null
+            && result.User is not null
+            && !string.IsNullOrWhiteSpace(linkCode))
         {
-            try
-            {
-                await RequestLinkAsync(
-                    result.User.Id.ToString("N"),
-                    now,
-                    cancellationToken,
-                    address).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Signed in, but could not record the link request");
-            }
+            ConnectInBackground(linkCode, invite, claims!.Server);
         }
 
         return result;
+    }
+
+    /// <summary>Connect this server to theirs with the invite their server made.</summary>
+    /// <remarks>
+    /// Shares what the person invite shared: its libraries, or every library for an administrator
+    /// invite, which Jellyfin lets see everything anyway.
+    /// </remarks>
+    private void ConnectInBackground(string code, InviteRow invite, string server)
+    {
+        var libraries = invite.IsAdministrator ? _connections.AllLibraries() : invite.Libraries;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _connections.ConnectAsync(code, libraries, CancellationToken.None)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Signed in from {Server}, but could not connect to it", server);
+            }
+        });
     }
 
     /// <summary>Somebody who has been here before.</summary>
@@ -394,445 +416,6 @@ public sealed class IdentityService
             claims.Server);
         return (created, null);
     }
-
-    // --- link requests -------------------------------------------------------------------------
-
-    /// <summary>Ask for the asking person's own server to be linked with this one.</summary>
-    /// <param name="localUserId">The account here that is asking.</param>
-    /// <param name="now">The current time.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when there is now a request.</returns>
-    /// <remarks>
-    /// The node id comes from their <em>link</em>, never from the request body: what a link row
-    /// holds was proved by a signature, and a node id somebody typed is a node id somebody chose.
-    /// So only an account that arrived from another server can ask — which is exactly the set of
-    /// people for whom the question means anything.
-    /// </remarks>
-    public async Task<bool> RequestLinkAsync(
-        string localUserId,
-        DateTimeOffset now,
-        CancellationToken cancellationToken,
-        string? address = null)
-    {
-        var link = _store.ForLocalUser(localUserId);
-        if (link is null)
-        {
-            return false;
-        }
-
-        await _store.SaveRequestAsync(
-            new LinkRequest
-            {
-                IssuerNodeId = link.IssuerNodeId,
-                IssuerName = link.IssuerName,
-                // Whatever the client resolved on its way here, so this path ends in a link to
-                // open rather than a code to paste -- the same answer Add server gives, for the
-                // same question. Null from an older client, and null is still handled.
-                IssuerAddress = NormaliseAddress(address),
-                RequestedBy = localUserId,
-                CreatedAt = now,
-                Status = "pending",
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        _logger.LogInformation("{Server} asked to be linked with this one", link.IssuerName);
-        return true;
-    }
-
-    /// <summary>Every request, for the administrator's list.</summary>
-    /// <returns>The requests, newest first.</returns>
-    public IReadOnlyList<LinkRequestSummary> ListRequests()
-    {
-        var rows = _store.AllRequests();
-        var summaries = new List<LinkRequestSummary>(rows.Count);
-        foreach (var row in rows)
-        {
-            summaries.Add(new LinkRequestSummary
-            {
-                IssuerNodeId = row.IssuerNodeId,
-                IssuerName = row.IssuerName,
-                IssuerAddress = row.IssuerAddress,
-                RequestedByName = Guid.TryParse(row.RequestedBy, out var id)
-                    ? _users.GetUserById(id)?.Username ?? string.Empty
-                    : string.Empty,
-                CreatedAt = row.CreatedAt.ToString("O", CultureInfo.InvariantCulture),
-                Status = row.Status,
-                GroupId = row.GroupId,
-                // Deliberately not the code. Looking at the queue does not need the credential,
-                // and only the person who asked ever needs it at all.
-            });
-        }
-
-        return summaries;
-    }
-
-    /// <summary>What the person who asked is told about their own request.</summary>
-    /// <param name="localUserId">Their account here.</param>
-    /// <returns>The status, and the code once it is approved.</returns>
-    /// <remarks>
-    /// <b>Two ways to be the asker, and both have to be found.</b> Somebody who arrived from
-    /// another server is found through their <c>linked_identities</c> row, which is how this
-    /// worked when signing in was the only way to ask. Somebody who pressed <em>Add server</em>
-    /// has always been a local account and has no such row, so their own request is found by the
-    /// only thing that names them: <c>requested_by</c>. Without the second lookup a member could
-    /// offer their server, be told it was pending, reload the page and find no trace of it.
-    /// </remarks>
-    public MyLinkRequest MyRequest(string localUserId)
-    {
-        var link = _store.ForLocalUser(localUserId);
-        var row = link is null
-            ? _store.FindRequestByRequester(localUserId)
-            : _store.FindRequest(link.IssuerNodeId);
-
-        if (row is null)
-        {
-            return new MyLinkRequest { ServerName = _host.FriendlyName };
-        }
-
-        return new MyLinkRequest
-        {
-            Exists = true,
-            Status = row.Status,
-            IssuerNodeId = row.IssuerNodeId,
-            ServerName = _host.FriendlyName,
-            // Only ever handed to the account the request belongs to, which is what both lookups
-            // above establish: either the link row is theirs, or the request names them.
-            Code = row.Status == "approved" ? row.Code : null,
-            IssuerAddress = row.IssuerAddress,
-        };
-    }
-
-    /// <summary>Offer the server somebody runs, from an assertion it signed for this one.</summary>
-    /// <param name="assertion">What their node signed.</param>
-    /// <param name="address">Where that node answers a browser, as the wizard resolved it.</param>
-    /// <param name="localUserId">The account here that is asking.</param>
-    /// <param name="callerIsAdmin">Whether that account administers this server.</param>
-    /// <param name="now">The current time.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>What came of it, or a sentence saying why nothing did.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The other end of <see cref="SignInAsync"/>'s link request.</b> That one is reached by
-    /// somebody with no account here, arriving on an invite; this one by somebody who has had an
-    /// account all along and has just typed the address of a server they run. Dan:
-    /// <em>"if you are already on a server you may either own a 2nd server or you are an end user
-    /// who has their own server"</em>. Neither of those people has anybody to invite.
-    /// </para>
-    /// <para>
-    /// <b>Nothing about their account here changes.</b> No <c>linked_identities</c> row, no salt,
-    /// no verifier: <c>/authorize</c> returns one regardless and the app drops it on this path.
-    /// They already have a password on this server, and quietly replacing it with a derivation of
-    /// their <em>other</em> server's password would change how they sign in here as a side effect
-    /// of adding a server. All the assertion is read for is which node is being offered.
-    /// </para>
-    /// <para>
-    /// <b>An administrator's own offer is approved as it is made.</b> The pending queue exists so
-    /// that a member cannot decide what their server links to; putting that question to the person
-    /// who answers it is not a safeguard, it is a second click.
-    /// </para>
-    /// </remarks>
-    public async Task<(LinkStartResult? Result, string? Problem)> StartLinkAsync(
-        string? assertion,
-        string? address,
-        string localUserId,
-        bool callerIsAdmin,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        MeshVouchClaims? claims;
-        try
-        {
-            claims = await _mesh.VerifyVouchAsync(assertion ?? string.Empty, cancellationToken)
-                .ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            // The mesh being unreachable is not the same as an assertion being bad, and reporting
-            // it as one would send somebody hunting a problem on the other server.
-            _logger.LogError(ex, "Could not check an identity assertion while adding a server");
-            return (null, "This server cannot check another one right now. Try again shortly.");
-        }
-
-        // Spent first, and spent even when the rest fails: a nonce that survives a failed attempt
-        // is a nonce that can be retried, which is what single use is there to stop.
-        var challengeMatched = claims is not null && _challenges.Take(claims.Nonce, now);
-
-        var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false);
-        var problem = IdentityGate.DecideLinkStart(
-            claims is not null,
-            challengeMatched,
-            !string.IsNullOrWhiteSpace(localUserId),
-            claims is not null && IdentityGate.SameNode(claims.Iss, status?.Node));
-        if (problem is not null)
-        {
-            return (null, problem);
-        }
-
-        await _store.SaveRequestAsync(
-            new LinkRequest
-            {
-                IssuerNodeId = claims!.Iss,
-                IssuerName = claims.Server,
-                IssuerAddress = NormaliseAddress(address),
-                RequestedBy = localUserId,
-                CreatedAt = now,
-                Status = "pending",
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        // Read back rather than assumed. The upsert refuses to reopen a decided row, so what is on
-        // disk now may be an older answer: an approval whose link is exactly what this person came
-        // for, or a decline that asking again does not undo.
-        var row = _store.FindRequest(claims.Iss);
-        if (row is null)
-        {
-            return (null, "That could not be recorded. Try again.");
-        }
-
-        if (row.Status == "declined")
-        {
-            return (null, "An administrator here has already declined that server.");
-        }
-
-        if (row.Status != "approved" && callerIsAdmin)
-        {
-            var (ok, why) = await ApproveRequestAsync(
-                claims.Iss,
-                null,
-                localUserId,
-                now,
-                cancellationToken).ConfigureAwait(false);
-            if (!ok)
-            {
-                return (null, why ?? "That could not be completed. Try again.");
-            }
-
-            row = _store.FindRequest(claims.Iss) ?? row;
-        }
-
-        _logger.LogInformation(
-            "{Server} was offered to this one and is {Status}",
-            row.IssuerName,
-            row.Status);
-
-        // The code admits a node to this server's link, so it goes back only to somebody who is
-        // entitled to it: an administrator here, or the account the request was recorded for.
-        //
-        // The narrowing matters because a standing approval can be met again. Offering an
-        // already-approved server returns its answer, and without this a *second*, ordinary member
-        // of that server -- anybody who can get it to vouch for them -- could ask for the standing
-        // code and redeem it on a node of their own. The approval was for one server, and the
-        // code is bearer; this is what keeps the two in step.
-        var mayHoldTheCode =
-            IdentityGate.MayHoldTheCode(callerIsAdmin, row.RequestedBy, localUserId);
-
-        return (
-            new LinkStartResult
-            {
-                Status = row.Status,
-                IssuerNodeId = row.IssuerNodeId,
-                IssuerName = row.IssuerName,
-                IssuerAddress = row.IssuerAddress,
-                GroupId = row.GroupId,
-                Code = row.Status == "approved" && mayHoldTheCode ? row.Code : null,
-            },
-            null);
-    }
-
-    /// <summary>The origin of an address somebody typed, or null when it is not one.</summary>
-    /// <remarks>
-    /// Only ever used to build a link to send somebody to. Refused rather than stored when it is
-    /// not an absolute http(s) address, because what would otherwise be kept is a string that
-    /// builds a link that fails later, on a screen with nothing left to explain it.
-    /// </remarks>
-    private static string? NormaliseAddress(string? raw)
-    {
-        var typed = (raw ?? string.Empty).Trim().TrimEnd('/');
-        if (typed.Length == 0
-            || !Uri.TryCreate(typed, UriKind.Absolute, out var uri)
-            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
-        {
-            return null;
-        }
-
-        return uri.GetLeftPart(UriPartial.Authority);
-    }
-
-    /// <summary>Let another server into one of this one's groups.</summary>
-    /// <param name="issuerNodeId">The asking node.</param>
-    /// <param name="groupId">The group, or null when there is only one.</param>
-    /// <param name="decidedBy">The administrator.</param>
-    /// <param name="now">The current time.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Whether it worked, and a sentence when it did not.</returns>
-    /// <remarks>
-    /// The invite is minted <b>before</b> the row is decided, and the row is decided in one
-    /// <c>UPDATE ... WHERE status = 'pending'</c>: two administrators pressing Approve at the same
-    /// moment therefore mint two codes and store one, which wastes a code and hands out exactly one
-    /// link. The other ordering — decide, then mint — would leave an approved request with no code
-    /// in it if the mesh were down, which is a dead end somebody has to notice.
-    /// </remarks>
-    public async Task<(bool Ok, string? Problem)> ApproveRequestAsync(
-        string issuerNodeId,
-        string? groupId,
-        string decidedBy,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-    {
-        var row = _store.FindRequest(issuerNodeId);
-        if (row is null)
-        {
-            return (false, null);
-        }
-
-        if (row.Status != "pending")
-        {
-            return (false, "That request has already been answered.");
-        }
-
-        // One link per server, named after that server. Dan chose that over one shared pool, so
-        // that "which of my libraries do they get" can be answered per server instead of once for
-        // everybody, and so a row on the Servers page and a link page are the same thing.
-        //
-        // It also deletes the question this used to ask. With no pool to choose from, "which of
-        // your links should they join?" has nothing to mean, and the screen no longer poses it.
-        // An explicit group is still honoured, which is what keeps adding a third server to an
-        // existing link possible.
-        var chosen = groupId?.Trim();
-        var ours = false;
-        if (string.IsNullOrEmpty(chosen))
-        {
-            var name = string.IsNullOrWhiteSpace(row.IssuerName)
-                ? ShortNode(row.IssuerNodeId)
-                : row.IssuerName;
-            try
-            {
-                var created = await _mesh.CreateGroupAsync(name, cancellationToken)
-                    .ConfigureAwait(false);
-                chosen = created.Group;
-                ours = true;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Could not create a link while approving a link request");
-                return (false, "Could not create a link for them. Try again shortly.");
-            }
-        }
-
-        MeshInvite invite;
-        try
-        {
-            invite = await _mesh.InviteAsync(chosen!, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Could not mint an invite while approving a link request");
-            await AbandonAsync(ours ? chosen : null, cancellationToken).ConfigureAwait(false);
-            return (false, "Could not create an invite for them. Try again shortly.");
-        }
-
-        var decided = await _store.TryDecideRequestAsync(
-            issuerNodeId,
-            "approved",
-            chosen,
-            invite.Code,
-            decidedBy,
-            now,
-            cancellationToken).ConfigureAwait(false);
-
-        if (!decided)
-        {
-            // Somebody else got there first. Their code is the one that stands; this one is simply
-            // never handed out, and an unspent mesh invite costs nothing.
-            //
-            // A link does cost something -- it would sit on the Servers page for ever with nobody
-            // in it -- so one this call made and could not use is left again. Only one it made: a
-            // group the caller named is theirs and may already hold members.
-            await AbandonAsync(ours ? chosen : null, cancellationToken).ConfigureAwait(false);
-            return (false, "That request has already been answered.");
-        }
-
-        _logger.LogInformation("{Server} was approved to join {Group}", row.IssuerName, chosen);
-        return (true, null);
-    }
-
-    /// <summary>Leave a link this call made moments ago and then could not use.</summary>
-    /// <remarks>
-    /// Best effort on purpose. The approval has already failed and the caller is being told why;
-    /// reporting a failed tidy-up instead would replace an accurate answer with an unrelated one.
-    /// </remarks>
-    private async Task AbandonAsync(string? group, CancellationToken cancellationToken)
-    {
-        if (string.IsNullOrEmpty(group))
-        {
-            return;
-        }
-
-        try
-        {
-            await _mesh.LeaveGroupAsync(group, cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Could not clean up the link {Group} after an approval that did not complete",
-                group);
-        }
-    }
-
-    /// <summary>Enough of a node id to name a link by, when its server has not said what it calls itself.</summary>
-    private static string ShortNode(string? nodeId)
-    {
-        var id = (nodeId ?? string.Empty).Trim();
-        return id.Length > 8 ? id[..8] : id;
-    }
-
-    /// <summary>Forget a request entirely, so that server can ask again.</summary>
-    /// <param name="issuerNodeId">The asking node.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when a row went.</returns>
-    /// <remarks>
-    /// <b>The way back from a decline.</b> A decision is deliberately sticky — the upsert refuses
-    /// to reset a decided row to pending, so asking again cannot get a different answer by itself
-    /// — and until there was a way to clear one, "by itself" was doing work nothing backed up: an
-    /// administrator who declined by mistake had shut that server out for ever, with no screen
-    /// anywhere able to undo it. That was survivable while the only way to ask was to be invited.
-    /// It is not now that <em>Add server</em> makes asking a thing anybody does.
-    /// <para>
-    /// Deleting rather than re-opening, so the next ask is a fresh question with a fresh answer,
-    /// and so the row cannot sit in a fourth state nothing else understands.
-    /// </para>
-    /// </remarks>
-    public Task<bool> ForgetRequestAsync(
-        string issuerNodeId,
-        CancellationToken cancellationToken)
-        => _store.DeleteRequestAsync(issuerNodeId, cancellationToken);
-
-    /// <summary>Say no.</summary>
-    /// <param name="issuerNodeId">The asking node.</param>
-    /// <param name="decidedBy">The administrator.</param>
-    /// <param name="now">The current time.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when there was a pending request to decline.</returns>
-    /// <remarks>
-    /// The row is kept rather than deleted, and that is what makes a decline mean something: an
-    /// upsert from another ask will not reset a decided row to pending, so somebody cannot get a
-    /// different answer by asking again.
-    /// </remarks>
-    public Task<bool> DeclineRequestAsync(
-        string issuerNodeId,
-        string decidedBy,
-        DateTimeOffset now,
-        CancellationToken cancellationToken)
-        => _store.TryDecideRequestAsync(
-            issuerNodeId,
-            "declined",
-            null,
-            null,
-            decidedBy,
-            now,
-            cancellationToken);
 
     /// <summary>Every remote identity holding an account here.</summary>
     /// <returns>The list, newest first.</returns>

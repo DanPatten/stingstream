@@ -9,6 +9,8 @@ import { useAtomValue } from "jotai";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   authHeaders,
+  both,
+  field,
   type MeshGroupMembers,
   type MeshInvite,
   type MeshNodeGroup,
@@ -24,11 +26,17 @@ import {
   toJoin,
   toMembers,
   toPeer,
-  toRotation,
   toSharedLibraries,
   toSharingSettings,
   toStatus,
 } from "./meshApi";
+
+/** What removing a connection did: who was told now, and who is told when they are back. */
+export interface MeshUnlinked {
+  group: string;
+  told: string[];
+  pending: string[];
+}
 
 /**
  * The **home node's** mesh, as the app reaches it: `/stingstream/api/v1/mesh/*`, which is
@@ -440,58 +448,6 @@ export function useNodeMeshMembers(
 }
 
 /**
- * Remove a member and rotate the group's secret. Administrator only.
- *
- * **This can take minutes.** The node mints the new secret and then hands it to every other member
- * in turn, each dial bounded but serial, and only answers once it can say who actually took it —
- * so a group with several sleeping members is a long wait rather than a hung request. Nothing here
- * imposes a timeout of its own: Core already caps it at three minutes, and giving up earlier would
- * abandon a rotation that has already happened on the node.
- *
- * It is also irreversible. The removed node is refused from this moment, every remaining member
- * gets a new secret, and **every invite code minted before now stops working** — including one this
- * screen showed a minute ago. Re-inviting is the only way back, which is why the screen asks first.
- */
-export function useRemoveMeshMember() {
-  const { request } = useMeshApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ group, node }: { group: string; node: string }) =>
-      request<unknown>(
-        `/groups/${encodeURIComponent(group)}/members/${encodeURIComponent(node)}`,
-        { method: "DELETE" },
-      ).then(toRotation),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
-  });
-}
-
-/**
- * Rotate a group's secret without removing anybody. Administrator only.
- *
- * For when a code leaked rather than when a person left. Same cost and same wait as a removal —
- * the whole group has to be handed the new secret either way — and the same consequence for invite
- * codes already in circulation.
- *
- * The light node inside this app is an ordinary member of the group, so it is rekeyed by the mesh
- * along with everybody else. That is why this does not call `MeshProvider.syncGroups()` the way
- * leaving does: the device's *membership* has not changed, only the secret behind it, and that
- * travels over the mesh rather than through the app.
- */
-export function useRotateGroupSecret() {
-  const { request } = useMeshApi();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (group: string) =>
-      request<unknown>(`/groups/${encodeURIComponent(group)}/rotate`, {
-        method: "POST",
-      }).then(toRotation),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
-  });
-}
-
-/**
  * Which of this server's libraries a link gets, and every library it could get.
  *
  * Dan: *"Each side picks its own."* This is your half — what they see of yours. What you see of
@@ -543,16 +499,27 @@ export function useSetSharedLibraries() {
   });
 }
 
-/** Leave: the node stops gossiping, drops the index and forgets the secret. Administrator only. */
+/**
+ * Remove a connection, here and on the other server. Administrator only.
+ *
+ * The other server is told at once when it answers, and when it is back otherwise; `pending` lists
+ * the ones still to be told. An invitation nobody opened is removed the same way.
+ */
 export function useLeaveMeshGroup() {
   const { request } = useMeshApi();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (group: string) =>
-      request<void>(`/groups/${encodeURIComponent(group)}`, {
-        method: "DELETE",
-        expectNoContent: true,
-      }),
+    mutationFn: async (group: string): Promise<MeshUnlinked> => {
+      const raw = await request<unknown>(
+        `/groups/${encodeURIComponent(group)}/unlink`,
+        { method: "POST" },
+      );
+      return {
+        group: field<string>(raw, ...both("group")) ?? group,
+        told: field<string[]>(raw, ...both("told")) ?? [],
+        pending: field<string[]>(raw, ...both("pending")) ?? [],
+      };
+    },
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: MESH_QUERY_KEY }),
   });

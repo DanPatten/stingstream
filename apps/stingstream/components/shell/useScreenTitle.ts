@@ -1,6 +1,6 @@
 import { useFocusEffect } from "expo-router";
 import { atom, useAtomValue, useSetAtom } from "jotai";
-import { useCallback } from "react";
+import { type ReactNode, useCallback } from "react";
 
 /**
  * What the top bar calls the page you are on.
@@ -39,5 +39,30 @@ export const useSetScreenTitle = (title: string | null | undefined): void => {
       setTitle(title ?? null);
       return () => setTitle(null);
     }, [title, setTitle]),
+  );
+};
+
+/**
+ * A control drawn right after the title: a library's "..." menu, as Plex has it.
+ *
+ * Its own atom beside the title's rather than a richer title, so every screen that only wants a
+ * name keeps passing a string. Pass a memoized element: a fresh one each render re-sets the atom
+ * each render.
+ */
+const screenTitleAccessoryAtom = atom<ReactNode>(null);
+
+/** Read side, for `TopBar`. */
+export const useScreenTitleAccessory = (): ReactNode =>
+  useAtomValue(screenTitleAccessoryAtom);
+
+/** Write side, keyed on focus for the same reason as {@link useSetScreenTitle}. */
+export const useSetScreenTitleAccessory = (accessory: ReactNode): void => {
+  const setAccessory = useSetAtom(screenTitleAccessoryAtom);
+
+  useFocusEffect(
+    useCallback(() => {
+      setAccessory(accessory ?? null);
+      return () => setAccessory(null);
+    }, [accessory, setAccessory]),
   );
 };

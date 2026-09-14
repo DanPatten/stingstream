@@ -440,7 +440,7 @@ public class InventoryPublisherTests
         public Task<MeshRotation> RemoveMemberAsync(string group, string node, CancellationToken cancellationToken)
             => throw Unused();
 
-        public Task<MeshRotation> RotateSecretAsync(string group, CancellationToken cancellationToken) => throw Unused();
+        public Task<MeshUnlinked?> UnlinkGroupAsync(string group, CancellationToken cancellationToken) => throw Unused();
 
         public Task<bool> LeaveGroupAsync(string group, CancellationToken cancellationToken) => throw Unused();
 

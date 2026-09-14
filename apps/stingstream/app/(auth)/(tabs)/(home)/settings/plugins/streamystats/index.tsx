@@ -299,8 +299,8 @@ function StreamystatsPage() {
  *
  * Without it a drill-in is a pane with no navigation beside it and no way
  * back to Plugins at all -- the settings sidebar simply is not drawn. The
- * gate goes inside the shell rather than around it, the way
- * `settings/servers/join` does it: a member who pastes this URL still gets
+ * gate goes inside the shell rather than around it, so a member who pastes
+ * this URL still gets
  * the settings that are theirs, with the refusal in the pane.
  */
 export default function StreamystatsRoute() {

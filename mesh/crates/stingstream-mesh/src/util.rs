@@ -17,6 +17,16 @@ pub fn now_rfc3339() -> String {
         .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
 }
 
+/// RFC 3339 timestamp for `secs` seconds ago, in UTC. Comparable as text with [`now_rfc3339`].
+pub fn rfc3339_seconds_ago(secs: u64) -> String {
+    let secs = i64::try_from(secs).unwrap_or(i64::MAX);
+    time::OffsetDateTime::now_utc()
+        .checked_sub(time::Duration::seconds(secs))
+        .unwrap_or(time::OffsetDateTime::UNIX_EPOCH)
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "1970-01-01T00:00:00Z".to_string())
+}
+
 /// Milliseconds since the Unix epoch. Used for monotonic-ish record ordering in gossip.
 pub fn now_millis() -> u64 {
     std::time::SystemTime::now()

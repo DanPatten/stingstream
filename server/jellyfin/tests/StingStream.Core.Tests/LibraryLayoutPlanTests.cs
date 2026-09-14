@@ -114,12 +114,42 @@ public class LibraryLayoutPlanTests
     {
         // Peers' DVR recordings that no provider could identify. Its folder is not a setting, so
         // nothing a reader does can point it somewhere else; what they own is whether it runs at
-        // all and whether it is hidden. A node with no rows yet still gets it.
-        var plan = LibraryLayoutPlan.Plan(new SharedSettings(), Runtime, FederatedRoot);
+        // all and whether it is hidden.
+        var settings = Migrated();
+        settings.Libraries.Add(LibraryMigration.NewRecordings());
+
+        var plan = LibraryLayoutPlan.Plan(settings, Runtime, FederatedRoot);
 
         var recordings = plan.Single(p => p.Name == LibraryLayoutService.RecordingsLibrary);
         Assert.Equal(new[] { Federated("recordings") }, recordings.Paths);
         Assert.False(recordings.Unified);
+    }
+
+    [Fact]
+    public void RecordingsIsNotPlannedUntilSomebodyAddsIt()
+    {
+        // Dan, 2026-09-13: "drop recordings by default". No row means nobody asked for it.
+        var plan = LibraryLayoutPlan.Plan(Migrated(), Runtime, FederatedRoot);
+
+        Assert.DoesNotContain(plan, p => p.Name == LibraryLayoutService.RecordingsLibrary);
+    }
+
+    [Fact]
+    public void AnAddedLibraryOfAKindIsPlannedWithItsOwnFoldersOnly()
+    {
+        var settings = Migrated();
+        settings.Libraries.Add(new LibrarySettings
+        {
+            Name = "Kids TV",
+            FolderName = "Kids TV",
+            Type = LibraryTypes.TvShows,
+            Paths = { @"E:\kids\one", @"F:\kids\two" },
+        });
+
+        var plan = LibraryLayoutPlan.Plan(settings, Runtime, FederatedRoot);
+
+        Assert.Equal(new[] { @"E:\kids\one", @"F:\kids\two" }, plan.Single(p => p.Name == "Kids TV").Paths);
+        Assert.Contains(Federated("tv"), plan.Single(p => p.Name == LibraryLayoutService.TvLibrary).Paths);
     }
 
     [Fact]
@@ -141,6 +171,7 @@ public class LibraryLayoutPlanTests
     public void SwitchingRecordingsOffDropsIt()
     {
         var settings = Migrated();
+        settings.Libraries.Add(LibraryMigration.NewRecordings());
         LibraryLayoutPlan.Recordings(settings)!.Enabled = false;
 
         var plan = LibraryLayoutPlan.Plan(settings, Runtime, FederatedRoot);

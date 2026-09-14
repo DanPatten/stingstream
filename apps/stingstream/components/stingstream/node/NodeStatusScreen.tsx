@@ -18,9 +18,9 @@ import { GapNotice } from "../shared/GapNotice";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { QueryState } from "../shared/ScreenState";
 
-/** "jellyfin"/"radarr"/"sonarr"/"nzbget"/"mesh" reach the UI verbatim from the
- * supervisor — data, not text this app wrote — and every one of those first
- * four is a name the brand rule bans from view. */
+/** Child names reach the UI verbatim from the supervisor — data, not text this
+ * app wrote — and most of them are names the brand rule bans from view. Each is
+ * labelled by what it does for the reader, not by what it is. */
 function childLabel(t: TFunction, name: string): string {
   switch (name) {
     case "jellyfin":
@@ -31,10 +31,34 @@ function childLabel(t: TFunction, name: string): string {
       return t("server_status.child_sonarr");
     case "nzbget":
       return t("server_status.child_nzbget");
+    case "infinidysk":
+      return t("server_status.child_infinidysk");
     case "mesh":
       return t("server_status.child_mesh");
     default:
-      return name;
+      return t("server_status.child_other");
+  }
+}
+
+/** `ChildState` in `mesh/crates/stingstream/src/state.rs`, snake_case on the
+ * wire. An unrecognised state falls through to the raw word rather than
+ * pretending to know it. */
+function stateLabel(t: TFunction, state: string): string {
+  switch (state) {
+    case "healthy":
+      return t("server_status.state_healthy");
+    case "starting":
+      return t("server_status.state_starting");
+    case "unhealthy":
+      return t("server_status.state_unhealthy");
+    case "restarting":
+      return t("server_status.state_restarting");
+    case "stopped":
+      return t("server_status.state_stopped");
+    case "failed":
+      return t("server_status.state_failed");
+    default:
+      return state;
   }
 }
 
@@ -47,20 +71,22 @@ function childLabel(t: TFunction, name: string): string {
  * the same numbers from Core, which is where the mesh's crate version comes from
  * and where the arrs' keys already live. Whichever answered is shown; the
  * supervisor wins a disagreement, because it is the process that launched the
- * binary.
+ * binary. Neither answering is common while a child starts, and the line is
+ * simply left off rather than explained.
  */
 function versionOf(
   name: string,
   fromHealthz: string | null | undefined,
   status: NodeStatus | undefined,
-): string {
-  const fromCore = status?.Children?.[name]?.Version;
-  return fromHealthz || fromCore || "—";
+): string | undefined {
+  return fromHealthz || status?.Children?.[name]?.Version || undefined;
 }
 
 function childTone(child: HealthzChild): PillTone {
-  if (!child.enabled) return "neutral";
-  return child.state === "healthy" ? "success" : "danger";
+  if (child.state === "healthy") return "success";
+  if (child.state === "starting" || child.state === "restarting")
+    return "neutral";
+  return "danger";
 }
 
 function ChildCard({
@@ -72,6 +98,7 @@ function ChildCard({
 }) {
   const { color } = useTheme();
   const { t } = useTranslation();
+  const version = versionOf(child.name, child.version, status);
   return (
     <View
       style={{
@@ -87,16 +114,16 @@ function ChildCard({
         {childLabel(t, child.name)}
       </Text>
       <Pill
-        label={child.enabled ? child.state : t("server_status.child_disabled")}
+        label={stateLabel(t, child.state)}
         tone={childTone(child)}
         size='sm'
-        style={{ marginTop: 8, alignSelf: "flex-start" }}
+        style={{ marginTop: 8, marginBottom: 8, alignSelf: "flex-start" }}
       />
-      <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
-        {t("server_status.child_version", {
-          version: versionOf(child.name, child.version, status),
-        })}
-      </Text>
+      {version ? (
+        <Text variant='caption' tone='secondary'>
+          {t("server_status.child_version", { version })}
+        </Text>
+      ) : null}
       {child.port ? (
         <Text variant='caption' tone='secondary'>
           {t("server_status.child_port", { port: child.port })}
@@ -172,18 +199,20 @@ export function NodeStatusScreen() {
               testID='server-status-cards'
               style={{ flexDirection: "row", flexWrap: "wrap" }}
             >
-              {healthz.data.children.map((child) => (
-                <ChildCard
-                  key={child.name}
-                  child={child}
-                  status={status.data}
-                />
-              ))}
+              {/* A disabled child is one this node was never asked to run, so
+                  it is not a status worth reporting. Turning one on belongs to
+                  the settings that need it, not to this screen. */}
+              {healthz.data.children
+                .filter((child) => child.enabled)
+                .map((child) => (
+                  <ChildCard
+                    key={child.name}
+                    child={child}
+                    status={status.data}
+                  />
+                ))}
             </View>
           )}
-          <Text variant='caption' tone='secondary' style={{ marginTop: -4 }}>
-            {t("server_status.version_unknown_hint")}
-          </Text>
 
           <View style={{ height: 16 }} />
 

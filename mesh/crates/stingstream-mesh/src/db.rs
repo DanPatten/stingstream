@@ -32,7 +32,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use crate::group::{Group, GroupId, GroupSecret};
 use crate::inventory::{Heartbeat, IndexEntry, InventoryRecord, WireRecord};
 use crate::requests::{ClaimRecord, RequestRecord, RequestView};
-use crate::util::{now_rfc3339, restrict_to_owner};
+use crate::util::{now_rfc3339, restrict_to_owner, rfc3339_seconds_ago};
 
 /// Bumped whenever the schema changes in a way an older binary could not read.
 /// Schema version.
@@ -225,6 +225,19 @@ impl Db {
              CREATE INDEX IF NOT EXISTS ix_mesh_invites_group ON mesh_invites (group_id);",
         )
         .context("migrating mesh.db: mesh_invites")?;
+        // A removal the other side has not heard about yet. The secret is kept so the notice can
+        // still be delivered over an authenticated connection after the group itself is gone, and
+        // so the other side can prove it is the member being told. See `MeshNode::unlink`.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS pending_unlinks (
+                 group_id   TEXT NOT NULL,
+                 node_id    TEXT NOT NULL,
+                 secret     BLOB NOT NULL,
+                 created_at TEXT NOT NULL,
+                 PRIMARY KEY (group_id, node_id)
+             );",
+        )
+        .context("migrating mesh.db: pending_unlinks")?;
         for statement in [
             "ALTER TABLE inventory ADD COLUMN local_images TEXT",
             "ALTER TABLE inventory ADD COLUMN local_subtitles TEXT",
@@ -617,31 +630,145 @@ impl Db {
     ) -> Result<MeshInviteOutcome> {
         let conn = self.lock();
         let gid = group.to_string();
+        let cutoff = rfc3339_seconds_ago(MESH_INVITE_LIFETIME_SECS);
         let n = conn
             .execute(
                 "UPDATE mesh_invites SET redeemed_at = ?1, redeemed_by = ?2
-                  WHERE token_hash = ?3 AND group_id = ?4 AND redeemed_at IS NULL",
-                params![now_rfc3339(), by, token_hash, gid],
+                  WHERE token_hash = ?3 AND group_id = ?4 AND redeemed_at IS NULL
+                    AND created_at >= ?5",
+                params![now_rfc3339(), by, token_hash, gid, cutoff],
             )
             .context("redeeming an invite")?;
         if n > 0 {
             return Ok(MeshInviteOutcome::Admitted);
         }
-        // Nothing updated: either there is no such row, or there is one and it is spent. The two
-        // are told apart here rather than at the call site, so the caller can say "already used"
-        // — which is the difference between "ask them for a new one" and a dead end.
-        let exists: i64 = conn
+        // Nothing updated: no such row, a spent one, or an old one. Told apart here rather than at
+        // the call site, so the caller can say which -- the difference between "ask them for a new
+        // one" and a dead end.
+        let found: Option<(Option<String>, String)> = conn
             .query_row(
-                "SELECT COUNT(*) FROM mesh_invites WHERE token_hash = ?1 AND group_id = ?2",
+                "SELECT redeemed_at, created_at FROM mesh_invites
+                  WHERE token_hash = ?1 AND group_id = ?2",
                 params![token_hash, gid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .context("looking up an invite")?;
+        Ok(match found {
+            None => MeshInviteOutcome::Unknown,
+            Some((Some(_), _)) => MeshInviteOutcome::AlreadyUsed,
+            Some((None, _)) => MeshInviteOutcome::Expired,
+        })
+    }
+
+    /// Whether a group has an unspent invite young enough to still be redeemed.
+    pub fn has_live_invite(&self, group: &GroupId) -> Result<bool> {
+        let n: i64 = self
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM mesh_invites
+                  WHERE group_id = ?1 AND redeemed_at IS NULL AND created_at >= ?2",
+                params![group.to_string(), rfc3339_seconds_ago(MESH_INVITE_LIFETIME_SECS)],
                 |r| r.get(0),
             )
-            .context("looking up an invite")?;
-        Ok(if exists > 0 {
-            MeshInviteOutcome::AlreadyUsed
-        } else {
-            MeshInviteOutcome::Unknown
-        })
+            .context("checking for a live invite")?;
+        Ok(n > 0)
+    }
+
+    // --- removals the other side has not heard about ------------------------------------------
+
+    /// Remember that `node` still has to be told this group was removed.
+    pub fn put_pending_unlink(
+        &self,
+        group: &GroupId,
+        node: &str,
+        secret: &GroupSecret,
+    ) -> Result<()> {
+        self.lock()
+            .execute(
+                "INSERT INTO pending_unlinks (group_id, node_id, secret, created_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(group_id, node_id) DO UPDATE SET secret = excluded.secret",
+                params![
+                    group.to_string(),
+                    node,
+                    secret.as_bytes().to_vec(),
+                    now_rfc3339()
+                ],
+            )
+            .context("recording a pending removal")?;
+        Ok(())
+    }
+
+    /// Every removal still waiting to be delivered.
+    pub fn pending_unlinks(&self) -> Result<Vec<PendingUnlink>> {
+        let conn = self.lock();
+        let mut stmt = conn
+            .prepare("SELECT group_id, node_id, secret, created_at FROM pending_unlinks")
+            .context("listing pending removals")?;
+        let rows = stmt
+            .query_map([], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, Vec<u8>>(2)?,
+                    r.get::<_, String>(3)?,
+                ))
+            })
+            .context("listing pending removals")?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (group, node, secret, created_at) = row.context("reading a pending removal")?;
+            let (Ok(group), Ok(secret)) = (group.parse::<GroupId>(), <[u8; 32]>::try_from(secret))
+            else {
+                continue;
+            };
+            out.push(PendingUnlink {
+                group,
+                node,
+                secret: GroupSecret(secret),
+                created_at,
+            });
+        }
+        Ok(out)
+    }
+
+    /// The secret a removed group had, when `node` is still owed the notice.
+    pub fn pending_unlink(&self, group: &GroupId, node: &str) -> Result<Option<GroupSecret>> {
+        let secret: Option<Vec<u8>> = self
+            .lock()
+            .query_row(
+                "SELECT secret FROM pending_unlinks WHERE group_id = ?1 AND node_id = ?2",
+                params![group.to_string(), node],
+                |r| r.get(0),
+            )
+            .optional()
+            .context("reading a pending removal")?;
+        Ok(secret
+            .and_then(|s| <[u8; 32]>::try_from(s).ok())
+            .map(GroupSecret))
+    }
+
+    /// The notice was delivered, or can no longer be.
+    pub fn drop_pending_unlink(&self, group: &GroupId, node: &str) -> Result<bool> {
+        let n = self
+            .lock()
+            .execute(
+                "DELETE FROM pending_unlinks WHERE group_id = ?1 AND node_id = ?2",
+                params![group.to_string(), node],
+            )
+            .context("dropping a pending removal")?;
+        Ok(n > 0)
+    }
+
+    /// Give up on notices older than `max_age_secs`.
+    pub fn expire_pending_unlinks(&self, max_age_secs: u64) -> Result<usize> {
+        self.lock()
+            .execute(
+                "DELETE FROM pending_unlinks WHERE created_at < ?1",
+                params![rfc3339_seconds_ago(max_age_secs)],
+            )
+            .context("expiring pending removals")
     }
 
     /// Every invite minted for a group, newest first.
@@ -1639,6 +1766,20 @@ pub enum MeshInviteOutcome {
     AlreadyUsed,
     /// No row matched. A mangled code, a deleted invite, or one for another group.
     Unknown,
+    /// A real, unspent token older than [`MESH_INVITE_LIFETIME_SECS`].
+    Expired,
+}
+
+/// How long an invite can wait to be opened. Seven days.
+pub const MESH_INVITE_LIFETIME_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// A removal the other member has not been told about yet.
+#[derive(Debug, Clone)]
+pub struct PendingUnlink {
+    pub group: GroupId,
+    pub node: String,
+    pub secret: GroupSecret,
+    pub created_at: String,
 }
 
 /// One invite, as the local API lists it. The id is the token's hash, never the token.
@@ -1728,6 +1869,69 @@ mod tests {
             updated_at: at.into(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn a_removal_notice_is_kept_until_it_is_delivered() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.put_pending_unlink(&g.id, "node-b", &g.secret).unwrap();
+
+        // Kept after the group itself is gone: that is the whole point of the row.
+        db.upsert_group(&g).unwrap();
+        db.delete_group(&g.id).unwrap();
+        assert_eq!(db.pending_unlink(&g.id, "node-b").unwrap(), Some(g.secret));
+        assert_eq!(db.pending_unlink(&g.id, "node-c").unwrap(), None);
+        assert_eq!(db.pending_unlinks().unwrap().len(), 1);
+
+        assert!(db.drop_pending_unlink(&g.id, "node-b").unwrap());
+        assert!(db.pending_unlinks().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_removal_notice_nobody_collects_expires() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.put_pending_unlink(&g.id, "node-b", &g.secret).unwrap();
+        assert_eq!(db.expire_pending_unlinks(60).unwrap(), 0);
+        db.lock()
+            .execute(
+                "UPDATE pending_unlinks SET created_at = '2000-01-01T00:00:00Z'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(db.expire_pending_unlinks(60).unwrap(), 1);
+    }
+
+    #[test]
+    fn an_invitation_older_than_its_lifetime_is_refused_as_expired() {
+        let db = Db::open_in_memory().unwrap();
+        let g = group();
+        db.upsert_group(&g).unwrap();
+        db.put_mesh_invite("fresh", &g.id).unwrap();
+        db.put_mesh_invite("old", &g.id).unwrap();
+        db.lock()
+            .execute(
+                "UPDATE mesh_invites SET created_at = '2000-01-01T00:00:00Z' WHERE token_hash = 'old'",
+                [],
+            )
+            .unwrap();
+
+        assert!(db.has_live_invite(&g.id).unwrap());
+        assert_eq!(
+            db.redeem_mesh_invite("old", &g.id, "node-b").unwrap(),
+            MeshInviteOutcome::Expired
+        );
+        assert_eq!(
+            db.redeem_mesh_invite("fresh", &g.id, "node-b").unwrap(),
+            MeshInviteOutcome::Admitted
+        );
+        assert_eq!(
+            db.redeem_mesh_invite("fresh", &g.id, "node-c").unwrap(),
+            MeshInviteOutcome::AlreadyUsed
+        );
+        // The fresh one is spent and the old one is too old, so nothing is left to open.
+        assert!(!db.has_live_invite(&g.id).unwrap());
     }
 
     #[test]

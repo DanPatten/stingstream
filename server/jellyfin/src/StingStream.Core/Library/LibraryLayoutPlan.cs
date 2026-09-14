@@ -102,7 +102,7 @@ public static class LibraryLayoutPlan
         // reader does decide, Enabled and Hidden, and carries no paths. The folder the Libraries
         // screen shows for it is where *this* node records to, which the media server owns and
         // puts in a library of its own (RecordingFolder, RecordingsManager.CreateRecordingFolders).
-        if (Recordings(settings)?.Enabled != false)
+        if (Recordings(settings)?.Enabled == true)
         {
             planned.Add(new DesiredLibrary(
                 LibraryLayoutService.RecordingsLibrary,
@@ -167,10 +167,10 @@ public static class LibraryLayoutPlan
 
     /// <summary>The settings row Recordings' switch lives on, when the node has one.</summary>
     /// <param name="settings">The shared settings.</param>
-    /// <returns>The row, or <c>null</c> on a node whose migration has not run.</returns>
+    /// <returns>The row, or <c>null</c> when the owner has not added Recordings.</returns>
     /// <remarks>
-    /// Absent counts as on. A node that has never seen <see cref="LibraryMigration"/> should keep
-    /// materializing recordings rather than lose them to a row that does not exist yet.
+    /// Absent counts as off. Recordings is a library an owner adds from Settings → Libraries rather
+    /// than one every node starts with (Dan, 2026-09-13), so no row means nobody asked for it.
     /// </remarks>
     public static LibrarySettings? Recordings(SharedSettings settings)
     {

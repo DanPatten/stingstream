@@ -94,6 +94,12 @@ pub struct GroupAuth {
     pub previous: Option<GroupSecret>,
     /// Node ids (hex) that have been removed from this group.
     pub revoked: Vec<String>,
+    /// This node has already removed the group, and the dialer is a member still owed the notice.
+    ///
+    /// The secret is the one the group had when it was removed, kept for exactly this. A dialer
+    /// that proves it holds it is told the group is gone and nothing else; see
+    /// [`crate::node::MeshNode::unlink`].
+    pub unlinked: bool,
 }
 
 impl GroupAuth {
@@ -103,6 +109,7 @@ impl GroupAuth {
             secret,
             previous: None,
             revoked: Vec::new(),
+            unlinked: false,
         }
     }
 }
@@ -152,6 +159,8 @@ pub struct Session {
     pub minor: u8,
     /// The peer proved knowledge of the *previous* secret, not the current one.
     pub stale_secret: bool,
+    /// The group was removed on this node and the peer is being admitted only to be told so.
+    pub unlinked: bool,
 }
 
 /// What the dialing side learns from a successful handshake.
@@ -384,9 +393,10 @@ async fn deny(send: &mut iroh::endpoint::SendStream) {
 
 /// Server half: accept the first bidirectional stream and verify the peer.
 ///
-/// `lookup` maps a group id to that group's [`GroupAuth`]; it returns `None` for a group this node
-/// is not a member of, which is reported to the peer as a plain refusal (the same message either
-/// way, so the handshake does not become a membership oracle).
+/// `lookup` maps a group id and the dialer to that group's [`GroupAuth`]; it returns `None` for a
+/// group this node is not a member of, which is reported to the peer as a plain refusal (the same
+/// message either way, so the handshake does not become a membership oracle). The dialer is passed
+/// because a removed group is still answerable to the one member owed the notice, and only to it.
 pub async fn server_handshake<F>(
     conn: &Connection,
     node_key: &SecretKey,
@@ -394,7 +404,7 @@ pub async fn server_handshake<F>(
     lookup: F,
 ) -> Result<Session>
 where
-    F: FnOnce(&GroupId) -> Option<GroupAuth>,
+    F: FnOnce(&GroupId, &EndpointId) -> Option<GroupAuth>,
 {
     let (mut send, mut recv) = conn.accept_bi().await.map_err(err)?;
     let peer = conn.remote_id();
@@ -446,7 +456,7 @@ where
     // The refusal message below is identical for "not a member of that group", "revoked" and
     // "wrong secret", so an attacker learns nothing about which groups this node belongs to and a
     // revoked member is not told which of its two problems it has.
-    let Some(auth) = lookup(&group_id) else {
+    let Some(auth) = lookup(&group_id, &peer) else {
         deny(&mut send).await;
         bail!(
             "peer {} asked for group {group_id:?}, which this node is not in",
@@ -492,6 +502,7 @@ where
         None
     };
 
+    let unlinked = auth.unlinked;
     let Some((matched, stale)) = matched.filter(|_| sig_ok) else {
         deny(&mut send).await;
         bail!(
@@ -525,6 +536,7 @@ where
         peer_name: hello.server_name,
         minor,
         stale_secret: stale,
+        unlinked,
     })
 }
 

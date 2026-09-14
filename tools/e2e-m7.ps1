@@ -682,6 +682,12 @@ Invoke-Step 'B and C build inventory records, and B publishes its subtitle' {
 Invoke-Step 'Start node A (the watcher), empty' {
     Write-M7NodeConfig -Node $NodeA -ServerName 'attic'
     Start-HarnessNode -Node $NodeA -ClientId 'e2e-m7'
+
+    # Recordings is a library an owner adds rather than one every node starts with, and without it
+    # A materializes none of B's recordings.
+    Invoke-Node $NodeA '/stingstream/api/v1/Libraries' -Method POST -TimeoutSec 240 -Body @{
+        type = 'recordings'
+    } | Out-Null
 }
 
 # ============================================================================================

@@ -112,28 +112,6 @@ public sealed class MeshController : StingStreamControllerBase
         CancellationToken cancellationToken)
         => Ok(await _mesh.RemoveMemberAsync(group, node, cancellationToken).ConfigureAwait(false));
 
-    /// <summary>Rotate a group's secret, keeping every member.</summary>
-    /// <param name="group">The group id, hex.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="200">What the rotation did.</response>
-    /// <response code="400">This node is not in that group.</response>
-    /// <response code="503">The mesh is not answering.</response>
-    /// <returns>What the rotation did.</returns>
-    /// <remarks>
-    /// For when a code leaked rather than when a person left. Nobody is removed; every invite
-    /// minted before now stops working, and every member has to be handed the new secret, which
-    /// happens automatically for the ones that are reachable and on their next dial for the rest.
-    /// </remarks>
-    [HttpPost("groups/{group}/rotate")]
-    [Authorize(Policy = Policies.RequiresElevation)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<MeshRotation>> RotateSecret(
-        [FromRoute] string group,
-        CancellationToken cancellationToken)
-        => Ok(await _mesh.RotateSecretAsync(group, cancellationToken).ConfigureAwait(false));
-
     /// <summary>Every group this node belongs to.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The groups.</response>
@@ -331,18 +309,15 @@ public sealed class MeshController : StingStreamControllerBase
         };
     }
 
-    /// <summary>Leave a group.</summary>
+    /// <summary>Leave a group, on this server only.</summary>
     /// <param name="group">The group id.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="204">Left.</response>
     /// <response code="404">This node is not a member of that group.</response>
     /// <returns>No content.</returns>
     /// <remarks>
-    /// The share list goes with it. <see cref="Sharing.SharedLibraryStore.RemoveAsync"/> had no
-    /// caller at all, so leaving left the row behind — harmless while a group id was never seen
-    /// again, and not harmless now that one link is one server: the tidy way back from a link that
-    /// went wrong is to leave it and add the server again, and a stale row would decide what the
-    /// new link shares before anybody had been asked.
+    /// Silent: the other members are not told. What the Servers page does is
+    /// <see cref="Unlink"/>; this stays for the harnesses, which leave and re-join on purpose.
     /// </remarks>
     [HttpDelete("groups/{group}")]
     [Authorize(Policy = Policies.RequiresElevation)]
@@ -357,6 +332,39 @@ public sealed class MeshController : StingStreamControllerBase
 
         await _shared.RemoveAsync(group, cancellationToken).ConfigureAwait(false);
         return NoContent();
+    }
+
+    /// <summary>Remove a connection, on this server and on the other one.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">Removed. Lists the members told now and the ones told later.</response>
+    /// <response code="404">This node is not a member of that group.</response>
+    /// <returns>Who was told.</returns>
+    /// <remarks>
+    /// <para>
+    /// Dan: <em>"Deleting a server completely severs the link from BOTH sides"</em>. The mesh tells
+    /// every member it can reach and keeps a record for the rest, which it delivers when they are
+    /// back. See <c>MeshNode::unlink</c>.
+    /// </para>
+    /// <para>
+    /// The share list goes with it, so a server connected again later starts from a fresh choice
+    /// rather than whatever the old connection shared.
+    /// </para>
+    /// </remarks>
+    [HttpPost("groups/{group}/unlink")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<MeshUnlinked>> Unlink(string group, CancellationToken cancellationToken)
+    {
+        var removed = await _mesh.UnlinkGroupAsync(group, cancellationToken).ConfigureAwait(false);
+        if (removed is null)
+        {
+            return NotFound();
+        }
+
+        await _shared.RemoveAsync(group, cancellationToken).ConfigureAwait(false);
+        return Ok(removed);
     }
 
     /// <summary>The merged group index: every member's titles.</summary>

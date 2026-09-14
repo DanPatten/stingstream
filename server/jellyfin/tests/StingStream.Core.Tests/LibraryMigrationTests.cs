@@ -24,7 +24,7 @@ namespace StingStream.Core.Tests;
 public class LibraryMigrationTests
 {
     [Fact]
-    public void AnOldDocumentBecomesTheThreeBuiltInLibraries()
+    public void AnOldDocumentBecomesTheTwoBuiltInLibraries()
     {
         var settings = new SharedSettings();
 #pragma warning disable CS0618 // Exercising the property the migration exists to read.
@@ -50,16 +50,36 @@ public class LibraryMigrationTests
                 Assert.Equal(LibraryTypes.TvShows, tv.Type);
                 Assert.Equal(new[] { @"E:\media\TV" }, tv.Paths);
                 Assert.True(tv.Builtin);
-            },
-            recordings =>
-            {
-                // A row with no folders, and not managed: it holds peers' DVR recordings under a
-                // directory this node derives. It exists so the switch has somewhere to live.
-                Assert.Equal(LibraryLayoutService.RecordingsLibrary, recordings.Name);
-                Assert.Empty(recordings.Paths);
-                Assert.False(recordings.Managed);
-                Assert.True(recordings.Enabled);
             });
+    }
+
+    [Fact]
+    public void AFreshNodeHasNoRecordingsLibrary()
+    {
+        // Recordings is added by its owner from Settings → Libraries. Dan, 2026-09-13: "drop
+        // recordings by default".
+        var settings = new SharedSettings();
+
+        LibraryMigration.Apply(settings);
+
+        Assert.Null(LibraryLayoutPlan.Recordings(settings));
+    }
+
+    [Fact]
+    public void ANodeThatAlreadyHasRecordingsKeepsIt()
+    {
+        // Nodes set up before Recordings became optional have the row. Taking it away on upgrade
+        // would withdraw a library somebody may be watching from.
+        var settings = new SharedSettings();
+        LibraryMigration.Apply(settings);
+        settings.Libraries.Add(LibraryMigration.NewRecordings());
+
+        Assert.False(LibraryMigration.Apply(settings));
+
+        var recordings = LibraryLayoutPlan.Recordings(settings)!;
+        Assert.True(recordings.Enabled);
+        Assert.False(recordings.Managed);
+        Assert.Empty(recordings.Paths);
     }
 
     [Fact]
@@ -91,7 +111,6 @@ public class LibraryMigrationTests
             {
                 LibraryLayoutService.MoviesLibrary,
                 LibraryLayoutService.TvLibrary,
-                LibraryLayoutService.RecordingsLibrary,
             },
             settings.Libraries.Select(l => l.FolderName));
     }
@@ -106,7 +125,7 @@ public class LibraryMigrationTests
         settings.Libraries[0].Paths.Add(@"D:\second-drive\Movies");
 
         Assert.False(LibraryMigration.Apply(settings));
-        Assert.Equal(3, settings.Libraries.Count);
+        Assert.Equal(2, settings.Libraries.Count);
         Assert.Contains(@"D:\second-drive\Movies", settings.Libraries[0].Paths);
     }
 
@@ -118,7 +137,7 @@ public class LibraryMigrationTests
         LibraryMigration.Apply(settings);
 
         Assert.All(settings.Libraries, library => Assert.NotEmpty(library.Id));
-        Assert.Equal(3, settings.Libraries.Select(l => l.Id).Distinct().Count());
+        Assert.Equal(2, settings.Libraries.Select(l => l.Id).Distinct().Count());
     }
 
     [Fact]
@@ -133,7 +152,7 @@ public class LibraryMigrationTests
 
         SharedSettings.PreserveServerOwned(incoming, stored);
 
-        Assert.Equal(3, incoming.Libraries.Count);
+        Assert.Equal(2, incoming.Libraries.Count);
         Assert.Equal("HD-1080p", incoming.DefaultQualityProfileName);
     }
 }

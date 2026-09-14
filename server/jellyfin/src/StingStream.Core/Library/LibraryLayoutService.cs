@@ -182,6 +182,27 @@ public sealed class LibraryLayoutService
         return report;
     }
 
+    /// <summary>Take a library that is being deleted out of the media server's view, keeping its files.</summary>
+    /// <param name="library">The settings row, before it is removed from the list.</param>
+    /// <returns><c>true</c> when a virtual folder was removed.</returns>
+    /// <remarks>
+    /// Needed because <see cref="EnsureAsync"/> only withdraws rows that are still in the list and
+    /// switched off. A row that is simply gone would leave its virtual folder behind for good.
+    /// </remarks>
+    public async Task<bool> RemoveAsync(LibrarySettings library)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        var report = new LayoutReport();
+        var removed = await WithdrawAsync(library, report).ConfigureAwait(false);
+        if (removed)
+        {
+            await _library.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+
+        return removed;
+    }
+
     /// <summary>Take a switched-off library out of the media server's view, keeping its files.</summary>
     /// <param name="library">The settings row that is off.</param>
     /// <param name="report">The first-run report to append to.</param>

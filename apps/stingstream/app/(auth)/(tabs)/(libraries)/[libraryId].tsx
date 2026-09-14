@@ -44,7 +44,12 @@ import { Text } from "@/components/common/Text";
 import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { LibraryFilterBar } from "@/components/filters/LibraryFilterBar";
 import { Loader } from "@/components/Loader";
+import { LibraryActionsMenu } from "@/components/library/LibraryActionsMenu";
 import { LibraryEmptyState } from "@/components/library/LibraryEmptyState";
+import {
+  useSetScreenTitle,
+  useSetScreenTitleAccessory,
+} from "@/components/shell/useScreenTitle";
 import { TVFilterButton, TVFocusablePoster } from "@/components/tv";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
 import { useScaledTVCardLayout } from "@/constants/TVCardLayouts";
@@ -407,11 +412,40 @@ const Page = () => {
   const libraryNotFound = isLibraryError;
 
   const navigation = useNavigation();
+
+  // Plex's "..." beside the title: scan, grant access, manage. It renders nothing for anybody but
+  // an administrator. Memoized because the top bar re-reads it whenever the element changes.
+  const titleMenu = useMemo(
+    () =>
+      library?.Id && !Platform.isTV ? (
+        <LibraryActionsMenu
+          jellyfinId={library.Id}
+          name={library.Name ?? ""}
+          showManage
+        />
+      ) : null,
+    [library?.Id, library?.Name],
+  );
+  useSetScreenTitle(Platform.isTV ? null : library?.Name);
+  useSetScreenTitleAccessory(titleMenu);
+
   useEffect(() => {
     navigation.setOptions({
       title: library?.Name || "",
+      ...(titleMenu
+        ? {
+            headerTitle: () => (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text variant='heading' weight='semibold' numberOfLines={1}>
+                  {library?.Name ?? ""}
+                </Text>
+                {titleMenu}
+              </View>
+            ),
+          }
+        : null),
     });
-  }, [library]);
+  }, [library, titleMenu]);
 
   // If this See-All detail was deep-linked on top of the libraries index, collapse
   // the libraries stack to just this screen. Otherwise the stack is [index, detail],

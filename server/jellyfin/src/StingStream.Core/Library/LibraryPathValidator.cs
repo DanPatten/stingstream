@@ -124,6 +124,61 @@ public static class LibraryPathValidator
         return null;
     }
 
+    /// <summary>Check every folder one library is about to hold, against the node and each other.</summary>
+    /// <param name="paths">The folders, trimmed. Only the ones that are new need checking.</param>
+    /// <param name="allPaths">Every folder the library will hold, for the in-library overlap rule.</param>
+    /// <param name="libraryName">The library's own name, for the collision sentence.</param>
+    /// <param name="settings">The shared settings, for collision checks.</param>
+    /// <param name="runtime">The supervisor's paths, for the reserved-location checks.</param>
+    /// <param name="federatedRoot">Where peers' pointers live.</param>
+    /// <param name="excludeLibraryId">The library being edited, which does not collide with itself.</param>
+    /// <returns>The first problem found, or <see langword="null"/> when every folder is usable.</returns>
+    /// <remarks>
+    /// Two folders inside one library can collide exactly as two libraries can: one file reachable
+    /// through both locations is still a single item with a contested parent.
+    /// </remarks>
+    public static LibraryProblem? ValidateSet(
+        IReadOnlyList<string> paths,
+        IReadOnlyList<string> allPaths,
+        string libraryName,
+        SharedSettings settings,
+        PathsRuntime? runtime,
+        string? federatedRoot,
+        string? excludeLibraryId = null)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(allPaths);
+
+        foreach (var path in paths)
+        {
+            if (Validate(path, settings, runtime, federatedRoot, excludeLibraryId) is { } problem)
+            {
+                return problem;
+            }
+        }
+
+        for (var i = 0; i < allPaths.Count; i++)
+        {
+            for (var j = i + 1; j < allPaths.Count; j++)
+            {
+                if (!Overlaps(allPaths[i], allPaths[j]))
+                {
+                    continue;
+                }
+
+                var same = LibraryLayoutService.SamePath(allPaths[i], allPaths[j]);
+                return new LibraryProblem(
+                    same
+                        ? $"{libraryName} already uses that folder."
+                        : $"That folder overlaps one {libraryName} already uses.",
+                    same ? "path_duplicate" : "path_overlaps",
+                    ConflictsWith: libraryName);
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>Make sure the folder exists and can be written to.</summary>
     /// <param name="path">An already-validated absolute path.</param>
     /// <returns>The problem, or <see langword="null"/> when the folder is usable.</returns>

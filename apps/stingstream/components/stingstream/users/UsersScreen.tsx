@@ -1,5 +1,4 @@
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { Image } from "expo-image";
 import { useFocusEffect } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useMemo, useState } from "react";
@@ -25,13 +24,13 @@ import {
   useServerUsers,
 } from "@/lib/stingstream/serverUsers";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
-import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
 import { LinkedIdentities } from "../identity/LinkedIdentities";
 import { InvitePerson, MintedInviteDialog } from "../invites/InvitePerson";
 import { ActionRow } from "../shared/ActionRow";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
+import { UserAvatar } from "./UserAvatar";
 import { UserDialog } from "./UserDialog";
 import { describeAccess } from "./userAccess";
 import { buildUserRows } from "./userRows";
@@ -265,7 +264,7 @@ const AccountRow: React.FC<{
       title={user.Name ?? t("users.unnamed")}
       subtitle={subtitle}
       onPress={onPress}
-      leading={<Avatar serverAddress={serverAddress} user={user} />}
+      leading={<UserAvatar serverAddress={serverAddress} user={user} />}
       actions={
         <DeleteAction
           label={t("users.delete")}
@@ -386,50 +385,3 @@ const DeleteAction: React.FC<{
     </Pressable>
   );
 };
-
-/** The user's own photo, or a fallback tile, so a row with no photo still reads as a person. */
-function Avatar({
-  serverAddress,
-  user,
-  size = 36,
-}: {
-  serverAddress?: string;
-  user: UserDto;
-  size?: number;
-}) {
-  const { color } = useTheme();
-  const url =
-    serverAddress && user.Id
-      ? getUserImageUrl({
-          serverAddress,
-          userId: user.Id,
-          primaryImageTag: user.PrimaryImageTag,
-          width: size * 2,
-        })
-      : null;
-
-  if (!url) {
-    return (
-      <View
-        style={{
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color.bg["3"],
-          alignItems: "center",
-          justifyContent: "center",
-        }}
-      >
-        <Icon name='user' size={size * 0.6} tone='tertiary' />
-      </View>
-    );
-  }
-  return (
-    <Image
-      source={{ uri: url }}
-      contentFit='cover'
-      transition={120}
-      style={{ width: size, height: size, borderRadius: size / 2 }}
-    />
-  );
-}

@@ -352,12 +352,14 @@ public static class LibraryTypes
 /// between servers always merge on these."</i>
 /// </para>
 /// <para>
-/// <b><see cref="Paths"/> is a list, and one library is the right home for a second drive</b> --
-/// not a second library. Only one collection folder per type can host the federated pointer tree,
-/// because Jellyfin keys a series on its provider id plus the ids of the collection folders it
-/// belongs to, so a peer's copy merges with the local one only while both sit in a single folder.
-/// A second Movies-typed *library* would therefore receive neither peers' titles nor new imports.
-/// A second *folder* on the Movies library gets both. See <c>LibraryLayoutService</c>.
+/// <b><see cref="Paths"/> is a list, and an owner may add as many libraries as they like.</b>
+/// Only one collection folder per type can host the federated pointer tree, because Jellyfin keys a
+/// series on its provider id plus the ids of the collection folders it belongs to, so a peer's copy
+/// merges with the local one only while both sit in a single folder. That host is the built-in
+/// library, which is also where new imports land. An added library of the same type holds its own
+/// folders only: somewhere to keep a separate collection, not a second home for the shared one. A
+/// second drive for the shared collection is a second *folder* on the built-in library. See
+/// <c>LibraryLayoutService</c> and <c>RootFolderResolver.ForDownloads</c>.
 /// </para>
 /// </remarks>
 public sealed class LibrarySettings

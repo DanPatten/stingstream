@@ -3,8 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import {
+  createLibrary,
+  deleteLibrary,
   fetchLibraries,
   type Library,
+  type LibraryCreate,
   type LibraryUpdate,
   saveLibrary,
 } from "./librariesApi";
@@ -34,13 +37,17 @@ const CHILD_FOR: Record<string, string> = {
   tvshows: "sonarr",
 };
 
-/** Every library on this server, in the order it lists them. */
-export function useLibraries() {
+/**
+ * Every library on this server, in the order it lists them.
+ *
+ * `enabled` is for a screen a member can also see: the endpoint is administrator-only.
+ */
+export function useLibraries(enabled = true) {
   const { base, token } = useConnection();
   return useQuery({
     queryKey: KEY,
     queryFn: () => fetchLibraries(base!, token),
-    enabled: !!base,
+    enabled: !!base && enabled,
     // The settings can also be edited on the server itself, and reconciliation rewrites parts of
     // each row on every start. Polling slowly means a screen left open does not quietly disagree.
     refetchInterval: 30000,
@@ -107,6 +114,7 @@ export function useSaveLibrary() {
                 ...row,
                 enabled: update.enabled ?? row.enabled,
                 hidden: update.hidden ?? row.hidden,
+                paths: update.paths ?? row.paths,
               }
             : row,
         ),
@@ -124,6 +132,54 @@ export function useSaveLibrary() {
         (rows ?? []).map((row) => (row.id === saved.id ? saved : row)),
       );
       queryClient.invalidateQueries({ queryKey: ["stingstream"] });
+      queryClient.invalidateQueries({ queryKey: ["user-views"] });
+    },
+  });
+}
+
+/**
+ * Everything that lists libraries, not only this screen: the sidebar reads the media server's views
+ * (`useShellNavigation`), and invites and Grant access read `/invites/libraries`.
+ */
+function useInvalidateLibraries() {
+  const queryClient = useQueryClient();
+  return () => {
+    queryClient.invalidateQueries({ queryKey: ["stingstream"] });
+    queryClient.invalidateQueries({ queryKey: ["user-views"] });
+  };
+}
+
+/** Add a library. */
+export function useCreateLibrary() {
+  const { base, token } = useConnection();
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateLibraries();
+  return useMutation({
+    mutationFn: (create: LibraryCreate) => createLibrary(base!, create, token),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(KEY, (rows: Library[] | undefined) => {
+        const list = rows ?? [];
+        return list.some((row) => row.id === saved.id)
+          ? list.map((row) => (row.id === saved.id ? saved : row))
+          : [...list, saved];
+      });
+      invalidate();
+    },
+  });
+}
+
+/** Remove a library. Its files stay where they are. */
+export function useDeleteLibrary() {
+  const { base, token } = useConnection();
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateLibraries();
+  return useMutation({
+    mutationFn: (id: string) => deleteLibrary(base!, id, token),
+    onSuccess: (_void, id) => {
+      queryClient.setQueryData(KEY, (rows: Library[] | undefined) =>
+        (rows ?? []).filter((row) => row.id !== id),
+      );
+      invalidate();
     },
   });
 }

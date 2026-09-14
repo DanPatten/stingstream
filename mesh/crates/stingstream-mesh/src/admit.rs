@@ -222,6 +222,9 @@ pub fn decide(db: &Db, group: &GroupId, token: &InviteToken, by: &str) -> AdmitR
             reason: "This invite has already been used. Ask whoever sent it for a new one."
                 .to_string(),
         },
+        Ok(MeshInviteOutcome::Expired) => AdmitResponse::Refused {
+            reason: "This invitation has expired. Ask for a new invite link.".to_string(),
+        },
         Ok(MeshInviteOutcome::Unknown) => AdmitResponse::Refused {
             reason: NO_SUCH_INVITE.to_string(),
         },

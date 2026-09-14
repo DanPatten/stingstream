@@ -10,7 +10,7 @@ import { useFocusVisible } from "@/hooks/useFocusVisible";
 import { useTheme } from "@/hooks/useTheme";
 import { CastTopBarButton } from "./CastTopBarButton";
 import { SearchField } from "./SearchField";
-import { useScreenTitle } from "./useScreenTitle";
+import { useScreenTitle, useScreenTitleAccessory } from "./useScreenTitle";
 import { WatchTogetherButton } from "./WatchTogether";
 
 export const TOP_BAR_HEIGHT = 56;
@@ -41,6 +41,7 @@ interface Props {
 export const TopBar: React.FC<Props> = ({ fallbackTitle }) => {
   const { color } = useTheme();
   const screenTitle = useScreenTitle();
+  const titleAccessory = useScreenTitleAccessory();
   // Re-read on every navigation: `canGoBack` is a function, not a subscription,
   // so the pathname is what tells React this bar has to look again.
   const pathname = usePathname();
@@ -74,6 +75,7 @@ export const TopBar: React.FC<Props> = ({ fallbackTitle }) => {
         <Text variant='heading' weight='semibold' numberOfLines={1}>
           {screenTitle ?? fallbackTitle}
         </Text>
+        {titleAccessory}
       </View>
 
       <SearchField />

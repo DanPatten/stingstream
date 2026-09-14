@@ -58,6 +58,7 @@ pub fn router(node: Arc<MeshNode>) -> Router {
             axum::routing::delete(remove_member),
         )
         .route("/mesh/v1/groups/{group}/rotate", post(rotate_secret))
+        .route("/mesh/v1/groups/{group}/unlink", post(unlink_group))
         .route(
             "/mesh/v1/inventory",
             put(put_inventory).patch(patch_inventory),
@@ -820,14 +821,27 @@ async fn remove_member(
 
 /// `POST /mesh/v1/groups/{group}/rotate` — change the group secret, keeping every member.
 ///
-/// For when a code leaked rather than when a person left. Every invite minted before now stops
-/// working; nobody is removed.
+/// Loopback only, for `tools/e2e-m8.ps1`. Neither Core nor the app offers it any more: a connection
+/// that needs a new secret is removed and made again.
 async fn rotate_secret(
     State(node): State<Arc<MeshNode>>,
     Path(group): Path<String>,
 ) -> ApiResult<Json<crate::node::Rotation>> {
     let id = parse_group(&group)?;
     Ok(Json(node.rotate_secret(&id).await?))
+}
+
+/// `POST /mesh/v1/groups/{group}/unlink` — remove a group here and on every other member.
+///
+/// Members that answer remove it at once. The rest are recorded and told later; see
+/// [`MeshNode::unlink`]. `DELETE /mesh/v1/groups/{group}` stays the silent, local-only leave, which
+/// is what the phone's light node uses to follow its server.
+async fn unlink_group(
+    State(node): State<Arc<MeshNode>>,
+    Path(group): Path<String>,
+) -> ApiResult<Json<crate::node::Unlinked>> {
+    let id = parse_group(&group)?;
+    Ok(Json(node.unlink(&id).await?))
 }
 
 async fn leave_group(

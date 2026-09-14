@@ -25,7 +25,6 @@
 import { Feather } from "@expo/vector-icons";
 import { SymbolView } from "expo-symbols";
 import type { ColorValue } from "react-native";
-import { tokens } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { HEADER_ICON_SIZE } from "./HeaderButton";
 

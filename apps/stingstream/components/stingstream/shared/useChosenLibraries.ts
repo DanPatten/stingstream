@@ -21,13 +21,27 @@ import type { PickableLibrary } from "./LibraryPicker";
  * Only for creating a share. A picker that shows what is *already* stored — `GroupDetailScreen`'s —
  * must show the truth, and pre-ticking there would claim access nobody granted.
  */
-export function useChosenLibraries(available: PickableLibrary[]) {
+export function useChosenLibraries(
+  available: PickableLibrary[],
+  /**
+   * Start from these instead of all of them: Invite on a library's own Grant access dialog opens
+   * with just that library ticked. Compared without dashes, because the page and the invite
+   * endpoint do not always agree on the shape of an id.
+   */
+  initial?: readonly string[],
+) {
   const [chosen, setChosen] = useState<string[] | null>(null);
 
   useEffect(() => {
     if (chosen !== null || available.length === 0) return;
-    setChosen(available.map((library) => library.id));
-  }, [available, chosen]);
+    const bare = (id: string) => id.replace(/-/g, "").toLowerCase();
+    const seed = initial?.length
+      ? available.filter((library) =>
+          initial.some((id) => bare(id) === bare(library.id)),
+        )
+      : available;
+    setChosen(seed.map((library) => library.id));
+  }, [available, chosen, initial]);
 
   const toggle = useCallback((id: string) => {
     setChosen((current) => {

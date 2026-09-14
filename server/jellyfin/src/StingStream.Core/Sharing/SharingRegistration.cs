@@ -20,6 +20,8 @@ public static class SharingRegistration
 
         services.AddSingleton<SharedLibraryStore>();
         services.AddSingleton<ISharedLibraries>(sp => sp.GetRequiredService<SharedLibraryStore>());
+        services.AddSingleton<ConnectionRequestStore>();
+        services.AddSingleton<ConnectionService>();
 
         return services;
     }

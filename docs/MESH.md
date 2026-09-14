@@ -177,8 +177,11 @@ neither a secret nor a membership.
 the same shape, for the same reason, as `InviteStore.TryRedeemAsync` on the person-invite side. A
 joiner whose connection drops before the secret arrives can retry.
 
-**No expiry.** A code works until it is redeemed or deleted (`DELETE
-/mesh/v1/groups/{g}/invites/{id}`, addressed by the token's hash, which is safe to show and log).
+**Seven days.** A code works until it is redeemed, deleted (`DELETE
+/mesh/v1/groups/{g}/invites/{id}`, addressed by the token's hash, which is safe to show and log), or
+is older than `MESH_INVITE_LIFETIME_SECS`, when admission answers *"This invitation has expired"*.
+A group only this node is in, older than that, with no live invite left, is an invitation nobody
+opened, and the hourly link maintenance removes it on a full node.
 
 **Rotating the secret deletes every outstanding invite for that group**, on whichever node applies
 the rekey. Before admission that was free — an old code carried a dead secret — and it is what the
@@ -191,13 +194,12 @@ is visibility: a server the other side adds appears in your member list.
 
 **And admission is not consent.** `admit::decide` hands the secret to anybody presenting an unspent
 token, with no human in the loop — there is no pending state at this layer and there never was. The
-consent lives one level up, in Core's `link_requests`: an administrator decides to mint the code at
-all, and an administrator on the other side decides to redeem it. `docs/INVITES.md` §11e.
+consent lives one level up, in Core: an administrator decides to mint the code at all, and an
+administrator on the other side decides to redeem it (`docs/INVITES.md` §11e).
 
-**A link made that way is one group per server**, named after the other server, so that what a node
-shares can be chosen per server rather than once for everybody. Nothing about the protocol assumes
-it: a group of three is still a group of three, and approving into an existing one is still
-possible.
+**A connection made that way is one group per pair of servers**, named after the server that made
+the invite, so that what a node shares can be chosen per server rather than once for everybody.
+Nothing about the protocol assumes it: a group of three is still a group of three.
 
 ### Invite links
 
@@ -558,7 +560,44 @@ a *node* setting, changed on one node, affecting only the links that node mints.
 agreement between members, and nothing to reconcile when two people change it at once.
 
 
+### Removing a connection
+
+Dan: *"Deleting a server completely severs the link from BOTH sides (sends link to other) unless that
+other server is offline in which case it self deletes on startup automatically."*
+
+`MeshNode::unlink` (`POST /mesh/v1/groups/{group}/unlink`):
+1. Sends `POST /peer/v1/group/unlink` to every other member, five seconds each. A member that answers
+   removes the group itself.
+2. Records every member that did not answer in `pending_unlinks`, with the secret the group had.
+3. Leaves the group.
+
+`leave` itself stays silent, because the phone's light node leaves whenever its server does, and that
+must never remove the connection for everybody.
+
+**A member that was away hears about it one of two ways, whichever comes first:**
+
+* **The removing node retries.** `run_link_maintenance` runs shortly after startup, once the liveness
+  sweep has marked the peers that really are gone, and then hourly. It dials each recorded member on
+  the stored secret and delivers the notice. A row is dropped when the notice lands or the handshake
+  is refused, and given up on after 30 days.
+* **The member that was away asks.** The same maintenance on *its* side dials its offline peers. The
+  removing node admits that one dialer on the stored secret, in an `unlinked` session that answers
+  every request `410 Gone`. The member reads the 410 as the notice, removes the group, and the row is
+  dropped.
+
+**The handshake is still not a membership oracle.** Only a member holding the old secret and named in
+`pending_unlinks` is admitted to a removed group. Everybody else is refused with the same message as
+for a group the node never had.
+
+`PROTOCOL_MINOR` 5. An older node answers the new route 404 and keeps its copy, which is what every
+node did before this.
+
 ### Rotating the secret, and removing a member (M8b)
+
+**Neither is offered in Core or the app any more.** A connection that needs a new secret is removed
+and made again. Dan: *"lets remove the rotate secret feature - we dont need that - just delete and
+re-add."* The machinery below stays: `apply_rekey` still runs, and `POST /mesh/v1/groups/{g}/rotate`
+and member removal remain on loopback for `tools/e2e-m8.ps1`.
 
 A group's secret is the credential. Rotating it is how a group recovers from a leaked invite code,
 and rotating it **plus** a deny-list is how a member is removed. Neither half works alone:
@@ -703,6 +742,8 @@ SQLite at `$STINGSTREAM_DATA/mesh.db`, WAL, owner-only where the OS supports it.
 | `peers` | `group_id, node_id, server_name, online, first_seen, last_seen, path, rtt_ms, max_direct_streams, max_transcodes, active_direct_streams, active_transcodes, free_space, throughput_bps, throughput_samples, throughput_at, side_door` — both the membership list and the liveness state |
 | `inventory` | `group_id, node_id, item_key, record (WireRecord JSON), file_hash, local_path, local_images, local_subtitles, jellyfin_item_id, updated_at` |
 | `meta` | schema version and the per-group gossip sequence number |
+| `mesh_invites` | `token_hash, group_id, created_at, redeemed_at, redeemed_by`. Honoured for seven days |
+| `pending_unlinks` | `group_id, node_id, secret, created_at`. A removal a member has not heard about yet, kept after the group itself is gone. See "Removing a connection" |
 
 `local_path` is populated only for this node's own rows. Indexes on `(group_id, item_key)` — what
 the source scorer reads — and `(group_id, file_hash)` — what same-hash failover reads.
@@ -738,7 +779,8 @@ member's index.
 | `POST` | `/mesh/v1/groups/{group}/invite` | → `{code, url}`. Every call mints a new single-use code |
 | `GET` | `/mesh/v1/groups/{group}/invites` | outstanding and spent invites. `id` is the token's **hash**, never the token |
 | `DELETE` | `/mesh/v1/groups/{group}/invites/{id}` | stop one code working, without rotating the secret on everybody else |
-| `DELETE` | `/mesh/v1/groups/{group}` | leave: stop gossip, drop the index, forget the secret and every outstanding invite |
+| `DELETE` | `/mesh/v1/groups/{group}` | leave, silently: stop gossip, drop the index, forget the secret and every outstanding invite |
+| `POST` | `/mesh/v1/groups/{group}/unlink` | remove the group here and on every other member → `{group, told, pending}`. See "Removing a connection" |
 | `PUT` | `/mesh/v1/inventory` | `{group, records[]}` — full snapshot, gossiped |
 | `PATCH` | `/mesh/v1/inventory` | `{group, upserts[], removals[]}` — delta, gossiped |
 | `GET`/`PUT` | `/mesh/v1/capacity` | this node's advertised capacity, which rides the heartbeat |

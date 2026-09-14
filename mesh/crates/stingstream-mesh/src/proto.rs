@@ -87,13 +87,18 @@ pub const PROTOCOL_MAJOR: u8 = 2;
 ///   drops the frame, so it keeps the request and keeps grabbing — which is exactly what every
 ///   node did before this existed. Nobody's correctness turns on the older node acting on it,
 ///   which is the test the `Revocation` body was added under.
+/// * **5** — `POST /peer/v1/group/unlink`: a member removed the group and tells the others to do
+///   the same, plus a 410 answer to a member dialling a group already removed here. A new route,
+///   which `docs/UPGRADING.md` §3 classes as a minor: an older node answers 404 and keeps its copy
+///   of the group, which is what every node did before this existed.
 ///
 /// **Deliberately not reset by the major bump.** The two axes are independent: the major says who
 /// this build can talk to at all, the minor says which optional features to expect from somebody it
 /// can. Resetting to 0 would claim a v2 node might lack rotation, which is false, and it would make
 /// [`negotiate_minor`] and the [`MINOR_REKEY`] check degenerate — clippy notices, and it is right
-/// to. So a build is "2.4": major 2, with rotation, published addresses, admission and withdrawals.
-pub const PROTOCOL_MINOR: u8 = 4;
+/// to. So a build is "2.5": major 2, with rotation, published addresses, admission, withdrawals and
+/// removal notices.
+pub const PROTOCOL_MINOR: u8 = 5;
 
 /// The minor version at which secret rotation and revocation became available.
 ///

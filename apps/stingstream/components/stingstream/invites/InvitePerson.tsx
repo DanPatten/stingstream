@@ -54,7 +54,9 @@ export const InvitePerson: React.FC<{
    * there. Defaulting to the navigation means a future third caller gets something that works.
    */
   onSetUpAddress?: () => void;
-}> = ({ visible, onClose, onSetUpAddress }) => {
+  /** Libraries ticked when the form opens. Every library when omitted. */
+  initialLibraries?: readonly string[];
+}> = ({ visible, onClose, onSetUpAddress, initialLibraries }) => {
   const [minted, setMinted] = useState<MintedInvite | null>(null);
 
   return (
@@ -63,6 +65,7 @@ export const InvitePerson: React.FC<{
         visible={visible && !minted}
         onClose={onClose}
         onMinted={setMinted}
+        initialLibraries={initialLibraries}
       />
       <MintedInviteDialog
         minted={minted}
@@ -100,7 +103,8 @@ const MintInviteDialog: React.FC<{
   visible: boolean;
   onClose: () => void;
   onMinted: (result: MintedInvite) => void;
-}> = ({ visible, onClose, onMinted }) => {
+  initialLibraries?: readonly string[];
+}> = ({ visible, onClose, onMinted, initialLibraries }) => {
   const { t } = useTranslation();
   const libraries = useInviteLibraries();
   const mint = useMintInvite();
@@ -123,7 +127,11 @@ const MintInviteDialog: React.FC<{
   const available = useMemo(() => libraries.data ?? [], [libraries.data]);
   // Everything ticked to begin with; unticking is the edit. See the hook for why that is a UI
   // default and not a server one.
-  const { chosen, toggle, reset: resetChosen } = useChosenLibraries(available);
+  const {
+    chosen,
+    toggle,
+    reset: resetChosen,
+  } = useChosenLibraries(available, initialLibraries);
 
   const reset = useCallback(() => {
     setUsername("");

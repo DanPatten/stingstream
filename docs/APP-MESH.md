@@ -68,7 +68,7 @@ apps/stingstream/
 ├─ providers/MeshProvider.tsx          starts the node, keeps membership in step, publishes state
 ├─ utils/mesh/streamUrl.ts             the rewrite rule (pure, unit-tested)
 ├─ utils/mesh/inviteLink.ts            building an invite link and reading one back (pure, tested)
-├─ utils/mesh/pendingInvite.ts         an opened link, held in memory between /join and Join
+├─ utils/mesh/connectionLink.ts        the invite and start links /link reads (pure, tested)
 ├─ lib/stingstream/mesh.ts             the HOME NODE's mesh API, through the gateway
 ├─ components/stingstream/mesh/        the Group screens
 └─ scripts/build-mesh-android.ps1      builds the Rust library + regenerates the bindings

@@ -1,135 +1,93 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, View } from "react-native";
+import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
-import { Dialog } from "@/components/common/Dialog";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { radius } from "@/constants/theme";
+import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
 import {
-  canManageMembers,
   MeshUnavailableError,
   useLeaveMeshGroup,
   useNodeMeshGroups,
-  useNodeMeshMembers,
   useNodeMeshPeers,
-  useRemoveMeshMember,
+  useNodeMeshStatus,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
 import { confirmDestructive } from "../shared/confirm";
-import { Disclosure } from "../shared/Disclosure";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { GroupMembers, RotateSecret } from "./GroupMembers";
-import { InviteCard } from "./InviteCard";
+import { GroupMembers } from "./GroupMembers";
 import { SharedLibrariesSection } from "./SharedLibraries";
 
 /**
- * One group: who is in it, how they are reached, its rendezvous server, and the way out.
+ * One connected server: what this server shares with it, who is in the connection, and Remove.
  *
- * The member list is the **server's** view — it is the one that actually holds connections to
- * everyone, whereas this device only dials a member when something is playing from it. The
- * rendezvous server and the danger zone both sit behind an "Advanced" disclosure, collapsed by
- * default: changing either is rare and one of them (leaving) is irreversible, so neither belongs
- * above the fold on a screen most visits are just here to check on members.
+ * **Named after the other server**, not the group. A connection is one group per pair of servers,
+ * and the group was named by whichever server made the invite, so on that server the group carries
+ * its own name. The other member is what the reader is looking at.
+ *
+ * No rotate secret, no per-member removal, no invite button. Dan: *"lets remove the rotate secret
+ * feature - we dont need that - just delete and re-add."*
  */
 export function GroupDetailScreen({ group }: { group: string }) {
   const { color } = useTheme();
   const { t } = useTranslation();
+  const router = useRouter();
   const groups = useNodeMeshGroups();
   const peers = useNodeMeshPeers(group);
+  const status = useNodeMeshStatus();
   const leave = useLeaveMeshGroup();
-  const removeMember = useRemoveMeshMember();
-  const members = useNodeMeshMembers(group);
   const mesh = useMesh();
   const isAdmin = useIsStingStreamAdmin();
-  const [showInvite, setShowInvite] = useState(false);
 
   const info = useMemo(
     () => (groups.data ?? []).find((g) => g.group === group),
     [groups.data, group],
   );
 
-  // Removing a member and rotating the secret are elevated on the server and phone/web only, and
-  // the roster they are attached to is elevated too — so this one flag decides whether the member
-  // list is even asked for. See `canManageMembers`.
-  const manageable = canManageMembers(isAdmin, Platform.isTV);
-
-  // The counts stay the peer list's, not the roster's: the roster keeps removed members on it so
-  // the removal is visible, and counting those as members of the group would be a lie.
+  const me = status.data?.node?.toLowerCase();
   const peerRows = peers.data ?? [];
+  const other = peerRows.find(
+    (peer) => (peer.node ?? "").toLowerCase() !== me,
+  );
+  const server =
+    other?.serverName || info?.name || t("sharing.server_untitled");
   const onlineCount = peerRows.filter((p) => p.online).length;
-  const groupName = info?.name ?? "";
 
-  /**
-   * Unlink: stop sharing, and make the other side stop too.
-   *
-   * **Two calls, because leaving alone is one-sided and silent.** `leave` is purely local — it
-   * stops this node gossiping, drops the index and forgets the secret, and dials nobody. The other
-   * server keeps this node in its peer list for ever and, more to the point, **keeps the shared
-   * secret**, so every invite code ever minted for the link still works and this node could be
-   * re-added without its owner doing anything.
-   *
-   * So the honest version rotates first — which removes the other side and re-keys what is left —
-   * and only then leaves. The rotation is attempted for every member rather than only the one that
-   * matters, because in a link of more than two there is no single "them".
-   *
-   * A rotation that cannot reach anybody is not a reason to stay: leaving still happens, and the
-   * toast says the other side may not have heard yet. The alternative — refusing to unlink because
-   * a peer is offline — leaves somebody unable to end a share they no longer want.
-   */
-  const onLeave = useCallback(() => {
+  const onRemove = useCallback(() => {
     void (async () => {
       const confirmed = await confirmDestructive(
-        t("sharing.unlink_confirm_title", { group: groupName || group }),
-        t("sharing.unlink_confirm_warning"),
-        t("sharing.unlink_confirm_button"),
+        t("sharing.remove_confirm_title", { server }),
+        t("sharing.remove_confirm_detail"),
+        t("sharing.remove_confirm_button"),
       );
       if (!confirmed) return;
-
-      let told = true;
       try {
-        // The membership list rather than the peer list: only this one knows which row is the
-        // node asking the question, and the mesh refuses to revoke yourself anyway.
-        const others = (members.data?.members ?? []).filter(
-          (m) => !m.isSelf && !m.revoked,
-        );
-        for (const member of others) {
-          await removeMember.mutateAsync({ group, node: member.node });
-        }
-      } catch {
-        // Offline, or a build that refuses. Recorded so the toast can be honest about it.
-        told = false;
-      }
-
-      try {
-        await leave.mutateAsync(group);
-        // The embedded node follows the server, so tell it now rather than waiting for the
-        // five-minute sync to notice.
+        const removed = await leave.mutateAsync(group);
+        // The embedded node follows the server, so tell it now rather than at the next sync.
         await mesh.syncGroups();
         toast.success(
           t(
-            told
-              ? "sharing.unlink_success"
-              : "sharing.unlink_success_unreached",
-            {
-              group: groupName || group,
-            },
+            removed.pending.length > 0
+              ? "sharing.removed_offline"
+              : "sharing.removed",
+            { server },
           ),
         );
+        router.replace("/settings/servers");
       } catch (error) {
         toast.error((error as Error).message);
       }
     })();
-  }, [group, groupName, leave, members.data, mesh, removeMember, t]);
+  }, [group, leave, mesh, router, server, t]);
 
-  // A server whose mesh child is down answers 503 here, and that is not "this group has no
-  // members" — it is "nothing can be asked right now", which gets its own state rather than an
-  // empty member list that would read as the group having been abandoned.
+  // A server whose mesh child is down answers 503 here, which is "nothing can be asked right now",
+  // not "this connection has no members".
   if (groups.error instanceof MeshUnavailableError) {
     return (
       <PageContainer width='settings'>
@@ -141,19 +99,8 @@ export function GroupDetailScreen({ group }: { group: string }) {
     );
   }
 
-  // An id that is not one of this server's links.
-  //
-  // `[group]` is the only dynamic segment under `settings/servers`, so it
-  // catches every path that does not match a real file — and when
-  // `settings/servers/create` was deleted, `/settings/servers/create` started
-  // resolving *here*, rendering a management screen for a group called
-  // "create": "Unnamed", nought members, and a live "Rotate secret" button.
-  // Confirmed live before this guard existed.
-  //
-  // A stale bookmark to a link somebody has since left does exactly the same
-  // thing, so this is worth having on its own account. Gated on the query
-  // having actually answered: `undefined` while it is in flight is "not known
-  // yet", not "not there", and the 503 above is neither.
+  // An id that is not one of this server's connections: a stale bookmark, or a path that happens to
+  // match `[group]`. Gated on the query having answered, because in flight is "not known yet".
   if (groups.isSuccess && !info) {
     return (
       <PageContainer width='settings'>
@@ -181,7 +128,7 @@ export function GroupDetailScreen({ group }: { group: string }) {
           }}
         >
           <Text variant='title' weight='semibold'>
-            {groupName || t("sharing.unnamed_group")}
+            {server}
           </Text>
           <View
             style={{
@@ -198,87 +145,32 @@ export function GroupDetailScreen({ group }: { group: string }) {
               tone={onlineCount > 0 ? "success" : "neutral"}
               label={t("sharing.online_count", { count: onlineCount })}
             />
-            <Pill
-              tone={isAdmin ? "accent" : "neutral"}
-              label={
-                isAdmin ? t("sharing.role_admin") : t("sharing.role_member")
-              }
-            />
           </View>
         </View>
 
-        {isAdmin && (
+        {isAdmin ? (
           <>
             <View style={{ height: 20 }} />
             <SharedLibrariesSection group={group} />
           </>
-        )}
-
-        {isAdmin && (
-          <>
-            {/* The button moved into the Members heading, where it belongs -- inviting a server
-                adds a member. A full-width primary bar between the libraries and the roster split
-                the page in half and belonged to neither side of it. */}
-            <Dialog
-              visible={showInvite}
-              onClose={() => setShowInvite(false)}
-              title={t("sharing.invite_dialog_title", {
-                group: groupName || group,
-              })}
-            >
-              <InviteCard group={group} groupName={groupName} />
-            </Dialog>
-          </>
-        )}
+        ) : null}
 
         <View style={{ height: 20 }} />
+        <GroupMembers peers={peers.data} />
 
-        <GroupMembers
-          group={group}
-          groupName={groupName}
-          peers={peers.data}
-          manageable={manageable}
-          onInvite={isAdmin ? () => setShowInvite(true) : undefined}
-        />
-
-        <View style={{ height: 20 }} />
-
-        <Disclosure title={t("sharing.advanced_title")}>
-          {isAdmin && (
-            <View
-              style={{
-                marginTop: 20,
-                paddingTop: 16,
-                borderTopWidth: 1,
-                borderTopColor: color.border.subtle,
-              }}
+        {isAdmin ? (
+          <View style={{ marginTop: 32 }}>
+            <Button
+              testID='sharing-remove-server'
+              variant='danger'
+              icon='delete'
+              onPress={onRemove}
+              loading={leave.isPending}
             >
-              <Text
-                variant='caption'
-                weight='semibold'
-                tone='danger'
-                style={{ marginBottom: 8 }}
-              >
-                {t("sharing.danger_zone_title")}
-              </Text>
-              <Button
-                testID='sharing-leave'
-                variant='danger'
-                icon='leave'
-                onPress={onLeave}
-                loading={leave.isPending}
-              >
-                {t("sharing.unlink_button")}
-              </Button>
-
-              {/* Beside Unlink, because it is the same kind of act: rare, slow, and impossible to
-                  undo. It was a red bar in the middle of the member list. */}
-              {manageable ? (
-                <RotateSecret group={group} groupName={groupName} />
-              ) : null}
-            </View>
-          )}
-        </Disclosure>
+              {t("sharing.remove_server")}
+            </Button>
+          </View>
+        ) : null}
       </QueryState>
     </PageContainer>
   );

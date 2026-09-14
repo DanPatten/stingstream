@@ -64,6 +64,10 @@ The same applies to anything else exclusive: `apps/stingstream/android/` is rege
 
 ## 4. Commit your own paths, explicitly
 
+> **Suspended in dev mode.** Until Dan announces the official release, commit the whole tree with
+> `git add -A`, other sessions' half-finished work included, and push. See the root `CLAUDE.md`,
+> "Dev mode: commit everything". The rest of this rule is what applies after release.
+
 `git add <paths>`, never `git add -A` or `git add .`. The tree is full of other people's
 uncommitted work, and a broad add sweeps it into your commit — where it is not lost, but it is
 attributed to you and lands at a moment its author did not choose.

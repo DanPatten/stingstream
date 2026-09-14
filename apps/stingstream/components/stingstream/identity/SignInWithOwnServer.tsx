@@ -9,7 +9,6 @@ import { requestChallenge } from "@/lib/stingstream/identityApi";
 import {
   buildAuthorizeUrl,
   returnTargetFromLocation,
-  withLinkTo,
 } from "@/utils/identity/handoff";
 import { resolveServerOrigin } from "@/utils/identity/resolveServer";
 
@@ -56,12 +55,11 @@ export const SignInWithOwnServer: React.FC<{
   /** What this server calls itself, for the consent screen on the other end. */
   serverName?: string | null;
   /**
-   * Also ask for the two servers to be linked.
+   * Also connect the two servers, when they administer their own.
    *
-   * True from the invite flow, because that is what Dan asked for: *"signing in with their own
-   * server will re-use their same login on this new server AND submit a request to link their
-   * server to this one"*. False from the ordinary sign-in, where the person already has an account
-   * here and asking again on every sign-in would be noise — Settings is where they ask later.
+   * True from the invite flow: the invite is this server's consent, and choosing what their server
+   * shares on `/authorize` is theirs, so one sign-in completes the connection. False from the
+   * ordinary sign-in, where the person already has an account here.
    */
   requestLink?: boolean;
   onCancel?: () => void;
@@ -93,9 +91,7 @@ export const SignInWithOwnServer: React.FC<{
       const url = buildAuthorizeUrl(found, {
         audience: challenge.audience,
         nonce: challenge.nonce,
-        // Carried back so an approval here can hand over a link to open rather than a code to
-        // paste, which is what Settings' *Add server* already does. Same journey, same ending.
-        returnTo: withLinkTo(returnTargetFromLocation() ?? nodeOrigin, found),
+        returnTo: returnTargetFromLocation() ?? nodeOrigin,
         serverName: serverName ?? challenge.serverName,
         invite: inviteToken ?? undefined,
         link: requestLink,

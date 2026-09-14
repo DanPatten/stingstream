@@ -318,15 +318,6 @@ export default function IndexLayout() {
           headerShadowVisible: false,
         }}
       />
-      <Stack.Screen
-        name='settings/servers/join'
-        options={{
-          title: t("sharing.join_title"),
-          headerBlurEffect: "none",
-          headerTransparent: Platform.OS === "ios",
-          headerShadowVisible: false,
-        }}
-      />
       {/* This server's own page. Its title is the row you pressed to get here, not *Servers*:
           the stack behind it already says that. */}
       <Stack.Screen
@@ -342,6 +333,16 @@ export default function IndexLayout() {
         name='settings/servers/[group]'
         options={{
           title: t("sharing.servers_title"),
+          headerBlurEffect: "none",
+          headerTransparent: Platform.OS === "ios",
+          headerShadowVisible: false,
+        }}
+      />
+      {/* One library's own page, under Libraries. */}
+      <Stack.Screen
+        name='settings/storage/[id]'
+        options={{
+          title: t("home.settings.nav.storage"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,

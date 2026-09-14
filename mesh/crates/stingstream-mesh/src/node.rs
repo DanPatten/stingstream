@@ -258,6 +258,27 @@ impl MeshNode {
             });
         }
 
+        // Link maintenance: removals owed to members that were away, removals made elsewhere while
+        // this node was away, and invitations nobody opened. Shortly after startup -- once the
+        // liveness sweep has had time to mark the peers that really are gone -- then hourly.
+        {
+            let weak = Arc::downgrade(&node);
+            let first = std::time::Duration::from_secs(
+                node.cfg.gossip.peer_timeout_secs.max(30).saturating_mul(2),
+            );
+            tokio::spawn(async move {
+                let mut tick = tokio::time::interval_at(
+                    tokio::time::Instant::now() + first,
+                    LINK_MAINTENANCE_INTERVAL,
+                );
+                loop {
+                    tick.tick().await;
+                    let Some(node) = weak.upgrade() else { break };
+                    node.run_link_maintenance().await;
+                }
+            });
+        }
+
         tracing::info!(
             node = %node.node_id(),
             server_name = %node.cfg.server_name,
@@ -617,6 +638,191 @@ impl MeshNode {
             tracing::info!(group = %id, "left the group");
         }
         Ok(removed)
+    }
+
+    /// Remove a group here and on every other member.
+    ///
+    /// Dan: *"Deleting a server completely severs the link from BOTH sides ... unless that other
+    /// server is offline in which case it self deletes on startup automatically."*
+    ///
+    /// Every member that answers is told now and removes the group itself. One that does not gets
+    /// a row in `pending_unlinks`, holding the secret the group had, and hears about it whichever
+    /// way comes first: this node retries hourly ([`MeshNode::run_link_maintenance`]), and when that
+    /// member next starts it checks its offline peers, is admitted here on the old secret, is
+    /// answered 410, and removes the group on its own side.
+    ///
+    /// Deliberately separate from [`MeshNode::leave`], which stays silent: the phone's light node
+    /// leaves a group whenever its server does, and that must never remove it for everybody.
+    pub async fn unlink(&self, id: &GroupId) -> Result<Unlinked> {
+        let Some(group) = self.db.group(id)? else {
+            bail!("this node is not a member of group {id}");
+        };
+        let me = self.node_id();
+        let revoked = self.db.revoked(id)?;
+        let others: Vec<String> = self
+            .db
+            .peers(Some(id))?
+            .into_iter()
+            .map(|p| p.node)
+            .filter(|n| n != &me && !revoked.contains(n))
+            .collect();
+
+        let mut told = Vec::new();
+        let mut pending = Vec::new();
+        for node in others {
+            let sent = match tokio::time::timeout(
+                UNLINK_PUSH_TIMEOUT,
+                self.send_unlink(id, &group.secret, &node),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => Err(anyhow::anyhow!("no answer in time")),
+            };
+            match sent {
+                Ok(()) => told.push(node),
+                Err(e) => {
+                    tracing::info!(
+                        group = %id, node = %short(&node), error = %e,
+                        "a member will be told about the removal when it is back"
+                    );
+                    self.db.put_pending_unlink(id, &node, &group.secret)?;
+                    pending.push(node);
+                }
+            }
+        }
+
+        self.leave(id).await?;
+        tracing::info!(
+            group = %id,
+            told = told.len(),
+            pending = pending.len(),
+            "removed the group"
+        );
+        Ok(Unlinked {
+            group: *id,
+            told,
+            pending,
+        })
+    }
+
+    /// Another member removed this group. Remove it here too.
+    pub async fn receive_unlink(&self, id: &GroupId, from: &str) -> Result<()> {
+        if self.leave(id).await? {
+            tracing::info!(group = %id, by = %short(from), "a member removed this group; removed it here too");
+        }
+        Ok(())
+    }
+
+    /// Tell one member a group is gone, over a fresh connection on the secret it had.
+    async fn send_unlink(
+        &self,
+        id: &GroupId,
+        secret: &crate::group::GroupSecret,
+        node: &str,
+    ) -> Result<()> {
+        let peer: EndpointId = node
+            .parse()
+            .with_context(|| format!("{node} is not a node id"))?;
+        let conn = match self.dial(id, secret, EndpointAddr::new(peer)).await {
+            Ok(conn) => conn,
+            // It refuses this group: it has removed it already, or removed us. Either way there is
+            // nobody left to tell.
+            Err(e) if format!("{e:#}").contains("refused the group handshake") => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let req = Request::builder()
+            .method("POST")
+            .uri("/peer/v1/group/unlink")
+            .body(empty_body())
+            .context("building a removal notice")?;
+        let resp = conn.request(req).await?;
+        // 410 is a member that removed the group itself in the meantime.
+        if resp.status().is_success() || resp.status() == StatusCode::GONE {
+            Ok(())
+        } else {
+            bail!("the member answered {} to a removal notice", resp.status())
+        }
+    }
+
+    /// The hourly tidy-up that keeps both sides of a removed link in step.
+    ///
+    /// 1. Deliver removals owed to members that were away, and give up on ones a month old.
+    /// 2. Remove groups another member removed while this node was away. Only offline members are
+    ///    asked: one still heartbeating obviously still has the group, and a member that removed
+    ///    it answers 410 (see `pending_unlinks` in `peer.rs`).
+    /// 3. On a full node, remove invitations nobody opened within their lifetime.
+    async fn run_link_maintenance(&self) {
+        match self.db.expire_pending_unlinks(PENDING_UNLINK_LIFETIME_SECS) {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(n, "gave up on removal notices nobody collected"),
+            Err(e) => tracing::warn!(error = %e, "expiring removal notices"),
+        }
+        for row in self.db.pending_unlinks().unwrap_or_default() {
+            let sent = tokio::time::timeout(
+                UNLINK_PUSH_TIMEOUT,
+                self.send_unlink(&row.group, &row.secret, &row.node),
+            )
+            .await;
+            if matches!(sent, Ok(Ok(()))) {
+                let _ = self.db.drop_pending_unlink(&row.group, &row.node);
+                tracing::info!(group = %row.group, node = %short(&row.node), "delivered a removal notice");
+            }
+        }
+
+        let me = self.node_id();
+        for group in self.db.groups().unwrap_or_default() {
+            let peers = self.db.peers(Some(&group.id)).unwrap_or_default();
+            let revoked = self.db.revoked(&group.id).unwrap_or_default();
+            let others: Vec<&PeerRow> = peers
+                .iter()
+                .filter(|p| p.node != me && !revoked.contains(&p.node))
+                .collect();
+
+            if others.is_empty() {
+                if !self.cfg.peer.light && self.is_abandoned(&group) {
+                    let _ = self.leave(&group.id).await;
+                    tracing::info!(group = %group.id, "removed an invitation nobody opened");
+                }
+                continue;
+            }
+
+            for peer in others.iter().filter(|p| !p.online) {
+                if self.removed_by(&group, &peer.node).await {
+                    let _ = self.receive_unlink(&group.id, &peer.node).await;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Whether `node` has removed this group, which it says by answering 410.
+    async fn removed_by(&self, group: &Group, node: &str) -> bool {
+        let Ok(peer) = node.parse::<EndpointId>() else {
+            return false;
+        };
+        let asked = tokio::time::timeout(UNLINK_PUSH_TIMEOUT, async {
+            let conn = self
+                .dial(&group.id, &group.secret, EndpointAddr::new(peer))
+                .await?;
+            let req = Request::builder()
+                .method("GET")
+                .uri("/peer/v1/status")
+                .body(empty_body())
+                .context("building a status request")?;
+            anyhow::Ok(conn.request(req).await?.status())
+        })
+        .await;
+        matches!(asked, Ok(Ok(StatusCode::GONE)))
+    }
+
+    /// A group only this node is in, older than an invitation lasts, with no invitation left.
+    fn is_abandoned(&self, group: &Group) -> bool {
+        if group.created_at >= crate::util::rfc3339_seconds_ago(crate::db::MESH_INVITE_LIFETIME_SECS)
+        {
+            return false;
+        }
+        !self.db.has_live_invite(&group.id).unwrap_or(true)
     }
 
     async fn start_group(
@@ -3478,6 +3684,26 @@ pub enum JoinRoute {
 
 /// How long a member has to take a pushed rotation before the pusher moves on.
 const REKEY_PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long one member gets to answer a removal notice before it is left for later.
+const UNLINK_PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How often [`MeshNode::run_link_maintenance`] runs after the first time.
+const LINK_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// How long a removal notice is kept for a member that never comes back. Thirty days.
+const PENDING_UNLINK_LIFETIME_SECS: u64 = 30 * 24 * 60 * 60;
+
+/// What [`MeshNode::unlink`] did.
+#[derive(Debug, Clone, Serialize)]
+pub struct Unlinked {
+    #[serde(serialize_with = "crate::node::serialize_group")]
+    pub group: GroupId,
+    /// Members that removed the group while the caller waited.
+    pub told: Vec<String>,
+    /// Members that were away. They are told when they are back.
+    pub pending: Vec<String>,
+}
 
 /// `meta` key under which a group's newest rotation record is kept.
 ///

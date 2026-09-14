@@ -2,16 +2,24 @@ import { useRouter } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Platform, View } from "react-native";
+import { ActivityIndicator, View } from "react-native";
 import { Button } from "@/components/Button";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
 import { Text } from "@/components/common/Text";
 import { AuthCard } from "@/components/login/AuthCard";
+import { goToServer } from "@/components/stingstream/mesh/openOrCopy";
+import { ShareLibrariesPicker } from "@/components/stingstream/mesh/ShareLibrariesPicker";
 import { IDENTITY_KDF_ITERATIONS } from "@/constants/Values";
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
+import { createConnectionInvite } from "@/lib/stingstream/connections";
 import { vouchForMe } from "@/lib/stingstream/identityApi";
-import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
+import {
+  apiAtom,
+  getUserFromStorage,
+  useJellyfin,
+  userAtom,
+} from "@/providers/JellyfinProvider";
 import {
   buildReturnUrl,
   fragmentFromLocation,
@@ -20,6 +28,13 @@ import {
 import { deriveVerifier, newSalt } from "@/utils/identity/verifier";
 import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
 import { storage } from "@/utils/mmkv";
+
+/** What the sign-in step proved, held while an administrator chooses what their server shares. */
+interface SignedIn {
+  token: string;
+  salt: string;
+  verifier: string;
+}
 
 /**
  * `/authorize` — somebody else's server is asking this one to say who you are.
@@ -42,18 +57,13 @@ import { storage } from "@/utils/mmkv";
  * `utils/identity/verifier.ts`. Built from a password that was never confirmed, it would be a
  * password nobody could reproduce, so this authenticates first and derives from what worked.
  *
- * This also replaced a bounce to `/login`, which lost the fragment on the way and left the request
- * unfinishable.
+ * ## Connecting the two servers on the way through
  *
- * ## The copy
- *
- * A title, one line, two fields, a button — the shape every sign-in and link page in this app
- * uses. The wording is a consent screen's, not a challenge's: it said *"Prove who you are"* over
- * *"Sign in, and {{server}} will be told your name. Not your password."* until Dan called it out —
- * *"isnt professional and doesnt match AAA software linking screens"*. Both faults are worth naming
- * so they do not come back: an imperative that reads as an accusation, and a defensive sentence
- * fragment about what is *not* sent. What a reader needs is what happens if they continue, said
- * once and calmly, which is what the two strings say now.
+ * The invite flow asks for it (`link`). An administrator of this server chooses what it shares, this
+ * server makes an invite for the other one, and its code goes back beside the assertion, so the one
+ * sign-in also connects the servers. Dan: *"one user does EVERYTHING once and they are done."* A
+ * member of this server skips the step and gets the account only: what this server shares is not
+ * theirs to decide.
  *
  * ## What it is careful about
  *
@@ -82,9 +92,41 @@ export default function AuthorizePage() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signedIn, setSignedIn] = useState<SignedIn | null>(null);
+  const [selected, setSelected] = useState<string[] | null>(null);
 
   const serverName =
     request?.serverName ?? t("identity.authorize_other_server");
+
+  /** Sign the assertion and go back, with an invite when there is one. */
+  const finish = useCallback(
+    async (proved: SignedIn, linkCode?: string) => {
+      if (!request || !nodeContext) return;
+      const signed = await vouchForMe(
+        nodeContext.origin,
+        { audience: request.audience, nonce: request.nonce },
+        proved.token,
+      );
+
+      const back = buildReturnUrl(request.returnTo, signed.assertion, {
+        linkCode,
+        // Straight back out. The far side needs it to admit somebody for the first time, and the
+        // page that held it is gone.
+        invite: request.invite,
+        credential: {
+          salt: proved.salt,
+          verifier: proved.verifier,
+          iterations: IDENTITY_KDF_ITERATIONS,
+        },
+      });
+      if (!back) {
+        setError(t("identity.authorize_nowhere_to_return"));
+        return;
+      }
+      await goToServer(back);
+    },
+    [nodeContext, request, t],
+  );
 
   const approve = useCallback(async () => {
     if (!request || !nodeContext || busy) return;
@@ -103,8 +145,8 @@ export default function AuthorizePage() {
       // from is really theirs.
       await login(username.trim(), password);
 
-      // Read back rather than taken from `api`, which is the value this render closed over and is
-      // one state update behind the line above.
+      // Read back rather than taken from `api` or `user`, which are the values this render closed
+      // over and are one state update behind the line above.
       const token = storage.getString("token");
       if (!token) throw new Error(t("identity.authorize_failed"));
 
@@ -114,35 +156,13 @@ export default function AuthorizePage() {
         salt,
         IDENTITY_KDF_ITERATIONS,
       );
+      const proved = { token, salt, verifier };
 
-      const signed = await vouchForMe(
-        nodeContext.origin,
-        { audience: request.audience, nonce: request.nonce },
-        token,
-      );
-
-      const back = buildReturnUrl(request.returnTo, signed.assertion, {
-        link: request.link,
-        // Straight back out. The far side needs it to admit somebody for the first time, and the
-        // page that held it is gone.
-        invite: request.invite,
-        credential: { salt, verifier, iterations: IDENTITY_KDF_ITERATIONS },
-      });
-      if (!back) {
-        setError(t("identity.authorize_nowhere_to_return"));
+      if (request.link && getUserFromStorage()?.Policy?.IsAdministrator) {
+        setSignedIn(proved);
         return;
       }
-
-      if (Platform.OS === "web") {
-        // A different origin, so a full navigation rather than a router push.
-        (
-          globalThis as { location?: { assign?: (u: string) => void } }
-        ).location?.assign?.(back);
-        return;
-      }
-
-      const WebBrowser = await import("expo-web-browser");
-      await WebBrowser.openBrowserAsync(back);
+      await finish(proved);
     } catch (e) {
       setError((e as Error)?.message ?? t("identity.authorize_failed"));
     } finally {
@@ -151,6 +171,7 @@ export default function AuthorizePage() {
   }, [
     api?.basePath,
     busy,
+    finish,
     login,
     nodeContext,
     password,
@@ -159,6 +180,24 @@ export default function AuthorizePage() {
     t,
     username,
   ]);
+
+  const share = useCallback(async () => {
+    if (!signedIn || !nodeContext || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const invite = await createConnectionInvite(
+        `${nodeContext.origin}${nodeContext.apiPath}`,
+        signedIn.token,
+        selected,
+      );
+      await finish(signedIn, invite.code);
+    } catch (e) {
+      setError((e as Error)?.message ?? t("sharing.add_server_failed"));
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, finish, nodeContext, selected, signedIn, t]);
 
   // A link whose fragment did not survive being pasted, or somebody who typed the path.
   if (!request) {
@@ -193,6 +232,38 @@ export default function AuthorizePage() {
         <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
           {t("identity.authorize_no_node")}
         </Text>
+      </AuthCard>
+    );
+  }
+
+  if (signedIn) {
+    return (
+      <AuthCard>
+        <Text variant='title' weight='bold'>
+          {t("sharing.share_title")}
+        </Text>
+        <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
+          {t("sharing.share_detail", { server: serverName })}
+        </Text>
+        <View style={{ marginTop: 20 }}>
+          <ShareLibrariesPicker
+            selected={selected}
+            onChange={setSelected}
+            disabled={busy}
+          />
+        </View>
+        <FormError message={error} />
+        <Button
+          testID='identity-authorize-share'
+          variant='primary'
+          size='lg'
+          loading={busy}
+          disabled={busy}
+          onPress={() => void share()}
+          style={{ marginTop: 20 }}
+        >
+          {t("sharing.continue")}
+        </Button>
       </AuthCard>
     );
   }

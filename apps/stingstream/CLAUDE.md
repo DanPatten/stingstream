@@ -56,6 +56,7 @@ UI and headers:
 - `switch-pointerevents-ignored` | Switch ignores its own pointerEvents (Android); wrap in a View pointerEvents="none"
 - `pressable-listitem-cannot-hold-buttons` | A pressable ListItem is a real `<button>` on web; row action buttons must be siblings, not `iconAfter`
 - `no-browser-dialogs` | Never `globalThis.confirm`/`alert`; `Alert.alert` draws nothing on web and is TV-only. Use `confirmDestructive`/`confirmAction`/`toast`
+- `icon-fonts-blank-in-gecko` | Every icon is blank in Firefox unless `constants/fonts.web.ts` registers the family before React renders; add new `@expo/vector-icons` families to `ICON_FAMILIES`
 
 State and data:
 - `use-network-aware-query-client-limitations` | Object.create breaks private fields; only for invalidateQueries
@@ -176,8 +177,8 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   `(home,libraries,search,favorites,watchlists)`.
 - There is no `(manage)` group, and no arr library screen either. Both were folded into
   the things they were about: the arr queue, history and calendar are Requests → Activity,
-  adding a title is Requests → Discover (route key `find`, and home to a member's own
-  requests as well; there is no My requests tab), and what this server does about one title it already
+  adding a title is Requests → Discover (route key `find`, where Requests opens, with a line of
+  the member's own requests; the whole list is the My requests tab), and what this server does about one title it already
   tracks — monitoring, quality profile, remove with or without files — is the overflow menu
   on that title's own page (`components/stingstream/arr/ManageTitleSheet.tsx`, offered only
   when `useArrTitle` finds a row, so a title held by another node offers nothing), and the
@@ -185,9 +186,11 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   lands and the title has a page at all. Its components live in
   `components/stingstream/arr/`.
 - There is no Downloading page either. Whether this node fetches a kind of title is a
-  library's own switch, on Settings → Libraries
-  (`components/stingstream/settings/LibrariesSection.tsx` over `lib/stingstream/libraries.ts`),
-  beside the folder that library writes to. Turning Movies on does not by itself start the movie
+  library's own switch, on its page under Settings → Libraries: the list is
+  `components/stingstream/settings/LibrariesSection.tsx`, each row opens
+  `settings/storage/[id]` (`LibraryDetailScreen.tsx`) with the switch and the library's folders,
+  all over `lib/stingstream/libraries.ts`. Folders are picked with `FolderBrowserDialog`. A library
+  page's "..." (`components/library/LibraryActionsMenu.tsx`) links there. Turning Movies on does not by itself start the movie
   manager: that also needs an enabled indexer covering films (`ArrEnablement`, reconciled in the
   background by `ArrEnablementWorker`). The row is a plain switch with no status on it. Usenet is
   not about a library and lives under Indexers & engines.
@@ -278,8 +281,9 @@ import { apiAtom } from "@/providers/JellyfinProvider";
   if server images ever need special handling again.
 - **Settings save themselves. No Save button.** A settings pane drafts with
   `components/stingstream/settings/useAutosave.ts`: a switch is sent the moment it is flipped
-  (`{ now: true }`), a field a second after the last keystroke, and whatever is still pending is
-  flushed when the screen unmounts. `SaveStatus` says a change is in flight; the outcome is a
+  (`{ now: true }`), a field when it is committed (blur or Enter, wired once in `TextFieldRow`, with
+  a 3 s idle fallback), and whatever is still pending is flushed when the screen unmounts. A value
+  the server already has is never sent, and saves go one at a time (`settings/autosaver.ts`). `SaveStatus` says a change is in flight; the outcome is a
   toast, bottom right. The exceptions are the two places a click really is the decision: a
   password change, and a dialog that creates something. Dan: *"no save buttons in settings please
   unless its SUPER critical change, but for 95% no save - changes are auto applied"*.

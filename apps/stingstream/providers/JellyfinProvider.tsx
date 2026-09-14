@@ -1226,6 +1226,9 @@ function useProtectedRoute(user: UserDto | null, loaded = false) {
     // do have one, that is the ordinary case rather than a reason to drop them on Home: being
     // signed in is precisely what lets this page sign the assertion. See `app/authorize.tsx`.
     const isAuthorizeRoute = root === "authorize";
+    // `/link` connects two servers, and the reader may arrive signed in or not on either end. The
+    // page signs them in itself so the link it is holding is not lost. See `app/link.tsx`.
+    const isLinkRoute = root === "link";
 
     if (!user?.Id && inAuthGroup) {
       router.replace("/login");
@@ -1234,7 +1237,8 @@ function useProtectedRoute(user: UserDto | null, loaded = false) {
       !inAuthGroup &&
       !isTopShelfLaunchRoute &&
       !isJoinRoute &&
-      !isAuthorizeRoute
+      !isAuthorizeRoute &&
+      !isLinkRoute
     ) {
       router.replace("/(auth)/(tabs)/(home)/");
     }

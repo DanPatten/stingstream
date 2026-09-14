@@ -202,6 +202,18 @@ public sealed class MeshRotation
     public IReadOnlyList<string> Reached { get; set; } = Array.Empty<string>();
 }
 
+/// <summary>The answer to <c>POST /mesh/v1/groups/{group}/unlink</c>.</summary>
+public sealed class MeshUnlinked
+{
+    public string Group { get; set; } = string.Empty;
+
+    /// <summary>Members that removed the group before the call returned.</summary>
+    public IReadOnlyList<string> Told { get; set; } = Array.Empty<string>();
+
+    /// <summary>Members that were away. The mesh tells them when they are back.</summary>
+    public IReadOnlyList<string> Pending { get; set; } = Array.Empty<string>();
+}
+
 /// <summary>The answer to <c>POST /mesh/v1/groups/join</c>.</summary>
 public sealed class MeshJoinResult
 {

@@ -159,12 +159,11 @@ public sealed class IdentityController : ControllerBase
             request?.InviteToken,
             DateTimeOffset.UtcNow,
             cancellationToken,
-            request?.RequestLink ?? false,
             IdentityGate.ReadCredential(
                 request?.Salt,
                 request?.Verifier,
                 request?.Iterations),
-            request?.Address).ConfigureAwait(false);
+            request?.LinkCode).ConfigureAwait(false);
 
         if (user is null)
         {
@@ -288,168 +287,6 @@ public sealed class IdentityController : ControllerBase
             .ConfigureAwait(false);
         return NoContent();
     }
-
-    /// <summary>Ask for the server you run to be linked with this one.</summary>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="204">There is now a request.</response>
-    /// <response code="400">This account did not arrive from another server, so there is none to link.</response>
-    /// <returns>Nothing.</returns>
-    /// <remarks>
-    /// Any member — asking is not deciding. The node being asked about is read from the caller's
-    /// own link row, never from the request: what a link holds was proved by a signature, and a
-    /// node id somebody typed is a node id somebody chose.
-    /// </remarks>
-    [HttpPost("link-requests", Name = "StingStreamRequestLink")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(IdentityError), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult> RequestLink(CancellationToken cancellationToken)
-    {
-        var userId = User?.FindFirst("Jellyfin-UserId")?.Value ?? string.Empty;
-        var made = await _identity
-            .RequestLinkAsync(userId, DateTimeOffset.UtcNow, cancellationToken)
-            .ConfigureAwait(false);
-
-        return made
-            ? NoContent()
-            : BadRequest(new IdentityError
-            {
-                Error = "This account did not come from another server, so there is none to link.",
-            });
-    }
-
-    /// <summary>Offer the server you run to this one, having just proved you run it.</summary>
-    /// <param name="request">The assertion that server signed, and where it answers.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="200">Recorded. Approved outright for an administrator, pending otherwise.</response>
-    /// <response code="400">Why it could not be recorded.</response>
-    /// <returns>The status, and the invite when there is one.</returns>
-    /// <remarks>
-    /// Any member, because asking is not deciding: an administrator's own offer is approved as it
-    /// is made, and everybody else's waits for one of them. Unlike <c>link-requests</c> above,
-    /// which reads the node being offered out of the caller's link row, this one reads it out of a
-    /// signature, so it works for an account that has always been local. Either way the node id is
-    /// proved rather than typed.
-    /// </remarks>
-    [HttpPost("link-requests/start", Name = "StingStreamStartLinkRequest")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(typeof(IdentityError), StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<LinkStartResult>> StartLink(
-        [FromBody] StartLinkRequest request,
-        CancellationToken cancellationToken)
-    {
-        var (result, problem) = await _identity.StartLinkAsync(
-            request?.Assertion,
-            request?.Address,
-            User?.FindFirst("Jellyfin-UserId")?.Value ?? string.Empty,
-            User?.IsInRole("Administrator") ?? false,
-            DateTimeOffset.UtcNow,
-            cancellationToken).ConfigureAwait(false);
-
-        return result is null
-            ? BadRequest(new IdentityError { Error = problem ?? "That could not be recorded." })
-            : Ok(result);
-    }
-
-    /// <summary>What this account's own link request is doing.</summary>
-    /// <response code="200">The status, and the invite once it is approved.</response>
-    /// <returns>The request.</returns>
-    /// <remarks>
-    /// Scoped to the caller inside the service rather than by a check in front of it, the way the
-    /// passkey routes scope credentials: the only request it can ever describe is the one belonging
-    /// to the server the caller signed in from.
-    /// </remarks>
-    [HttpGet("link-requests/mine", Name = "StingStreamMyLinkRequest")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<MyLinkRequest> MyLinkRequest()
-        => Ok(_identity.MyRequest(User?.FindFirst("Jellyfin-UserId")?.Value ?? string.Empty));
-
-    /// <summary>Which servers have asked to be linked with this one.</summary>
-    /// <response code="200">The requests, newest first.</response>
-    /// <returns>The requests.</returns>
-    [HttpGet("link-requests", Name = "StingStreamLinkRequests")]
-    [Authorize(Policy = Policies.RequiresElevation)]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<IReadOnlyList<LinkRequestSummary>> LinkRequests()
-        => Ok(_identity.ListRequests());
-
-    /// <summary>Let another server into one of this one's groups.</summary>
-    /// <param name="issuer">The asking node's id.</param>
-    /// <param name="request">Which group to add them to.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="204">They can join.</response>
-    /// <response code="400">There is nowhere to put them, or a choice still to make.</response>
-    /// <response code="404">No such request.</response>
-    /// <returns>Nothing.</returns>
-    [HttpPost("link-requests/{issuer}/approve", Name = "StingStreamApproveLink")]
-    [Authorize(Policy = Policies.RequiresElevation)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(typeof(IdentityError), StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> ApproveLink(
-        [FromRoute] string issuer,
-        [FromBody] ApproveLinkRequest? request,
-        CancellationToken cancellationToken)
-    {
-        var (ok, problem) = await _identity.ApproveRequestAsync(
-            issuer,
-            request?.GroupId,
-            User?.Identity?.Name ?? string.Empty,
-            DateTimeOffset.UtcNow,
-            cancellationToken).ConfigureAwait(false);
-
-        if (ok)
-        {
-            return NoContent();
-        }
-
-        return problem is null
-            ? NotFound()
-            : BadRequest(new IdentityError { Error = problem });
-    }
-
-    /// <summary>Say no to one.</summary>
-    /// <param name="issuer">The asking node's id.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="204">Declined.</response>
-    /// <response code="404">No such request, or it was already answered.</response>
-    /// <returns>Nothing.</returns>
-    [HttpPost("link-requests/{issuer}/decline", Name = "StingStreamDeclineLink")]
-    [Authorize(Policy = Policies.RequiresElevation)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> DeclineLink(
-        [FromRoute] string issuer,
-        CancellationToken cancellationToken)
-    {
-        var declined = await _identity.DeclineRequestAsync(
-            issuer,
-            User?.Identity?.Name ?? string.Empty,
-            DateTimeOffset.UtcNow,
-            cancellationToken).ConfigureAwait(false);
-        return declined ? NoContent() : NotFound();
-    }
-
-    /// <summary>Forget a request, so that server can ask again.</summary>
-    /// <param name="issuer">The asking node's id.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="204">Forgotten.</response>
-    /// <response code="404">There was no request from that server.</response>
-    /// <returns>Nothing.</returns>
-    /// <remarks>
-    /// The way back from a decline, and the only one. A decision is sticky on purpose — the upsert
-    /// refuses to reset a decided row to pending — so without this an administrator who declined by
-    /// mistake had shut that server out permanently, with no screen anywhere able to undo it.
-    /// </remarks>
-    [HttpDelete("link-requests/{issuer}", Name = "StingStreamForgetLinkRequest")]
-    [Authorize(Policy = Policies.RequiresElevation)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> ForgetLinkRequest(
-        [FromRoute] string issuer,
-        CancellationToken cancellationToken)
-        => await _identity.ForgetRequestAsync(issuer, cancellationToken).ConfigureAwait(false)
-            ? NoContent()
-            : NotFound();
 
     /// <summary>Which people on other servers hold an account here.</summary>
     /// <response code="200">The links, newest first.</response>
