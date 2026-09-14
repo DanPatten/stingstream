@@ -212,7 +212,7 @@ const JellyfinContext = createContext<JellyfinContextValue | undefined>(
  * somebody out in two. An administrator's reset on the Users screen clears the derivation instead,
  * which is what turns the account back into an ordinary one.
  */
-const secretToSend = async (
+export const secretToSend = async (
   basePath: string | undefined,
   username: string,
   password: string,

@@ -11,12 +11,17 @@ import { AuthCard } from "@/components/login/AuthCard";
 import { goToServer } from "@/components/stingstream/mesh/openOrCopy";
 import { ShareLibrariesPicker } from "@/components/stingstream/mesh/ShareLibrariesPicker";
 import { IDENTITY_KDF_ITERATIONS } from "@/constants/Values";
-import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
+import {
+  jellyfinUrlFor,
+  type NodeContext,
+  useNodeContext,
+} from "@/hooks/useNodeContext";
 import { createConnectionInvite } from "@/lib/stingstream/connections";
 import { vouchForMe } from "@/lib/stingstream/identityApi";
 import {
   apiAtom,
   getUserFromStorage,
+  secretToSend,
   useJellyfin,
   userAtom,
 } from "@/providers/JellyfinProvider";
@@ -28,6 +33,45 @@ import {
 import { deriveVerifier, newSalt } from "@/utils/identity/verifier";
 import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
 import { storage } from "@/utils/mmkv";
+import { APP_VERSION } from "@/utils/version";
+
+/**
+ * Check a password on this server without taking over the session this browser already holds.
+ *
+ * Its own device id, so Jellyfin opens a second session rather than replacing the one every tab is
+ * using, and that second session is logged out again at once: it existed only to answer "is this
+ * the password".
+ */
+async function checkPassword(
+  node: NodeContext,
+  basePath: string | undefined,
+  username: string,
+  password: string,
+  refused: string,
+): Promise<void> {
+  const base = jellyfinUrlFor(node);
+  const secret = await secretToSend(basePath ?? base, username, password);
+  const deviceId = `authorize-${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  const header = (token?: string) =>
+    `MediaBrowser Client="StingStream", Device="Sign-in check", DeviceId="${deviceId}", Version="${APP_VERSION}"${token ? `, Token="${token}"` : ""}`;
+
+  const res = await fetch(`${base}/Users/AuthenticateByName`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: header() },
+    body: JSON.stringify({ Username: username, Pw: secret }),
+  });
+  if (!res.ok) throw new Error(refused);
+
+  const body = (await res.json().catch(() => null)) as {
+    AccessToken?: string;
+  } | null;
+  if (body?.AccessToken) {
+    void fetch(`${base}/Sessions/Logout`, {
+      method: "POST",
+      headers: { Authorization: header(body.AccessToken) },
+    }).catch(() => undefined);
+  }
+}
 
 /** What the sign-in step proved, held while an administrator chooses what their server shares. */
 interface SignedIn {
@@ -134,20 +178,40 @@ export default function AuthorizePage() {
     setBusy(true);
     setError(null);
     try {
-      // Pointed at this server before it can hold a session on it — the same step `/join` takes.
-      if (!api?.basePath) {
-        const found = await checkJellyfinServer(jellyfinUrlFor(nodeContext));
-        if (!found) throw new Error(t("login.could_not_connect_to_server"));
-        await setServer({ address: found.url });
+      // Always checked, session or not: this is what proves the password the verifier is about to be
+      // built from is really theirs.
+      let token: string | undefined;
+      const existing = storage.getString("token");
+      if (
+        existing &&
+        user?.Name &&
+        user.Name.trim().toLowerCase() === username.trim().toLowerCase()
+      ) {
+        // **Already signed in here as this person: check, do not sign in again.** A second sign-in
+        // from this browser uses the same device id, and Jellyfin replaces that device's session.
+        // Every other tab on this server was holding the old one, and the first to hear a 401 tore
+        // the session down in shared storage, taking the one this page had just been given with it.
+        // Linking a server signed its owner out of that server. Found end to end in a browser.
+        await checkPassword(
+          nodeContext,
+          api?.basePath,
+          username.trim(),
+          password,
+          t("identity.authorize_failed"),
+        );
+        token = existing;
+      } else {
+        // Pointed at this server before it can hold a session on it — the same step `/join` takes.
+        if (!api?.basePath) {
+          const found = await checkJellyfinServer(jellyfinUrlFor(nodeContext));
+          if (!found) throw new Error(t("login.could_not_connect_to_server"));
+          await setServer({ address: found.url });
+        }
+        await login(username.trim(), password);
+        // Read back rather than taken from `api`, which is the value this render closed over and is
+        // one state update behind the line above.
+        token = storage.getString("token") ?? undefined;
       }
-
-      // Always, session or not: this is what proves the password the verifier is about to be built
-      // from is really theirs.
-      await login(username.trim(), password);
-
-      // Read back rather than taken from `api` or `user`, which are the values this render closed
-      // over and are one state update behind the line above.
-      const token = storage.getString("token");
       if (!token) throw new Error(t("identity.authorize_failed"));
 
       const salt = await newSalt();
@@ -178,6 +242,7 @@ export default function AuthorizePage() {
     request,
     setServer,
     t,
+    user?.Name,
     username,
   ]);
 
