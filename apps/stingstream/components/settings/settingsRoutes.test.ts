@@ -92,8 +92,8 @@ describe("every settings route keeps its navigation", () => {
   });
 
   test("every categoryKey names a real category", () => {
-    // Catches a key that names a *group* rather than a category -- `downloading`
-    // is both -- or one that outlived the category it was written for. Either
+    // Catches a key that names a *group* rather than a category -- `server`
+    // reads like both -- or one that outlived the category it was written for. Either
     // way the page draws a column with no row lit and nothing reports it.
     const keys = new Set(
       flattenCategories(buildSettingsCategories(admin, t)).map(

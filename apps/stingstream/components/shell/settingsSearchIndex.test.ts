@@ -119,6 +119,15 @@ describe("buildSettingsSearchIndex", () => {
     expect(entry?.keywords).toContain("downloading");
   });
 
+  test("the domain and tunnel are found on Remote access", () => {
+    // Domains folded into Remote access on 2026-09-13; a result still pointing
+    // at `/settings/domains` would arrive by way of a redirect that drops the
+    // focus target.
+    const tunnel = index(admin).find((e) => e.id === "cloudflare-tunnel");
+    expect(tunnel?.href).toBe("/settings/network?focus=cloudflare-tunnel");
+    expect(find(admin, "cloudflare")[0]).toBe("cloudflare-tunnel");
+  });
+
   test("a control can point at a page other than its own category", () => {
     // "Invite a person" is listed under Servers because that is where somebody
     // looks for it, and goes to Users & access because that is where it is.

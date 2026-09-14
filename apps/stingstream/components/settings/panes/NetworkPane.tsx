@@ -6,6 +6,7 @@ import { View } from "react-native";
 import { toast } from "sonner-native";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
+import { DomainsScreen } from "@/components/stingstream/domains/DomainsScreen";
 import {
   SaveStatus,
   TextFieldRow,
@@ -31,6 +32,11 @@ import { ScopedBlock, SettingsPane } from "./SettingsPane";
 
 /**
  * How this server is reached from outside the house.
+ *
+ * One page since 2026-09-13. Domains used to be a page of its own beside this
+ * one, and the two answered the same question. The domain and tunnel lead,
+ * because an address is what most people arrive wanting; the ports, proxies and
+ * certificate that decide how that address is served follow.
  *
  * The page used to be two rows reporting the addresses this app happened to be
  * using, which is a diagnostic rather than a setting — it could tell you the
@@ -83,7 +89,11 @@ export const NetworkPane: React.FC = () => {
       title={t("home.settings.nav.network")}
       detail={t("home.settings.nav.network_hint")}
     >
-      <CurrentAddresses />
+      <DomainsScreen />
+
+      <View style={{ marginTop: space["6"] }}>
+        <CurrentAddresses />
+      </View>
 
       <View style={{ marginTop: space["6"] }}>
         <QueryState {...stateOf(query)}>

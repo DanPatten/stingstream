@@ -256,7 +256,7 @@
         "theme_sting": "StingStream"
       },
       "network": {
-        "title": "Network",
+        "title": "Remote access",
         "local_network": "Local network",
         "auto_switch_enabled": "Auto-switch when at home",
         "auto_switch_description": "Switch to the local address when connected to home Wi-Fi",
@@ -659,10 +659,10 @@
         "quality": "Best quality"
       },
       "nav": {
+        "group_media": "Media",
+        "group_sharing": "Sharing & access",
+        "group_server": "Server",
         "group_you": "You",
-        "group_servers": "Servers",
-        "group_downloading": "Getting titles",
-        "group_administration": "Server administration",
         "profile": "Profile",
         "profile_hint": "Name, picture, password, devices",
         "appearance": "Interface & display",
@@ -673,8 +673,6 @@
         "about_hint": "Version, storage, licences",
         "servers": "Servers",
         "servers_hint": "Link and pool libraries",
-        "domains": "Domains",
-        "domains_hint": "Domain, tunnel, browser access",
         "users": "Users & access",
         "users_hint": "Accounts, invitations, limits",
         "services": "Indexers & engines",
@@ -687,8 +685,8 @@
         "files_hint": "Naming and folder layout",
         "transcoding": "Transcoding & hardware",
         "transcoding_hint": "Hardware and stream limits",
-        "network": "Network & remote access",
-        "network_hint": "Ports, proxies, certificates",
+        "network": "Remote access",
+        "network_hint": "Domain, tunnel, ports, certificates",
         "notifications": "Notifications",
         "notifications_hint": "Where downloads are announced",
         "plugins": "Plugins",

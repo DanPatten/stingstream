@@ -18,7 +18,7 @@ import type { IconName } from "@/components/common/iconNames";
  * 1. **The groups mixed scopes.** "General" held both this browser's theme and
  *    the server's own network addresses, so nothing on the screen said whether
  *    a control changed one viewer's app or everybody's server. The *groups* are
- *    what say it now — You, Servers, Server administration. A per-page badge
+ *    what say it now — Media, Sharing & access, Server, You. A per-page badge
  *    saying the same thing again was removed on Dan's word: *"delete all
  *    setting pages badges everywhere"*.
  * 2. **One row did far too much.** *Server settings* was a single click through
@@ -51,7 +51,7 @@ export interface SettingsCategory {
 }
 
 export interface SettingsCategoryGroup {
-  key: "you" | "servers" | "downloading" | "administration";
+  key: "media" | "sharing" | "server" | "you";
   title: string;
   testID: string;
   categories: SettingsCategory[];
@@ -97,62 +97,48 @@ export function buildSettingsCategories(
     category("about", "/settings/about", "info", t),
   ];
 
-  // Deliberately not folded into `you` or gated into `administration`.
-  // Federation is neither a preference nor purely an administrator's business:
-  // Servers shows this server and the servers it is linked to (an
-  // administrator's half) *and* lets somebody who runs their own node ask to
-  // link it (everybody's half, which used to be the separate row "The server I
-  // run"), so a member sees it.
+  // What the server holds and how it gets more of it: the libraries and the
+  // folders they write to, where it searches, how good a copy has to be, and
+  // what the files are called when they land. The half of the product an
+  // administrator came to configure, so it leads. Libraries first, because its
+  // switch is what every "downloading is not set up" notice is trying to reach.
   //
-  // Domains is the other half of the same subject and is elevated throughout —
-  // every call behind it needs `RequiresElevation` — so it follows the rule in
-  // this file's header rather than the group it sits in, and a member is not
-  // offered it. It was a collapsed "Advanced" disclosure at the bottom of
-  // Servers until it grew tunnel setup; the address field inside it is the one
-  // control that decides whether anybody can reach this server from a browser
-  // away from home, which is not a thing to hide behind a fold.
-  const servers: SettingsCategory[] = [
-    category("servers", "/settings/servers", "servers", t),
-    ...(isAdmin
-      ? [category("domains", "/settings/domains", "domains", t)]
-      : []),
-  ];
-
-  // Everything about getting hold of something the server does not have yet:
-  // what it is fetching, where it looks, how good a copy has to be, and what
-  // the files are called when they land.
-  //
-  // Its own group rather than four more rows under `administration`, which is
-  // where all four used to sit. That group is the machine — accounts, the
-  // network, transcoding, the log — and these four are a *subject*: they are
-  // read together, changed together, and they are the half of the product a
-  // person actually came to configure. Buried among eleven server-maintenance
-  // rows, the one that says whether downloading is even turned on read as
-  // maintenance too, which is how somebody following "Requests are not set up"
-  // arrived at a page that only told them the same thing again.
-  //
-  // Elevated throughout, so a member is offered none of it — same rule as
-  // `administration`, and the routes still carry `RequiresAdmin` because a URL
-  // can be pasted.
-  const downloading: SettingsCategory[] = isAdmin
+  // Elevated throughout, so a member is offered none of it, and the routes
+  // still carry `RequiresAdmin` because a URL can be pasted.
+  const media: SettingsCategory[] = isAdmin
     ? [
+        category("storage", "/settings/storage", "storage", t),
         category("services", "/settings/services", "services", t),
         category("quality", "/settings/quality", "quality", t),
         category("files", "/settings/files", "files", t),
       ]
     : [];
 
-  // The whole group, not category by category: every one of these is elevated,
-  // so for a member there is nothing left in it to put a heading above.
-  const administration: SettingsCategory[] = isAdmin
+  // Who gets in, and from where: accounts and invitations, the servers this
+  // one is linked to, and the address the outside world reaches it on.
+  //
+  // Servers is the one row a member keeps. Federation is neither a preference
+  // nor purely an administrator's business: the page shows this server's links
+  // (an administrator's half) *and* lets somebody who runs their own node ask
+  // to link it (everybody's half).
+  //
+  // Remote access was two pages until 2026-09-13, Domains and Network & remote
+  // access, both answering how anybody reaches this server. It is one page now,
+  // the domain and tunnel first and the ports, proxies and certificate under
+  // them. Elevated throughout.
+  const sharing: SettingsCategory[] = [
+    ...(isAdmin ? [category("users", "/settings/users", "users", t)] : []),
+    category("servers", "/settings/servers", "servers", t),
+    ...(isAdmin
+      ? [category("network", "/settings/network", "network", t)]
+      : []),
+  ];
+
+  // The machine: how it transcodes, what it announces, what it has plugged in,
+  // and its log. Every one elevated, so for a member there is no heading.
+  const server: SettingsCategory[] = isAdmin
     ? [
-        // First, because who can get in is the question people arrive with.
-        // It used to be a section of its own in the sidebar, and before that a
-        // tab behind a screen about transcode throttling.
-        category("users", "/settings/users", "users", t),
-        category("storage", "/settings/storage", "storage", t),
         category("transcoding", "/settings/transcoding", "transcoding", t),
-        category("network", "/settings/network", "network", t),
         category(
           "notifications",
           "/settings/notifications",
@@ -164,33 +150,44 @@ export function buildSettingsCategories(
       ]
     : [];
 
-  return [
-    {
+  const groups = {
+    media: {
+      key: "media" as const,
+      title: t("home.settings.nav.group_media"),
+      testID: "settings-group-media",
+      categories: media,
+    },
+    sharing: {
+      key: "sharing" as const,
+      title: t("home.settings.nav.group_sharing"),
+      testID: "settings-group-sharing",
+      categories: sharing,
+    },
+    server: {
+      key: "server" as const,
+      title: t("home.settings.nav.group_server"),
+      testID: "settings-group-server",
+      categories: server,
+    },
+    you: {
       key: "you" as const,
       title: t("home.settings.nav.group_you"),
       testID: "settings-group-you",
       categories: you,
     },
-    {
-      key: "servers" as const,
-      title: t("home.settings.nav.group_servers"),
-      testID: "settings-group-servers",
-      categories: servers,
-    },
-    {
-      key: "downloading" as const,
-      title: t("home.settings.nav.group_downloading"),
-      testID: "settings-group-downloading",
-      categories: downloading,
-    },
-    {
-      key: "administration" as const,
-      title: t("home.settings.nav.group_administration"),
-      testID: "settings-group-administration",
-      categories: administration,
-    },
-    // A heading with nothing under it is not a group.
-  ].filter((group) => group.categories.length > 0);
+  };
+
+  // Ordered for the reader. An administrator is here to configure the server,
+  // so that leads and their own preferences go last: Profile is also one click
+  // away from their name in the sidebar. A member has only their own things and
+  // Servers, so theirs lead. The first category is also where a wide
+  // `/settings` lands.
+  const ordered: SettingsCategoryGroup[] = isAdmin
+    ? [groups.media, groups.sharing, groups.server, groups.you]
+    : [groups.you, groups.sharing];
+
+  // A heading with nothing under it is not a group.
+  return ordered.filter((group) => group.categories.length > 0);
 }
 
 /** Every category, in render order — the shape most callers and tests want. */

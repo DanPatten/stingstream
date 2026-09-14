@@ -393,7 +393,7 @@ export default function IndexLayout() {
       />
       <Stack.Screen
         name='settings/domains'
-        options={settingsScreen(t("home.settings.nav.domains"))}
+        options={settingsScreen(t("home.settings.nav.network"))}
       />
       {Object.entries(nestedTabPageScreenOptions).map(([name, options]) => (
         <Stack.Screen key={name} name={name} options={options} />

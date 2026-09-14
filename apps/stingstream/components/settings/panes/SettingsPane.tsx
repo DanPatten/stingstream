@@ -15,7 +15,7 @@ import { useBreakpoint } from "@/hooks/useBreakpoint";
  * everywhere: *"delete all setting pages badges everywhere"*.
  *
  * It was answering a question the navigation already answers. Settings is
- * grouped into You, Servers and Server administration, so a page's own group
+ * grouped into Media, Sharing & access, Server and You, so a page's own group
  * says whose settings it holds — and repeating that as a pill on every page
  * meant fifteen pages carrying a label that only ever said what the heading
  * above it had said. `ScopedBlock` below is what is left of the idea, for the

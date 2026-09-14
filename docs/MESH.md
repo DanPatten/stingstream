@@ -1152,7 +1152,7 @@ where the direct path is expected, and that is a manual check rather than a CI o
 * ~~**A Cloudflare token.**~~ **Closed, and not the way it was written.** This described a
   `STINGSTREAM_DNS_TOKEN` environment variable feeding ACME DNS-01 through a coordinator's zone —
   all of which Part 5 deleted. A Cloudflare token is now something an *administrator* pastes into
-  Settings → Domains for their own domain, used once to create a tunnel and never stored, and no
+  Settings → Remote access for their own domain, used once to create a tunnel and never stored, and no
   token of Dan's is involved in anybody else's node. `docs/SIDEDOOR.md` §3.
 * ~~**The node half of the side door shipped in M3d**~~ — ACME client, `portmapper`, rustls on the
   gateway, the `stingstream/tcp/1` handler and connection racing in the web bundle. **Half of this

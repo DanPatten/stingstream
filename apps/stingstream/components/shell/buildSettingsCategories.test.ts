@@ -31,8 +31,13 @@ const categoryKeys = (user: UserDto | null) =>
   flattenCategories(buildSettingsCategories(user, t)).map((item) => item.key);
 
 describe("buildSettingsCategories", () => {
-  test("a member gets what is theirs and the Servers page, and nothing else", () => {
-    expect(groupKeys(member)).toEqual(["you", "servers"]);
+  const groupFor = (user: UserDto | null, key: string) =>
+    buildSettingsCategories(user, t)
+      .find((g) => g.key === key)
+      ?.categories.map((c) => c.key);
+
+  test("a member gets what is theirs first, then the Servers page, and nothing else", () => {
+    expect(groupKeys(member)).toEqual(["you", "sharing"]);
     expect(categoryKeys(member)).toEqual([
       "profile",
       "appearance",
@@ -42,88 +47,70 @@ describe("buildSettingsCategories", () => {
     ]);
   });
 
-  test("an administrator gets every group, administration last", () => {
-    expect(groupKeys(admin)).toEqual([
-      "you",
-      "servers",
-      "downloading",
-      "administration",
-    ]);
+  test("an administrator gets the server first and their own settings last", () => {
+    // They are here to configure the server. Profile is also one click away
+    // from their name in the sidebar, so it does not need the top of this list.
+    expect(groupKeys(admin)).toEqual(["media", "sharing", "server", "you"]);
 
-    const administration = buildSettingsCategories(admin, t).find(
-      (group) => group.key === "administration",
-    );
-    expect(administration?.categories.map((item) => item.key)).toEqual([
-      "users",
+    expect(groupFor(admin, "media")).toEqual([
       "storage",
-      "transcoding",
-      "network",
-      "notifications",
-      "plugins",
-      "diagnostics",
-    ]);
-  });
-
-  test("getting hold of something is its own group, not rows of admin", () => {
-    // The ones that answer "how does something I do not have get here" left
-    // `administration` together: that group is the machine, this one is a
-    // subject somebody sits down to configure.
-    //
-    // The switch that decides whether any of it does anything is not in this
-    // group at all any more. It is a library's own switch, on Libraries, next
-    // to the folder that library writes to -- because "can this server have
-    // movies" and "where do the movies go" were never two questions.
-    const downloading = buildSettingsCategories(admin, t).find(
-      (group) => group.key === "downloading",
-    );
-    expect(downloading?.categories.map((item) => item.key)).toEqual([
       "services",
       "quality",
       "files",
     ]);
+    expect(groupFor(admin, "sharing")).toEqual(["users", "servers", "network"]);
+    expect(groupFor(admin, "server")).toEqual([
+      "transcoding",
+      "notifications",
+      "plugins",
+      "diagnostics",
+    ]);
+    expect(groupFor(admin, "you")).toEqual([
+      "profile",
+      "appearance",
+      "playback",
+      "about",
+    ]);
   });
 
-  test("the downloading group is absent for a member, not empty", () => {
-    expect(groupKeys(member)).not.toContain("downloading");
+  test("the first category, which is where a wide /settings lands", () => {
+    // Libraries for an administrator: its switch is what every "downloading is
+    // not set up" notice is trying to reach.
+    expect(categoryKeys(admin)[0]).toBe("storage");
+    expect(categoryKeys(member)[0]).toBe("profile");
   });
 
-  test("the administration group is absent for a member, not empty", () => {
+  test("the elevated groups are absent for a member, not empty", () => {
     // A heading with nothing under it is not a group -- and an empty one would
     // also tell a member exactly what they are not allowed to see.
-    expect(groupKeys(member)).not.toContain("administration");
+    expect(groupKeys(member)).not.toContain("media");
+    expect(groupKeys(member)).not.toContain("server");
   });
 
   test("no user at all is treated as no administrator", () => {
     // The first render after sign-in, before the user atom has settled. Nothing
     // elevated appears until it says it may: a category that shows and then
     // vanishes is worse than one that arrives a beat late.
-    expect(groupKeys(null)).toEqual(["you", "servers"]);
+    expect(groupKeys(null)).toEqual(["you", "sharing"]);
   });
 
-  test("Servers is offered to everybody, in its own group", () => {
+  test("Servers is offered to everybody", () => {
     // The page is half an administrator's (this server and its links) and half
     // everybody's (the server the reader runs themselves), so gating it would
     // take away the one federation decision a member still gets to make.
     for (const user of [member, admin]) {
-      const group = buildSettingsCategories(user, t).find(
-        (g) => g.key === "servers",
-      );
-      expect(group?.categories.map((c) => c.key)).toContain("servers");
+      expect(groupFor(user, "sharing")).toContain("servers");
     }
   });
 
-  test("Domains sits beside Servers, and only for an administrator", () => {
-    // Same group, because it is the same subject: where people reach this
-    // server. Administrator-only anyway, because every call behind it needs
-    // elevation -- a row that can only fail is worse than no row.
-    const groupFor = (user: UserDto) =>
-      buildSettingsCategories(user, t)
-        .find((g) => g.key === "servers")
-        ?.categories.map((c) => c.key);
-
-    expect(groupFor(admin)).toEqual(["servers", "domains"]);
-    expect(groupFor(member)).toEqual(["servers"]);
-    expect(categoryKeys(member)).not.toContain("domains");
+  test("Remote access sits in Sharing & access, and only for an administrator", () => {
+    // Domains and Network were two pages answering one question, how anybody
+    // reaches this server; they are one now. Administrator-only, because every
+    // call behind it needs elevation -- a row that can only fail is worse than
+    // no row.
+    expect(groupFor(member, "sharing")).toEqual(["servers"]);
+    expect(categoryKeys(member)).not.toContain("network");
+    expect(categoryKeys(admin)).not.toContain("domains");
   });
 
   test("every category has a unique route inside /settings", () => {

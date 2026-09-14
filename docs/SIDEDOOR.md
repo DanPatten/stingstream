@@ -76,7 +76,9 @@ Binding it needs privileges on Unix; a node that cannot simply logs and carries 
 
 Three ways. The first one the node does for you; the other two you do yourself.
 
-All of it lives on one page — **Settings → Domains**, in the Servers group, administrator-only.
+All of it lives on one page — **Settings → Remote access**, in the Sharing & access group,
+administrator-only, above the ports, proxies and certificate. (It was a page of its own called
+Domains until 2026-09-13; `/settings/domains` redirects.)
 Before that it was a collapsed *Advanced* disclosure at the bottom of Settings → Servers holding a
 single address field, which meant the one control deciding whether anybody could reach the server
 from a browser was the last thing on a page about federation. `InvitePerson` had to deep-link into
@@ -130,12 +132,12 @@ point at anyway.
 
 Caddy, nginx, or a tunnel you run yourself. TLS terminates there, nothing goes in `tls/`, and the
 node keeps speaking plain HTTP on loopback — exactly the same shape as the tunnel above, with the
-proxy on your own machine. Set the address on the Domains page and you are done. A proxy on another
+proxy on your own machine. Set the address on the Remote access page and you are done. A proxy on another
 machine needs an inbound port that actually reaches you.
 
 ### A forwarded port and your own certificate
 
-The Domains page has the instructions behind the *Point a domain here yourself* row, because none
+The Remote access page has the instructions behind the *Point a domain here yourself* row, because none
 of it is ours to press. The domain field is at the top of that dialog and four numbered steps are
 under it, in order, and the last is the one people miss: forwarding a port gets a browser to the
 node and gets it a certificate warning, which is not a working setup — this app needs a secure

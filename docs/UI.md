@@ -13,11 +13,9 @@ involve.
 | Screen | Where | Visible on | Admin only? |
 |---|---|---|---|
 | Downloads | new tab `(downloads)` | phone, web | yes |
-| Indexers & engines · Quality & formats · Files & naming | Settings → Getting titles, one category each | phone, web | yes |
-| Libraries (what this server holds, whether it runs each one, and where it writes) | Settings → Libraries | phone, web | yes |
-| Transcoding & hardware · Network & remote access · Notifications | Settings → Server administration, one category each | phone, web | yes |
-| Users & access | Settings → Users & access (`/users` redirects) | phone, web | yes |
-| Logs & status | Settings → Logs & status | phone, web | yes |
+| Libraries (what this server holds, whether it runs each one, and where it writes) · Indexers & engines · Quality & formats · Files & naming | Settings → Media, one category each | phone, web | yes |
+| Users & access (`/users` redirects) · Remote access (domain, tunnel, ports, proxies, certificate; `/settings/domains` redirects) | Settings → Sharing & access, beside Servers | phone, web | yes |
+| Transcoding & hardware · Notifications · Plugins · Logs & status | Settings → Server, one category each | phone, web | yes |
 | Requests (Find / My requests / Alerts / Approvals / Activity / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
 | Servers (mesh links, and the server you run) | Settings → Servers | phone, web | **no** — but the linked-servers block inside it is only *mounted* for an administrator, so a member fires none of the elevated calls and keeps the half that is theirs. *Add server* is offered to every member: the question it asks is one a member can answer, and the decision it leads to is still an administrator's |
 
@@ -69,6 +67,15 @@ restructure is named after them:
    It is one page called **Servers**, holding this device's mesh status, the servers this one pools
    libraries with, and the server the reader runs themselves. Dan: *"Just call it Servers, one
    settings page."*
+
+5. **The order was a member's, and an administrator read it.** Profile led, Libraries sat among
+   server maintenance, and Domains and Network & remote access were two pages answering one
+   question. Since 2026-09-13 an administrator sees **Media** (Libraries, Indexers & engines,
+   Quality & formats, Files & naming), **Sharing & access** (Users & access, Servers, Remote
+   access), **Server** (Transcoding & hardware, Notifications, Plugins, Logs & status) and **You**
+   last, since Profile is also one click from their name in the sidebar. A member sees You, then
+   Sharing & access holding Servers. Domains folded into **Remote access** (`/settings/network`),
+   domain and tunnel first; `/settings/domains` redirects there.
 
 The gate is unchanged: hiding a category is the courtesy, `RequiresAdmin` (or the `adminOnly`
 wrapper) on the route is the control, because a URL can be pasted. **The server I run** is still the

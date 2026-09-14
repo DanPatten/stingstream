@@ -291,8 +291,8 @@ export const MintedInviteDialog: React.FC<{
     }
     // Straight to the page that owns the address now. This used to be
     // `/settings/servers?advanced=1`, whose only job was to prise open the fold the field
-    // was hidden in -- the fold is gone and the field has a page of its own.
-    router.push("/settings/domains");
+    // was hidden in -- the fold is gone and the field leads Remote access.
+    router.push("/settings/network");
   }, [onClose, onSetUpAddress, router]);
 
   const copy = useCallback(async () => {

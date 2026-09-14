@@ -112,13 +112,6 @@ const CONTROLS: Control[] = [
   { id: "this-device", category: "servers" },
   { id: "invite-person", category: "servers", route: "/settings/users" },
 
-  // Domains. Two rows for two questions: "what is my address" lands on the
-  // field, and anything about tunnels or forwarding lands on the block that
-  // sets one up -- which is most of what somebody arrives here wanting, and is
-  // not a thing they would think to search for under "domain".
-  { id: "public-domain", category: "domains" },
-  { id: "cloudflare-tunnel", category: "domains" },
-
   // Users & access
   { id: "accounts", category: "users", tab: "people" },
   { id: "invitations", category: "users", tab: "people" },
@@ -162,7 +155,12 @@ const CONTROLS: Control[] = [
   { id: "transcode-path", category: "transcoding" },
   { id: "remote-bitrate", category: "transcoding" },
 
-  // Network & remote access
+  // Remote access. The domain first, in two rows for two questions: "what is my
+  // address" lands on the field, and anything about tunnels or forwarding lands
+  // on the block that sets one up -- which is most of what somebody arrives
+  // here wanting, and is not a thing they would search for under "domain".
+  { id: "public-domain", category: "network" },
+  { id: "cloudflare-tunnel", category: "network" },
   { id: "remote-access", category: "network" },
   { id: "port-forwarding", category: "network" },
   { id: "public-port", category: "network" },

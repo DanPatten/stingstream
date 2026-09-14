@@ -248,7 +248,7 @@ handshake first; a light node refuses the content routes outright.
 | Cloudflare tunnel run token | — | In memory, as a child process argument | With the process |
 
 **The Cloudflare API token is never persisted, and that is a design constraint rather than an
-oversight.** Settings → Domains asks for one to create a tunnel; it carries `Zone:DNS:Edit` on a
+oversight.** Settings → Remote access asks for one to create a tunnel; it carries `Zone:DNS:Edit` on a
 real domain, so it is held in a mutex on the node (`sharing::TunnelToken`), taken by the first
 supervisor reconcile that needs it, and cleared. It is write-only over the API: no endpoint returns
 it, and it appears in no log — a tunnel's *run* token is a command-line argument, so every path
