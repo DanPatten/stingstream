@@ -99,7 +99,9 @@ public static class LibraryLayoutPlan
         // metadata provider could identify, so there is no ProductionYear for the movie layout's
         // matching rule and no SxxEyy for the episode resolver, no local counterpart to merge it
         // into, and a library of its own. Its row in the settings exists for the two things a
-        // reader does decide, Enabled and Hidden, and carries no paths.
+        // reader does decide, Enabled and Hidden, and carries no paths. The folder the Libraries
+        // screen shows for it is where *this* node records to, which the media server owns and
+        // puts in a library of its own (RecordingFolder, RecordingsManager.CreateRecordingFolders).
         if (Recordings(settings)?.Enabled != false)
         {
             planned.Add(new DesiredLibrary(

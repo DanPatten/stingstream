@@ -36,7 +36,10 @@ export interface Library {
   id: string;
   name: string;
   type: LibraryType | string;
-  /** The folders on this server. Empty means "follow the supervisor's default". */
+  /**
+   * The folders on this server, resolved: a library following the default reports the default's
+   * real path. For Recordings, the folder this node's own recordings are written to.
+   */
   paths: string[];
   /** Whether this server runs it at all: the library and the manager that fills it. */
   enabled: boolean;
@@ -44,7 +47,10 @@ export interface Library {
   hidden: boolean;
   /** Movies and TV Shows. Never renamed, never removed. */
   builtin: boolean;
-  /** Whether this node owns the folders. False for Recordings, which holds only peers' pointers. */
+  /**
+   * Whether this node's managers write into the folders. False for Recordings, whose folder is
+   * where this node's own recordings go rather than a library the managers import into.
+   */
   managed: boolean;
 }
 
@@ -157,7 +163,7 @@ async function readError(res: Response, what: string): Promise<Error> {
   return new Error(detail || `${what} failed (${res.status})`);
 }
 
-/** The path a library actually writes to, or empty when it follows the server's default. */
+/** The path a library actually writes to. The node resolves the default before it answers. */
 export const libraryPath = (library: Library): string => library.paths[0] ?? "";
 
 export async function fetchLibraries(

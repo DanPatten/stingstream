@@ -66,7 +66,11 @@ export function LibrariesSection() {
       >
         <View style={{ gap: space["4"] }}>
           {(libraries.data ?? []).map((library) => (
-            <LibraryRow key={library.id} library={library} />
+            <LibraryRow
+              key={library.id}
+              library={library}
+              fresh={libraries.isFetchedAfterMount}
+            />
           ))}
         </View>
       </QueryState>
@@ -122,13 +126,23 @@ function ScanButton() {
  * place is the one sentence somebody switching a library off actually wants: their files are
  * still there.
  */
-function LibraryRow({ library }: { library: Library }) {
+function LibraryRow({
+  library,
+  fresh,
+}: {
+  library: Library;
+  /** The node has answered since this screen opened. */
+  fresh: boolean;
+}) {
   const { t } = useTranslation();
   const { accent } = useTheme();
   const save = useSaveLibrary();
 
-  const { draft, set, saving } = useAutosave({
-    value: libraryPath(library),
+  const { draft, set } = useAutosave({
+    // Seeded from the node's own answer, never from the persisted query cache: `useAutosave` seeds
+    // once, and a cache written before the node resolved default folders held empty paths, which
+    // left the box blank for good.
+    value: fresh ? libraryPath(library) : null,
     save: async (path) => {
       try {
         await save.mutateAsync({ id: library.id, update: { path } });
@@ -167,21 +181,30 @@ function LibraryRow({ library }: { library: Library }) {
           just a simple toggle, all other work goes background +logs"*. What the managers are doing
           goes to the log.
         */}
+        {/*
+          Never disabled while a save is in flight: `useSaveLibrary` moves the cached row the moment
+          this is pressed, so the switch is already where the reader put it, and a disabled switch
+          fades. It goes back only if the node refuses.
+        */}
         <ListItem title={library.name}>
           <SettingSwitch
             value={library.enabled}
-            disabled={save.isPending}
             onValueChange={(next) => void setEnabled(next)}
             trackColor={{ true: accent[500] }}
           />
         </ListItem>
 
-        {library.enabled && library.managed && draft !== null ? (
+        {/*
+          Recordings has a folder too: the node answers with where its own recordings are written.
+          The box always holds a real path, the resolved default included, so nobody has to be told
+          what an empty one would mean.
+        */}
+        {library.enabled && draft !== null ? (
           <TextFieldRow
             title={t("libraries.folder_title")}
-            subtitle={t("libraries.folder_detail")}
             value={draft}
             autoCapitalize='none'
+            fullWidth
             onChangeText={(v) => set(() => v)}
           />
         ) : null}
@@ -194,15 +217,6 @@ function LibraryRow({ library }: { library: Library }) {
           style={{ marginTop: space["2"] }}
         >
           {t("libraries.off_detail")}
-        </Text>
-      ) : null}
-      {saving ? (
-        <Text
-          variant='caption'
-          tone='tertiary'
-          style={{ marginTop: space["2"] }}
-        >
-          {t("libraries.saving")}
         </Text>
       ) : null}
     </View>

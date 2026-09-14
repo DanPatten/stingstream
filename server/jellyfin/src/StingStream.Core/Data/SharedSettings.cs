@@ -437,8 +437,10 @@ public sealed class LibrarySettings
     /// Whether this node owns the folders. False for a library that only exists elsewhere.
     /// </summary>
     /// <remarks>
-    /// <c>Recordings</c> is the one today: it holds only peers' pointers, so there is no folder of
-    /// yours to edit and nothing of yours to delete. Its only stored state is
+    /// <c>Recordings</c> is the one today: its library holds only peers' pointers, and nothing of
+    /// yours is deleted with it. Its folder on the Libraries screen is where this node's own DVR
+    /// recordings go, which the media server's Live TV configuration stores rather than this row
+    /// (<c>RecordingFolder</c>). Its only stored state here is <see cref="Enabled"/> and
     /// <see cref="Hidden"/>.
     /// </remarks>
     public bool Managed { get; set; } = true;

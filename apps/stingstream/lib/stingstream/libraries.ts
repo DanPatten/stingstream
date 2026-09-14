@@ -93,6 +93,29 @@ export function useSaveLibrary() {
   return useMutation({
     mutationFn: ({ id, update }: { id: string; update: LibraryUpdate }) =>
       saveLibrary(base!, id, update, token),
+    // A switch answers the moment it is pressed. The PUT only returns once the node has reconciled
+    // its libraries and managers, which is seconds, and a switch that waited for that sat faded in
+    // its old position and then jumped. Dan: *"just flip it ... do all work quietly in the
+    // background"*. A refusal puts it back, and the caller toasts why.
+    onMutate: async ({ id, update }) => {
+      await queryClient.cancelQueries({ queryKey: KEY });
+      const previous = queryClient.getQueryData<Library[]>(KEY);
+      queryClient.setQueryData(KEY, (rows: Library[] | undefined) =>
+        (rows ?? []).map((row) =>
+          row.id === id
+            ? {
+                ...row,
+                enabled: update.enabled ?? row.enabled,
+                hidden: update.hidden ?? row.hidden,
+              }
+            : row,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(KEY, context.previous);
+    },
     onSuccess: (saved) => {
       // The row answers immediately from what the node confirmed it wrote, including the parts
       // reconciliation filled in. Everything downstream of a library — what the managers are

@@ -35,6 +35,7 @@ export function TextFieldRow({
   autoCapitalize,
   onBlur,
   disabledByAdmin = false,
+  fullWidth = false,
   style,
 }: {
   title: string;
@@ -52,11 +53,14 @@ export function TextFieldRow({
   style?: StyleProp<ViewStyle>;
   /** Locked by server policy: says so in place of the subtitle, and cannot be typed in. */
   disabledByAdmin?: boolean;
+  /** Field under the label, spanning the row, at every width. For long values such as a folder
+   * path, which a 260 px box beside the label cuts to its first few directories. */
+  fullWidth?: boolean;
 }) {
   const { color } = useTheme();
   const { t } = useTranslation();
   const breakpoint = useBreakpointName();
-  const compact = breakpoint === "compact";
+  const compact = fullWidth || breakpoint === "compact";
   const detail = disabledByAdmin
     ? t("home.settings.disabled_by_admin")
     : subtitle;

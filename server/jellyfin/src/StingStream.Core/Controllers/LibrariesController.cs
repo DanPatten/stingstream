@@ -4,6 +4,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Model.LiveTv;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -55,29 +58,35 @@ namespace StingStream.Core.Controllers;
 [Authorize(Policy = Policies.RequiresElevation)]
 public sealed class LibrariesController : StingStreamControllerBase
 {
+    private const string LiveTvConfigKey = "livetv";
+
     private readonly SettingsStore _settings;
     private readonly LibraryLayoutService _layout;
     private readonly INodeRuntimeProvider _runtime;
+    private readonly IServerConfigurationManager _serverConfig;
     private readonly ILogger<LibrariesController> _logger;
 
     public LibrariesController(
         SettingsStore settings,
         LibraryLayoutService layout,
         INodeRuntimeProvider runtime,
+        IServerConfigurationManager serverConfig,
         ILogger<LibrariesController> logger)
     {
         _settings = settings;
         _layout = layout;
         _runtime = runtime;
+        _serverConfig = serverConfig;
         _logger = logger;
     }
 
     /// <summary>Every library on this node.</summary>
     /// <response code="200">The libraries, in the order a screen should list them.</response>
-    /// <returns>The libraries.</returns>
+    /// <returns>The libraries, with every folder resolved.</returns>
     [HttpGet(Name = "GetLibraries")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<List<LibrarySettings>> Get() => _settings.Get().Libraries;
+    public ActionResult<List<LibrarySettings>> Get()
+        => _settings.Get().Libraries.Select(Resolved).ToList();
 
     /// <summary>Change one library: its folder, or whether this server runs it at all.</summary>
     /// <param name="id">The library's stable id.</param>
@@ -119,16 +128,15 @@ public sealed class LibrariesController : StingStreamControllerBase
 
         if (request.Path is not null)
         {
-            if (!library.Managed)
-            {
-                // Recordings. There is no folder of yours in it to move.
-                return BadRequest(new LibraryProblem(
-                    $"{library.Name} holds what other servers have, so it has no folder on this server.",
-                    "not-managed"));
-            }
-
             var trimmed = request.Path.Trim();
-            if (trimmed.Length > 0)
+
+            // The screen opens with the resolved folder already in the box, so sending it back
+            // untouched is not a choice to pin it. Validating it would also refuse the recordings
+            // default, which sits inside the data directory the validator reserves.
+            var current = CurrentPaths(library).FirstOrDefault() ?? string.Empty;
+            var unchanged = trimmed.Length > 0 && LibraryLayoutService.SamePath(trimmed, current);
+
+            if (trimmed.Length > 0 && !unchanged)
             {
                 var problem = LibraryPathValidator.Validate(
                     trimmed,
@@ -147,11 +155,28 @@ public sealed class LibrariesController : StingStreamControllerBase
                 }
             }
 
-            // An empty box means "follow the supervisor's default", which is a real choice and the
-            // one a fresh node starts on -- not the same as never having answered.
-            library.Paths = trimmed.Length == 0
-                ? new List<string>()
-                : new List<string> { trimmed };
+            // Unchanged writes nothing, so a library following the default keeps following it.
+            if (unchanged)
+            {
+                _logger.LogDebug("{Library} folder is unchanged", library.Name);
+            }
+            else if (!library.Managed)
+            {
+                // Recordings: its pointer tree is derived, and the folder a reader picks is where
+                // this node's own recordings go. The media server notices the change and moves its
+                // recordings library onto the new folder itself (CreateRecordingFolders).
+                var liveTv = _serverConfig.GetConfiguration<LiveTvOptions>(LiveTvConfigKey);
+                liveTv.RecordingPath = trimmed.Length == 0 ? null : trimmed;
+                _serverConfig.SaveConfiguration(LiveTvConfigKey, liveTv);
+            }
+            else
+            {
+                // An empty box means "follow the supervisor's default", which is a real choice and
+                // the one a fresh node starts on -- not the same as never having answered.
+                library.Paths = trimmed.Length == 0
+                    ? new List<string>()
+                    : new List<string> { trimmed };
+            }
         }
 
         if (request.Enabled is { } enabled)
@@ -184,9 +209,43 @@ public sealed class LibrariesController : StingStreamControllerBase
 
         // Re-read: reconciliation fills in the folder name Jellyfin actually used and the locations
         // this node is now responsible for, and the caller wants those rather than what it sent.
-        return _settings.Get().Libraries.FirstOrDefault(
-            l => string.Equals(l.Id, library.Id, StringComparison.OrdinalIgnoreCase)) ?? library;
+        return Resolved(_settings.Get().Libraries.FirstOrDefault(
+            l => string.Equals(l.Id, library.Id, StringComparison.OrdinalIgnoreCase)) ?? library);
     }
+
+    /// <summary>The folders a library really uses, defaults resolved.</summary>
+    /// <remarks>
+    /// Resolved here, per answer, and never written back: an empty <see cref="LibrarySettings.Paths"/>
+    /// is the "follow the data directory" state that must survive the data directory moving.
+    /// </remarks>
+    private IReadOnlyList<string> CurrentPaths(LibrarySettings library)
+    {
+        if (library.Managed)
+        {
+            return RootFolderResolver.Resolve(library, _runtime.Current?.Paths);
+        }
+
+        var folder = RecordingFolder.Resolve(
+            _serverConfig.GetConfiguration<LiveTvOptions>(LiveTvConfigKey).RecordingPath,
+            _serverConfig.ApplicationPaths.DataPath);
+        return string.IsNullOrWhiteSpace(folder) ? Array.Empty<string>() : new[] { folder };
+    }
+
+    /// <summary>A copy of the row with its folders resolved, so a screen never shows an empty box.</summary>
+    private LibrarySettings Resolved(LibrarySettings library) => new()
+    {
+        Id = library.Id,
+        Name = library.Name,
+        FolderName = library.FolderName,
+        Type = library.Type,
+        Paths = CurrentPaths(library).ToList(),
+        Enabled = library.Enabled,
+        Hidden = library.Hidden,
+        Builtin = library.Builtin,
+        Managed = library.Managed,
+        JellyfinItemId = library.JellyfinItemId,
+        ManagedLocations = library.ManagedLocations.ToList(),
+    };
 }
 
 /// <summary>What a caller wants changed about one library. Omit a property to leave it alone.</summary>
