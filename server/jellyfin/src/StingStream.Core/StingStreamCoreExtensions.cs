@@ -78,6 +78,7 @@ public static class StingStreamCoreExtensions
         services.AddSingleton<ArrEnablementWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<ArrEnablementWorker>());
         services.AddSingleton<QualityProfileService>();
+        services.AddHostedService<QualityProfileSeedWorker>();
 
         // NZBGet's own control API, which is how the unified Downloads list reaches the usenet half.
         // Short timeout: it is on loopback, and a Downloads screen polling every few seconds must

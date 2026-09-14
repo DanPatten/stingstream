@@ -22,12 +22,9 @@ namespace StingStream.Core.Arr;
 /// </para>
 /// <para>
 /// What is deliberately <em>not</em> shared is the quality vocabulary. Radarr's definition list and
-/// Sonarr's differ (Radarr has film-only sources like <c>Bluray-2160p Remux</c>; Sonarr has
-/// broadcast ones like <c>HDTV-1080p</c>), and pretending otherwise would either drop qualities on
-/// the way through or invent ones an app would reject. So a profile's items are carried by
-/// <em>name</em>, each app is given the subset it recognises, and
-/// <see cref="QualityProfileView.Unsupported"/> reports per app what it could not take — an honest
-/// answer the UI can show, rather than a silent difference between the two apps.
+/// Sonarr's differ, so a profile is edited as <see cref="Tiers"/> — picture sizes — and each app is
+/// given every quality it has at those sizes. <see cref="Items"/> and <see cref="Cutoff"/> remain for
+/// a caller that wants to name qualities exactly.
 /// </para>
 /// </remarks>
 public sealed class QualityProfileView
@@ -47,8 +44,24 @@ public sealed class QualityProfileView
     /// <summary>The quality (or quality group) name at which upgrading stops.</summary>
     public string Cutoff { get; set; } = string.Empty;
 
-    /// <summary>Allowed qualities, best first, exactly as the app orders them.</summary>
+    /// <summary>Allowed qualities, exactly as the app orders them.</summary>
     public List<QualityProfileItemView> Items { get; set; } = new();
+
+    /// <summary>
+    /// The picture sizes the profile allows, worst first: <c>sd</c>, <c>720p</c>, <c>1080p</c>,
+    /// <c>2160p</c>.
+    /// </summary>
+    /// <remarks>
+    /// On a write, a non-empty list wins over <see cref="Items"/> and <see cref="Cutoff"/>: each app is
+    /// given every quality it has in these tiers, and stops upgrading at <see cref="CutoffTier"/>.
+    /// </remarks>
+    public List<string> Tiers { get; set; } = new();
+
+    /// <summary>The tier at which upgrading stops. Empty when the cutoff belongs to no tier.</summary>
+    public string CutoffTier { get; set; } = string.Empty;
+
+    /// <summary>One of <see cref="BuiltInQualityProfiles"/>: it can be reset, and not deleted.</summary>
+    public bool IsBuiltIn { get; set; }
 
     /// <summary>The default profile used when a title is added without naming one.</summary>
     public bool IsDefault { get; set; }
@@ -59,8 +72,7 @@ public sealed class QualityProfileView
     /// <remarks>
     /// False when only one app has it, or when the two disagree about the cutoff or the allowed
     /// set — which happens legitimately (a quality one app does not have) and illegitimately
-    /// (somebody edited one app by hand). Either way the UI should say so rather than show one
-    /// app's answer as if it were both.
+    /// (somebody edited one app by hand).
     /// </remarks>
     public bool InSync { get; set; }
 
@@ -87,7 +99,7 @@ public sealed class QualityProfileItemView
 /// <summary>The quality vocabulary each app has, so an editor can offer real choices.</summary>
 public sealed class QualityVocabulary
 {
-    /// <summary>Quality and group names per app, in the app's own order, best first.</summary>
+    /// <summary>Quality and group names per app, in the app's own order.</summary>
     public Dictionary<string, List<string>> Apps { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Names every configured app understands — the safe set for a shared profile.</summary>
@@ -103,7 +115,7 @@ public sealed class QualityProfileWriteResult
     /// <remarks>
     /// The two need different status codes and read completely differently to a person: a profile
     /// that is still in use by forty films is a 400 with the app's own sentence, and one that was
-    /// never there is a 404. Without this flag the controller could only guess from the message.
+    /// never there is a 404.
     /// </remarks>
     public bool NotFound { get; set; }
 
@@ -118,6 +130,18 @@ public sealed class QualityProfileWriteResult
 
     /// <summary>Why, when <see cref="Ok"/> is false.</summary>
     public string Message { get; set; } = string.Empty;
+}
+
+/// <summary>The profile list, or why there is not one.</summary>
+public sealed class QualityProfileList
+{
+    /// <summary>Every profile the apps that answered have.</summary>
+    public List<QualityProfileView> Profiles { get; init; } = new();
+
+    /// <summary>
+    /// Set when no app could be read at all, so an empty list is a failure and not an answer.
+    /// </summary>
+    public string? Error { get; init; }
 }
 
 /// <summary>
@@ -145,14 +169,31 @@ public sealed class QualityProfileService
         _logger = logger;
     }
 
-    /// <summary>Every profile either app has, merged by name.</summary>
+    /// <summary>Every profile either app has, merged by name. Empty when no app answered.</summary>
     public async Task<List<QualityProfileView>> ListAsync(CancellationToken ct = default)
+        => (await TryListAsync(ct).ConfigureAwait(false)).Profiles;
+
+    /// <summary>
+    /// Every profile either app has, merged by name, saying so when no app could be read.
+    /// </summary>
+    /// <remarks>
+    /// This used to swallow every failure and return an empty list, which a settings screen could
+    /// only draw as "No quality profiles" — the one answer guaranteed to be wrong, since every app
+    /// always has at least one.
+    /// </remarks>
+    public async Task<QualityProfileList> TryListAsync(CancellationToken ct = default)
     {
         var defaultName = _settings.Get().DefaultQualityProfileName;
         var byName = new Dictionary<string, QualityProfileView>(StringComparer.OrdinalIgnoreCase);
         var perApp = new Dictionary<string, Dictionary<string, JsonObject>>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var client in _factory.CreateAll())
+        var clients = _factory.CreateAll();
+        if (clients.Count == 0)
+        {
+            return new QualityProfileList { Error = "Quality profiles are available once an indexer is enabled." };
+        }
+
+        foreach (var client in clients)
         {
             List<JsonObject> profiles;
             try
@@ -161,7 +202,7 @@ public sealed class QualityProfileService
             }
             catch (ArrApiException ex)
             {
-                _logger.LogDebug(ex, "Could not read {App}'s quality profiles", client.Name);
+                _logger.LogWarning(ex, "Could not read {App}'s quality profiles", client.Name);
                 continue;
             }
 
@@ -195,19 +236,33 @@ public sealed class QualityProfileService
                     view.UpgradeAllowed = raw["upgradeAllowed"]?.GetValue<bool>() ?? false;
                     view.Cutoff = CutoffName(raw);
                     view.Items = ReadItems(raw);
+                    view.Tiers = QualityTiers.Of(Flatten(view.Items.Where(i => i.Allowed)));
+                    view.CutoffTier = QualityTiers.TierOf(view.Cutoff) ?? string.Empty;
                 }
             }
 
             perApp[client.Name] = appMap;
         }
 
+        if (perApp.Count == 0)
+        {
+            return new QualityProfileList { Error = "StingStream could not read the quality profiles yet. Try again in a moment." };
+        }
+
         foreach (var view in byName.Values)
         {
+            view.IsBuiltIn = BuiltInQualityProfiles.IsBuiltIn(view.Name);
             view.IsDefault = string.Equals(view.Name, defaultName, StringComparison.OrdinalIgnoreCase);
             view.InSync = view.Apps.Count > 1 && AppsAgree(view, perApp);
         }
 
-        return byName.Values.OrderBy(v => v.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        return new QualityProfileList
+        {
+            Profiles = byName.Values
+                .OrderBy(v => BuiltInQualityProfiles.Rank(v.Name))
+                .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+        };
     }
 
     /// <summary>One profile by name, or null.</summary>
@@ -232,7 +287,7 @@ public sealed class QualityProfileService
             }
             catch (ArrApiException ex)
             {
-                _logger.LogDebug(ex, "Could not read {App}'s quality-profile schema", client.Name);
+                _logger.LogWarning(ex, "Could not read {App}'s quality-profile schema", client.Name);
                 continue;
             }
 
@@ -254,8 +309,6 @@ public sealed class QualityProfileService
                 shared.IntersectWith(other);
             }
 
-            // Ordered by the first app's own ordering rather than alphabetically: quality order is
-            // meaningful (best first) and an alphabetical picker would be unreadable.
             var order = result.Apps.Values.FirstOrDefault() ?? new List<string>();
             result.Shared = order.Where(shared.Contains).ToList();
         }
@@ -278,14 +331,12 @@ public sealed class QualityProfileService
         var clients = _factory.CreateAll();
         if (clients.Count == 0)
         {
-            result.Message = "No arr is configured on this node.";
+            result.Message = "Quality profiles are available once an indexer is enabled.";
             return result;
         }
 
-        var allowed = new HashSet<string>(
-            desired.Items.Where(i => i.Allowed).Select(i => i.Name),
-            StringComparer.OrdinalIgnoreCase);
-        if (allowed.Count == 0)
+        var byTier = desired.Tiers.Count > 0;
+        if (byTier ? !desired.Tiers.Any(QualityTiers.IsTier) : !desired.Items.Any(i => i.Allowed))
         {
             result.Message = "A quality profile must allow at least one quality.";
             return result;
@@ -312,41 +363,13 @@ public sealed class QualityProfileService
                     continue;
                 }
 
-                var missing = Apply(basis, desired, allowed, out var cutoffFound);
-                if (missing.Count > 0)
+                if (!Prepare(basis, desired, client.Name, result))
                 {
-                    desired.Unsupported[client.Name] = missing;
+                    continue;
                 }
 
-                if (!cutoffFound)
-                {
-                    result.Detail.Add(
-                        $"{client.Name}: cutoff \"{desired.Cutoff}\" is not one of its allowed qualities; "
-                        + "used the lowest allowed one instead");
-                }
-
-                basis["name"] = desired.Name;
-                basis["upgradeAllowed"] = desired.UpgradeAllowed;
-
-                if (existing is null)
-                {
-                    basis["id"] = 0;
-                    await client.PostAsync("qualityprofile", basis, ct).ConfigureAwait(false);
-                    result.Detail.Add($"{client.Name}: created");
-                }
-                else
-                {
-                    var id = existing["id"]?.GetValue<int>() ?? 0;
-                    basis["id"] = id;
-                    await client
-                        .PutAsync(
-                            string.Create(CultureInfo.InvariantCulture, $"qualityprofile/{id}"),
-                            basis,
-                            ct)
-                        .ConfigureAwait(false);
-                    result.Detail.Add($"{client.Name}: updated");
-                }
-
+                await WriteAsync(client, basis, existing, ct).ConfigureAwait(false);
+                result.Detail.Add($"{client.Name}: {(existing is null ? "created" : "updated")}");
                 wroteSomewhere = true;
             }
             catch (ArrApiException ex)
@@ -359,7 +382,7 @@ public sealed class QualityProfileService
         if (mustExist && !existedSomewhere)
         {
             result.NotFound = true;
-            result.Message = $"No app has a quality profile called \"{desired.Name}\".";
+            result.Message = $"There is no quality profile called \"{desired.Name}\".";
             return result;
         }
 
@@ -368,8 +391,8 @@ public sealed class QualityProfileService
         if (result.Profile is not null && desired.Unsupported.Count > 0)
         {
             // Re-reading the profile asks the apps what they *stored*, which by definition cannot
-            // mention a quality they do not have — so the one thing the caller most needs to know
-            // is the one thing the fresh read cannot carry. Copy it across.
+            // mention a quality they do not have — so copy across the one thing the fresh read
+            // cannot carry.
             result.Profile.Unsupported = desired.Unsupported;
         }
 
@@ -379,6 +402,110 @@ public sealed class QualityProfileService
         }
 
         return result;
+    }
+
+    /// <summary>Put a built-in profile back the way it shipped, in every app.</summary>
+    public async Task<QualityProfileWriteResult> ResetAsync(string name, CancellationToken ct = default)
+    {
+        var builtIn = BuiltInQualityProfiles.Find(name);
+        if (builtIn is null)
+        {
+            return new QualityProfileWriteResult
+            {
+                NotFound = true,
+                Message = $"\"{name}\" is not a built-in quality profile.",
+            };
+        }
+
+        return await SaveAsync(BuiltInQualityProfiles.ToView(builtIn), mustExist: false, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Make sure one app has every built-in profile, and optionally nothing else.
+    /// </summary>
+    /// <param name="client">The app.</param>
+    /// <param name="removeOthers">
+    /// Delete every other profile. Only for the first pass on an app, when what it has is its own
+    /// stock set rather than anything a person made. A profile still in use is left where it is.
+    /// </param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>What changed, one line per profile.</returns>
+    /// <exception cref="ArrApiException">The app could not be read at all.</exception>
+    public async Task<List<string>> EnsureBuiltInsAsync(ArrClient client, bool removeOthers, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        var changes = new List<string>();
+        var existing = await client.QualityProfilesAsync(ct).ConfigureAwait(false);
+
+        // Created before anything is deleted, so the app is never left with no profile at all.
+        JsonObject? schema = null;
+        foreach (var builtIn in BuiltInQualityProfiles.All)
+        {
+            var current = existing.FirstOrDefault(p => string.Equals(
+                p["name"]?.GetValue<string>(),
+                builtIn.Name,
+                StringComparison.OrdinalIgnoreCase));
+
+            // On first contact a profile by the same name is the app's own stock one -- both apps
+            // ship an "Any" that takes cams and remuxes -- so it is rewritten rather than trusted.
+            // After that it is somebody's edit, and left alone.
+            if (current is not null && !removeOthers)
+            {
+                continue;
+            }
+
+            JsonObject basis;
+            if (current is not null)
+            {
+                basis = current.DeepClone().AsObject();
+            }
+            else
+            {
+                schema ??= await client.QualityProfileSchemaAsync(ct).ConfigureAwait(false)
+                    ?? throw new ArrApiException($"{client.Name} returned no quality-profile schema.");
+                basis = schema.DeepClone().AsObject();
+            }
+
+            var scratch = new QualityProfileWriteResult();
+            if (!Prepare(basis, BuiltInQualityProfiles.ToView(builtIn), client.Name, scratch))
+            {
+                changes.AddRange(scratch.Detail);
+                continue;
+            }
+
+            await WriteAsync(client, basis, current, ct).ConfigureAwait(false);
+            changes.Add($"{(current is null ? "created" : "reset")} {builtIn.Name}");
+        }
+
+        if (!removeOthers)
+        {
+            return changes;
+        }
+
+        foreach (var profile in existing)
+        {
+            var name = profile["name"]?.GetValue<string>();
+            if (BuiltInQualityProfiles.IsBuiltIn(name) || profile["id"]?.GetValue<int>() is not { } id)
+            {
+                continue;
+            }
+
+            try
+            {
+                await client
+                    .DeleteAsync(string.Create(CultureInfo.InvariantCulture, $"qualityprofile/{id}"), ct)
+                    .ConfigureAwait(false);
+                changes.Add($"deleted {name}");
+            }
+            catch (ArrApiException ex)
+            {
+                // Almost always "in use": a title is already filed under it. It stays, and shows up
+                // as a profile of its own that can be deleted once nothing needs it.
+                _logger.LogInformation(ex, "Kept {App}'s quality profile {Name}", client.Name, name);
+            }
+        }
+
+        return changes;
     }
 
     /// <summary>Remove a profile from both apps.</summary>
@@ -407,8 +534,6 @@ public sealed class QualityProfileService
             }
             catch (ArrApiException ex)
             {
-                // The usual refusal is "this profile is still in use by N titles", which is exactly
-                // the sentence a user needs, so it is passed through rather than flattened.
                 // The app refused, which is a different thing from the profile not existing --
                 // usually "QualityProfile [5] is in use". That sentence is exactly what the user
                 // needs, so it is passed through rather than flattened into a 404.
@@ -425,13 +550,78 @@ public sealed class QualityProfileService
         if (!found)
         {
             result.NotFound = true;
-            result.Message = $"No app has a quality profile called \"{name}\".";
+            result.Message = $"There is no quality profile called \"{name}\".";
         }
 
         return result;
     }
 
     // --- mapping -----------------------------------------------------------
+
+    /// <summary>
+    /// Fill one app's profile resource from the shared model: name, upgrades, allowed set, cutoff.
+    /// </summary>
+    /// <returns>False when this app has nothing the profile asks for, so there is nothing to write.</returns>
+    private static bool Prepare(JsonObject basis, QualityProfileView desired, string app, QualityProfileWriteResult result)
+    {
+        var target = desired;
+        HashSet<string> allowed;
+
+        if (desired.Tiers.Count > 0)
+        {
+            var (names, cutoff) = QualityTiers.Resolve(
+                Flatten(ReadItems(basis)),
+                desired.Tiers,
+                desired.CutoffTier);
+            if (names.Count == 0)
+            {
+                result.Detail.Add($"{app}: has no qualities in those sizes");
+                return false;
+            }
+
+            allowed = names;
+            target = new QualityProfileView { Name = desired.Name, Cutoff = cutoff };
+            Apply(basis, target, allowed, out _);
+        }
+        else
+        {
+            allowed = new HashSet<string>(
+                desired.Items.Where(i => i.Allowed).Select(i => i.Name),
+                StringComparer.OrdinalIgnoreCase);
+            var missing = Apply(basis, desired, allowed, out var cutoffFound);
+            if (missing.Count > 0)
+            {
+                desired.Unsupported[app] = missing;
+            }
+
+            if (!cutoffFound)
+            {
+                result.Detail.Add(
+                    $"{app}: cutoff \"{desired.Cutoff}\" is not one of its allowed qualities; "
+                    + "used the lowest allowed one instead");
+            }
+        }
+
+        basis["name"] = desired.Name;
+        basis["upgradeAllowed"] = desired.UpgradeAllowed;
+        return true;
+    }
+
+    private static async Task WriteAsync(ArrClient client, JsonObject basis, JsonObject? existing, CancellationToken ct)
+    {
+        if (existing is null)
+        {
+            basis["id"] = 0;
+            await client.PostAsync("qualityprofile", basis, ct).ConfigureAwait(false);
+            return;
+        }
+
+        var id = existing["id"]?.GetValue<int>() ?? 0;
+        basis["id"] = id;
+        await client
+            .PutAsync(string.Create(CultureInfo.InvariantCulture, $"qualityprofile/{id}"), basis, ct)
+            .ConfigureAwait(false);
+    }
 
     /// <summary>
     /// Set <c>allowed</c> and <c>cutoff</c> on one app's profile resource from the shared model.
@@ -462,10 +652,10 @@ public sealed class QualityProfileService
                 var isAllowed = allowed.Contains(name);
 
                 // A group is allowed when the group itself is named, or when any member is: the
-                // shared model's checkbox list is flat, and a user ticking "WEBDL-1080p" inside
-                // Radarr's "WEB 1080p" group means the group. Membership is therefore read in full
-                // *before* anything is written -- writing as we go would leave every member before
-                // the one that flipped the group carrying the wrong value.
+                // shared model's list is flat, and a user asking for "WEBDL-1080p" inside Radarr's
+                // "WEB 1080p" group means the group. Membership is therefore read in full *before*
+                // anything is written -- writing as we go would leave every member before the one
+                // that flipped the group carrying the wrong value.
                 var members = item["items"] as JsonArray;
                 var cutoffNamesThisItem =
                     string.Equals(name, desired.Cutoff, StringComparison.OrdinalIgnoreCase);
@@ -486,11 +676,7 @@ public sealed class QualityProfileService
 
                         // A cutoff naming a quality that lives *inside* a group resolves to the
                         // group. NzbDrone stores the cutoff as one id and a grouped quality does
-                        // not have an addressable one of its own, so "upgrade until WEBDL-1080p"
-                        // can only mean "until the WEB 1080p group" — and a caller who picked the
-                        // member name off the flat list has no way of knowing that. Without this,
-                        // every cutoff inside a group silently fell back to the lowest allowed
-                        // quality, which is very nearly the opposite of what was asked for.
+                        // not have an addressable one of its own.
                         if (string.Equals(memberName, desired.Cutoff, StringComparison.OrdinalIgnoreCase))
                         {
                             cutoffNamesThisItem = true;
@@ -516,7 +702,6 @@ public sealed class QualityProfileService
 
                 if (isAllowed)
                 {
-                    // "items" is ordered best first, so the last allowed one is the lowest.
                     lowestAllowedId = id;
                     if (cutoffNamesThisItem)
                     {
@@ -527,9 +712,8 @@ public sealed class QualityProfileService
             }
         }
 
-        // A cutoff that is not allowed is rejected outright by both apps, so falling back to the
-        // lowest allowed quality is the only answer that stores at all -- and it is also the one
-        // that behaves like "no cutoff", which is what a user who did not set one means.
+        // A cutoff that is not allowed is rejected outright by both apps, so falling back to an
+        // allowed quality is the only answer that stores at all.
         resource["cutoff"] = cutoffId ?? lowestAllowedId;
 
         return allowed.Where(a => !known.Contains(a)).OrderBy(a => a, StringComparer.Ordinal).ToList();

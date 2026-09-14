@@ -491,41 +491,22 @@ export function useArrTitle(
   return { row, profileName, isLoading: query.isLoading };
 }
 
-/** Every quality profile either app has, merged by name. Gap 4. */
+/**
+ * Every quality profile either app has, merged by name. Gap 4.
+ *
+ * Through `unwrap`, not `data ?? []`: a failure with no body used to come back as an empty list,
+ * which the settings screen drew as "No quality profiles" on a node that had several.
+ */
 export function useQualityProfiles(enabled = true) {
   const client = useStingStreamClient();
   return useQuery({
     queryKey: keys.qualityProfiles,
-    queryFn: async () => {
-      const { data, error } = await client!.GET(
-        "/stingstream/api/v1/qualityprofiles",
-      );
-      if (error) throw error;
-      return (data ?? []) as QualityProfileView[];
-    },
+    queryFn: async () =>
+      unwrap(
+        await client!.GET("/stingstream/api/v1/qualityprofiles"),
+        "GET /qualityprofiles",
+      ) as QualityProfileView[],
     enabled: enabled && !!client,
-  });
-}
-
-/**
- * What qualities each app understands, for the profile editor's checkboxes.
- *
- * Long `staleTime`: an app's quality definition list changes when the app is
- * upgraded, which is not something a settings screen needs to poll for.
- */
-export function useQualityVocabulary() {
-  const client = useStingStreamClient();
-  return useQuery({
-    queryKey: keys.qualityVocabulary,
-    queryFn: async () => {
-      return unwrap(
-        await client!.GET("/stingstream/api/v1/qualityprofiles/schema"),
-        "GET /qualityprofiles/schema",
-        { Apps: {}, Shared: [] },
-      );
-    },
-    enabled: !!client,
-    staleTime: 10 * 60_000,
   });
 }
 
@@ -539,23 +520,39 @@ export function useSaveQualityProfile() {
       isNew: boolean;
     }) => {
       if (input.isNew) {
-        const { data, error } = await client!.POST(
-          "/stingstream/api/v1/qualityprofiles",
-          { body: input.profile },
-        );
-        if (error) throw error;
-        return data as QualityProfileWriteResult;
+        return unwrap(
+          await client!.POST("/stingstream/api/v1/qualityprofiles", {
+            body: input.profile,
+          }),
+          "POST /qualityprofiles",
+        ) as QualityProfileWriteResult;
       }
-      const { data, error } = await client!.PUT(
-        "/stingstream/api/v1/qualityprofiles/{name}",
-        {
+      return unwrap(
+        await client!.PUT("/stingstream/api/v1/qualityprofiles/{name}", {
           params: { path: { name: input.profile.Name ?? "" } },
           body: input.profile,
-        },
-      );
-      if (error) throw error;
-      return data as QualityProfileWriteResult;
+        }),
+        "PUT /qualityprofiles",
+      ) as QualityProfileWriteResult;
     },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.qualityProfiles });
+    },
+  });
+}
+
+/** Put a built-in profile (Any, High, Medium, Low) back the way it shipped. */
+export function useResetQualityProfile() {
+  const client = useStingStreamClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (name: string) =>
+      unwrap(
+        await client!.POST("/stingstream/api/v1/qualityprofiles/{name}/reset", {
+          params: { path: { name } },
+        }),
+        "POST /qualityprofiles/reset",
+      ) as QualityProfileWriteResult,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.qualityProfiles });
     },
@@ -567,14 +564,13 @@ export function useDeleteQualityProfile() {
   const client = useStingStreamClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (name: string) => {
-      const { data, error } = await client!.DELETE(
-        "/stingstream/api/v1/qualityprofiles/{name}",
-        { params: { path: { name } } },
-      );
-      if (error) throw error;
-      return data as QualityProfileWriteResult;
-    },
+    mutationFn: async (name: string) =>
+      unwrap(
+        await client!.DELETE("/stingstream/api/v1/qualityprofiles/{name}", {
+          params: { path: { name } },
+        }),
+        "DELETE /qualityprofiles",
+      ) as QualityProfileWriteResult,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.qualityProfiles });
     },

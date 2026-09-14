@@ -6190,28 +6190,7 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
+            "description": "No app could be read, so there is no list to give."
           }
         },
         "security": [
@@ -6417,7 +6396,7 @@
           "QualityProfiles"
         ],
         "summary": "Replace a profile in both apps.",
-        "description": "Renaming is deliberately not supported here: the name is the profile's identity across two\r\napps, and a rename that succeeded in one and failed in the other would leave the group with\r\ntwo half-profiles and no way to tell which was which. Create the new one and delete the old.",
+        "description": "Renaming is deliberately not supported: the name is the profile's identity across two apps,\r\nand a rename that succeeded in one and failed in the other would leave two half-profiles.",
         "operationId": "UpdateQualityProfile",
         "parameters": [
           {
@@ -6564,7 +6543,7 @@
             }
           },
           "400": {
-            "description": "An app refused, usually because the profile is still in use.",
+            "description": "A built-in profile, or an app refused (usually because it is in use).",
             "content": {
               "application/json": {
                 "schema": {
@@ -6623,13 +6602,101 @@
         ]
       }
     },
+    "/stingstream/api/v1/qualityprofiles/{name}/reset": {
+      "post": {
+        "tags": [
+          "QualityProfiles"
+        ],
+        "summary": "Put a built-in profile back the way it shipped.",
+        "operationId": "ResetQualityProfile",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "Any, High, Medium or Low.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The profile as the apps stored it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QualityProfileWriteResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "An app refused.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "The name is not a built-in profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/qualityprofiles/schema": {
       "get": {
         "tags": [
           "QualityProfiles"
         ],
         "summary": "What qualities each app understands.",
-        "description": "A profile editor needs this to offer real choices: the names are the app's own, in the app's\r\nown order (best first), and `shared` is the subset both apps have — the safe set for a\r\nprofile meant to govern films and series alike.",
         "operationId": "GetQualityVocabulary",
         "responses": {
           "200": {
@@ -8074,6 +8141,103 @@
           {
             "CustomAuthentication": [
               "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/requests/ratings": {
+      "post": {
+        "tags": [
+          "Requests"
+        ],
+        "summary": "What a list of titles scored on IMDb and Rotten Tomatoes.",
+        "description": "\r\nA POST because it is a batch: the app sends a whole page of cards at once, and sixty titles do\r\n            not fit a query string.\r\n\r\nNot behind `CanSearch`. Nothing here touches a manager, and a score is as true on a node\r\n            with no indexer as on one with three. An upstream that will not answer is a 200 with nulls,\r\n            never an error; see StingStream.Core.Requests.ExternalRatings.",
+        "operationId": "Ratings",
+        "requestBody": {
+          "description": "The titles a screen is drawing.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/TitleRatingsBody"
+                  }
+                ],
+                "description": "What `POST /requests/ratings` takes."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/TitleRatingsBody"
+                  }
+                ],
+                "description": "What `POST /requests/ratings` takes."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/TitleRatingsBody"
+                  }
+                ],
+                "description": "What `POST /requests/ratings` takes."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "One answer per title, in the order asked. A score nobody could find is null.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TitleRatings"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
               "DefaultAuthorization"
             ]
           }
@@ -19808,7 +19972,22 @@
             "items": {
               "$ref": "#/components/schemas/QualityProfileItemView"
             },
-            "description": "Allowed qualities, best first, exactly as the app orders them."
+            "description": "Allowed qualities, exactly as the app orders them."
+          },
+          "Tiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The picture sizes the profile allows, worst first: `sd`, `720p`, `1080p`,\r\n`2160p`."
+          },
+          "CutoffTier": {
+            "type": "string",
+            "description": "The tier at which upgrading stops. Empty when the cutoff belongs to no tier."
+          },
+          "IsBuiltIn": {
+            "type": "boolean",
+            "description": "One of StingStream.Core.Arr.BuiltInQualityProfiles: it can be reset, and not deleted."
           },
           "IsDefault": {
             "type": "boolean",
@@ -19878,7 +20057,7 @@
                 "type": "string"
               }
             },
-            "description": "Quality and group names per app, in the app's own order, best first."
+            "description": "Quality and group names per app, in the app's own order."
           },
           "Shared": {
             "type": "array",
@@ -22964,6 +23143,96 @@
           }
         },
         "additionalProperties": false
+      },
+      "TitleRatings": {
+        "type": "object",
+        "properties": {
+          "ImdbId": {
+            "type": "string",
+            "description": "The IMDb id the rating was read for, so the app can link to the right page.",
+            "nullable": true
+          },
+          "ImdbRating": {
+            "type": "number",
+            "description": "Out of ten.",
+            "format": "double",
+            "nullable": true
+          },
+          "ImdbVotes": {
+            "type": "integer",
+            "format": "int32",
+            "nullable": true
+          },
+          "RottenTomatoesScore": {
+            "type": "integer",
+            "description": "The critics' score, a percentage.",
+            "format": "int32",
+            "nullable": true
+          },
+          "RottenTomatoesAudienceScore": {
+            "type": "integer",
+            "description": "The audience score, a percentage.",
+            "format": "int32",
+            "nullable": true
+          },
+          "RottenTomatoesUrl": {
+            "type": "string",
+            "description": "The page the score was matched to.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "One title's scores. Every field may be null."
+      },
+      "TitleRatingsBody": {
+        "type": "object",
+        "properties": {
+          "Titles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TitleRatingsQuery"
+            },
+            "description": "The titles, at most StingStream.Core.Requests.ExternalRatings.MaxTitles."
+          }
+        },
+        "additionalProperties": false,
+        "description": "What `POST /requests/ratings` takes."
+      },
+      "TitleRatingsQuery": {
+        "type": "object",
+        "properties": {
+          "Kind": {
+            "type": "string",
+            "description": "`movie` or `series`."
+          },
+          "TmdbId": {
+            "type": "integer",
+            "description": "A film's TMDB id, when the caller has one.",
+            "format": "int32"
+          },
+          "TvdbId": {
+            "type": "integer",
+            "description": "A show's TVDB id, when the caller has one.",
+            "format": "int32"
+          },
+          "ImdbId": {
+            "type": "string",
+            "description": "The IMDb id, when the caller already has it. Saves a lookup.",
+            "nullable": true
+          },
+          "Title": {
+            "type": "string",
+            "description": "The title, which is what Rotten Tomatoes is searched by."
+          },
+          "Year": {
+            "type": "integer",
+            "description": "The release year, which is what tells a remake from the original.",
+            "format": "int32",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "One title a screen wants scores for."
       },
       "TonemappingAlgorithm": {
         "enum": [

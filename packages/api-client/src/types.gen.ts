@@ -1525,14 +1525,30 @@ export interface paths {
         get: operations["QualityProfiles_GetQualityProfile"];
         /**
          * Replace a profile in both apps.
-         * @description Renaming is deliberately not supported here: the name is the profile's identity across two
-         *     apps, and a rename that succeeded in one and failed in the other would leave the group with
-         *     two half-profiles and no way to tell which was which. Create the new one and delete the old.
+         * @description Renaming is deliberately not supported: the name is the profile's identity across two apps,
+         *     and a rename that succeeded in one and failed in the other would leave two half-profiles.
          */
         put: operations["QualityProfiles_UpdateQualityProfile"];
         post?: never;
         /** Remove a profile from both apps. */
         delete: operations["QualityProfiles_DeleteQualityProfile"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/qualityprofiles/{name}/reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put a built-in profile back the way it shipped. */
+        post: operations["QualityProfiles_ResetQualityProfile"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1545,12 +1561,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * What qualities each app understands.
-         * @description A profile editor needs this to offer real choices: the names are the app's own, in the app's
-         *     own order (best first), and `shared` is the subset both apps have — the safe set for a
-         *     profile meant to govern films and series alike.
-         */
+        /** What qualities each app understands. */
         get: operations["QualityProfiles_GetQualityVocabulary"];
         put?: never;
         post?: never;
@@ -1834,6 +1845,31 @@ export interface paths {
         /** Set the group's request policy. */
         put: operations["Requests_SetPolicy"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/requests/ratings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * What a list of titles scored on IMDb and Rotten Tomatoes.
+         * @description A POST because it is a batch: the app sends a whole page of cards at once, and sixty titles do
+         *                 not fit a query string.
+         *
+         *     Not behind `CanSearch`. Nothing here touches a manager, and a score is as true on a node
+         *                 with no indexer as on one with three. An upstream that will not answer is a 200 with nulls,
+         *                 never an error; see StingStream.Core.Requests.ExternalRatings.
+         */
+        post: operations["Requests_Ratings"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6050,8 +6086,17 @@ export interface components {
             UpgradeAllowed?: boolean;
             /** @description The quality (or quality group) name at which upgrading stops. */
             Cutoff?: string;
-            /** @description Allowed qualities, best first, exactly as the app orders them. */
+            /** @description Allowed qualities, exactly as the app orders them. */
             Items?: components["schemas"]["QualityProfileItemView"][];
+            /**
+             * @description The picture sizes the profile allows, worst first: `sd`, `720p`, `1080p`,
+             *     `2160p`.
+             */
+            Tiers?: string[];
+            /** @description The tier at which upgrading stops. Empty when the cutoff belongs to no tier. */
+            CutoffTier?: string;
+            /** @description One of StingStream.Core.Arr.BuiltInQualityProfiles: it can be reset, and not deleted. */
+            IsBuiltIn?: boolean;
             /** @description The default profile used when a title is added without naming one. */
             IsDefault?: boolean;
             /** @description Whether both apps agree about this profile. */
@@ -6076,7 +6121,7 @@ export interface components {
         };
         /** @description The quality vocabulary each app has, so an editor can offer real choices. */
         QualityVocabulary: {
-            /** @description Quality and group names per app, in the app's own order, best first. */
+            /** @description Quality and group names per app, in the app's own order. */
             Apps?: {
                 [key: string]: string[];
             };
@@ -7250,6 +7295,59 @@ export interface components {
             Id?: string;
             /** Format: uuid */
             ProgramId?: string | null;
+        };
+        /** @description One title's scores. Every field may be null. */
+        TitleRatings: {
+            /** @description The IMDb id the rating was read for, so the app can link to the right page. */
+            ImdbId?: string | null;
+            /**
+             * Format: double
+             * @description Out of ten.
+             */
+            ImdbRating?: number | null;
+            /** Format: int32 */
+            ImdbVotes?: number | null;
+            /**
+             * Format: int32
+             * @description The critics' score, a percentage.
+             */
+            RottenTomatoesScore?: number | null;
+            /**
+             * Format: int32
+             * @description The audience score, a percentage.
+             */
+            RottenTomatoesAudienceScore?: number | null;
+            /** @description The page the score was matched to. */
+            RottenTomatoesUrl?: string | null;
+        };
+        /** @description What `POST /requests/ratings` takes. */
+        TitleRatingsBody: {
+            /** @description The titles, at most StingStream.Core.Requests.ExternalRatings.MaxTitles. */
+            Titles?: components["schemas"]["TitleRatingsQuery"][];
+        };
+        /** @description One title a screen wants scores for. */
+        TitleRatingsQuery: {
+            /** @description `movie` or `series`. */
+            Kind?: string;
+            /**
+             * Format: int32
+             * @description A film's TMDB id, when the caller has one.
+             */
+            TmdbId?: number;
+            /**
+             * Format: int32
+             * @description A show's TVDB id, when the caller has one.
+             */
+            TvdbId?: number;
+            /** @description The IMDb id, when the caller already has it. Saves a lookup. */
+            ImdbId?: string | null;
+            /** @description The title, which is what Rotten Tomatoes is searched by. */
+            Title?: string;
+            /**
+             * Format: int32
+             * @description The release year, which is what tells a remake from the original.
+             */
+            Year?: number | null;
         };
         /**
          * @description Enum containing tonemapping algorithms.
@@ -12415,18 +12513,12 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The server is currently starting or is temporarily not available. */
+            /** @description No app could be read, so there is no list to give. */
             503: {
                 headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
                     [name: string]: unknown;
                 };
-                content: {
-                    "text/html": unknown;
-                };
+                content?: never;
             };
         };
     };
@@ -12657,7 +12749,7 @@ export interface operations {
                     "application/json": components["schemas"]["QualityProfileWriteResult"];
                 };
             };
-            /** @description An app refused, usually because the profile is still in use. */
+            /** @description A built-in profile, or an app refused (usually because it is in use). */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -12681,6 +12773,74 @@ export interface operations {
                 content?: never;
             };
             /** @description No app has a profile by that name. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    QualityProfiles_ResetQualityProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Any, High, Medium or Low. */
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The profile as the apps stored it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityProfileWriteResult"];
+                };
+            };
+            /** @description An app refused. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The name is not a built-in profile. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13641,6 +13801,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Requests_Ratings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The titles a screen is drawing. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TitleRatingsBody"];
+                "text/json": components["schemas"]["TitleRatingsBody"];
+                "application/*+json": components["schemas"]["TitleRatingsBody"];
+            };
+        };
+        responses: {
+            /** @description One answer per title, in the order asked. A score nobody could find is null. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleRatings"][];
                 };
             };
             /** @description Unauthorized */

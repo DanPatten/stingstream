@@ -64,8 +64,6 @@
     "manage.activity_hours_ago_other",
     "manage.activity_minutes_ago_one",
     "manage.activity_minutes_ago_other",
-    "server_settings.quality_profiles_groups_allowed_one",
-    "server_settings.quality_profiles_groups_allowed_other",
     "server_status.child_restarts_one",
     "server_status.child_restarts_other",
     "server_status.children_redacted_one",
