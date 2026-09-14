@@ -1586,7 +1586,7 @@
     "link_not_admin_title": "Administrator access required",
     "link_sign_in": "Sign in",
     "link_sign_in_title": "Sign in to {{server}}",
-    "link_to_detail": "Enter the address of your StingStream server.",
+    "link_to_detail": "This invite link connects your server to {{server}}. Enter the address of the StingStream server you administer.",
     "link_to_title": "Connect to {{server}}",
     "member_count": "{{count}} members",
     "member_count_one": "{{count}} member",
@@ -2243,7 +2243,7 @@
   },
   "identity": {
     "own_server_title": "Sign in with your server",
-    "own_server_detail": "Enter the address of your StingStream server.",
+    "own_server_detail": "Use the account you already have on another StingStream server. Enter that server's address.",
     "own_server_placeholder": "your-server.example.com",
     "own_server_continue": "Continue",
     "own_server_cancel": "Back",

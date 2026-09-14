@@ -211,7 +211,7 @@ function ServerAddressStep({ invite }: { invite: ConnectionInviteLink }) {
         {t("sharing.link_to_title", { server })}
       </Text>
       <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
-        {t("sharing.link_to_detail")}
+        {t("sharing.link_to_detail", { server })}
       </Text>
       <View style={{ marginTop: 24, gap: 12 }}>
         <Input
