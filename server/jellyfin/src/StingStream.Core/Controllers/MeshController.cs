@@ -402,12 +402,27 @@ public sealed class MeshController : StingStreamControllerBase
             return MeshUnavailable();
         }
 
+        // The domain a peer announces is the truth, because it follows that server when it moves: its
+        // owner changes it there and the next heartbeat says so. What is saved here is the fallback,
+        // for before that heartbeat arrives or while the peer is unreachable, and it is kept in step
+        // with the announced domain so the fallback is never older than the last thing heard.
         var addresses = await _connections.AddressesAsync(cancellationToken).ConfigureAwait(false);
         foreach (var peer in peers)
         {
-            if (addresses.TryGetValue(peer.Group, out var address))
+            addresses.TryGetValue(peer.Group, out var saved);
+            var announced = AnnouncedDomain(peer.SideDoor);
+            if (announced is not null)
             {
-                peer.Address = address;
+                peer.Address = announced;
+                if (!string.Equals(saved, announced, StringComparison.OrdinalIgnoreCase))
+                {
+                    await _connections.SaveAsync(peer.Group, announced, null, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+            else if (saved is not null)
+            {
+                peer.Address = saved;
             }
         }
 
@@ -493,6 +508,34 @@ public sealed class MeshController : StingStreamControllerBase
     /// administrator does not have to wait for the timer, and so a failure has somewhere to report
     /// itself synchronously.
     /// </remarks>
+    /// <summary>The owner's domain out of a peer's side door record (candidate kind <c>own</c>), or null.</summary>
+    private static string? AnnouncedDomain(System.Text.Json.JsonElement? sideDoor)
+    {
+        if (sideDoor is not { ValueKind: System.Text.Json.JsonValueKind.Object } record
+            || !record.TryGetProperty("candidates", out var candidates)
+            || candidates.ValueKind != System.Text.Json.JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        foreach (var candidate in candidates.EnumerateArray())
+        {
+            if (candidate.ValueKind == System.Text.Json.JsonValueKind.Object
+                && candidate.TryGetProperty("kind", out var kind)
+                && kind.ValueKind == System.Text.Json.JsonValueKind.String
+                && kind.GetString() == "own"
+                && candidate.TryGetProperty("url", out var url)
+                && url.ValueKind == System.Text.Json.JsonValueKind.String
+                && Sharing.ConnectionStore.TryNormalizeAddress(url.GetString(), out var origin)
+                && origin is not null)
+            {
+                return origin;
+            }
+        }
+
+        return null;
+    }
+
     [HttpPost("federated/refresh")]
     [Authorize(Policy = Policies.RequiresElevation)]
     [ProducesResponseType(StatusCodes.Status200OK)]

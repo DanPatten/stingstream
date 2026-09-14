@@ -4,6 +4,7 @@ import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { PageContainer } from "@/components/common/PageContainer";
+import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
@@ -22,6 +23,7 @@ import {
   useNodeMeshStatus,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { peerAddress } from "@/utils/mesh/serverList";
 import { SaveStatus, TextFieldRow } from "../settings/fields";
 import { useAutosave } from "../settings/useAutosave";
 import { confirmDestructive } from "../shared/confirm";
@@ -138,12 +140,31 @@ export function GroupDetailScreen({ group }: { group: string }) {
           <Text variant='title' weight='semibold'>
             {server}
           </Text>
+          {/* The other server's own status, which is what opening it is for. Dan: *"when clicking on
+              a server to show the server status"*. Only once the peers have answered: before that
+              it is not offline, it is not known yet. */}
+          {peers.isSuccess ? (
+            <View style={{ flexDirection: "row", marginTop: 10 }}>
+              <Pill
+                testID='sharing-server-status'
+                tone={other?.online ? "success" : "neutral"}
+                label={t(
+                  other?.online
+                    ? "sharing.member_online"
+                    : "sharing.member_offline",
+                )}
+              />
+            </View>
+          ) : null}
         </View>
 
         {isAdmin ? (
           <>
             <View style={{ height: 20 }} />
-            <ConnectionSection group={group} />
+            <ConnectionSection
+              group={group}
+              announced={other ? peerAddress(other) : null}
+            />
             <View style={{ height: 20 }} />
             <SharedLibrariesSection group={group} />
             <View style={{ marginTop: 32 }}>
@@ -170,13 +191,31 @@ export function GroupDetailScreen({ group }: { group: string }) {
  * The address saves itself like every other settings field. Dan: *"allow the user to change the
  * domain in case the server moves"*.
  */
-function ConnectionSection({ group }: { group: string }) {
+function ConnectionSection({
+  group,
+  announced,
+}: {
+  group: string;
+  /** The address the other server is reached at now, for when none has been saved here. */
+  announced: string | null;
+}) {
   const { t } = useTranslation();
   const details = useConnectionDetails(group);
   const setAddress = useSetConnectionAddress(group);
 
+  // Filled with the address the connection is using when nothing is saved, rather than an empty
+  // box with a placeholder. Dan: *"fill in the address with the org address as connected"*. It is
+  // the starting value, not a change, so nothing is saved until somebody edits it.
+  const value = useMemo(
+    () =>
+      details.data
+        ? { ...details.data, address: details.data.address ?? announced }
+        : undefined,
+    [details.data, announced],
+  );
+
   const { draft, set, saving } = useAutosave({
-    value: details.data,
+    value,
     save: async (next) => {
       try {
         await setAddress.mutateAsync(next.address?.trim() ?? "");

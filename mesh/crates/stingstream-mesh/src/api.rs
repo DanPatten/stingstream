@@ -596,6 +596,11 @@ async fn put_sharing(
             public_address: body.public_address,
         })
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    // Rebuilt now rather than on the supervisor's next reconcile tick, so the next heartbeat already
+    // tells every connected server where this one moved to. Dan: *"make sure if a domain is changed
+    // to update all connected servers with the new domain automatically"*. `post_tunnel` does the
+    // same for the address a tunnel sets.
+    node.set_side_door(&node.domains.observation().lan_urls)?;
     Ok(Json(stored.into()))
 }
 

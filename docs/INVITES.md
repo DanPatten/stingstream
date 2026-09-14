@@ -535,9 +535,13 @@ leaves the group the invite created (Core answers `group` beside the code for th
 **The link carries the maker's address** (`addr`), and `POST /connections/connect` saves it in
 `connections` in `core.db` (`Sharing/ConnectionStore`), with the account that connected. `GET
 /mesh/peers` merges it in as `address`, so the Servers page shows the other server the moment the
-connection is made rather than after its first heartbeat. A saved address wins over the announced
-one. The connected server's own page edits it (`PUT /connections/groups/{group}/address`) for when
-that server moves, and shows who connected it in place of a member list.
+connection is made rather than after its first heartbeat. **The domain a peer announces wins** once it
+arrives, and the saved one is updated to match: a server that moves changes its domain in its own
+settings, which rebuilds its side door record at once (`PUT /mesh/v1/settings/sharing`), and every
+connected server picks it up from the next heartbeat. The saved address is the fallback for before
+that heartbeat or while the peer announces no domain. The connected server's own page edits it
+(`PUT /connections/groups/{group}/address`), shows its status, and shows who connected it in place of
+a member list.
 
 #### `/link`, which does the same thing wherever it is opened
 
