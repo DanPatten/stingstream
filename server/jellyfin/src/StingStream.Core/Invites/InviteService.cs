@@ -272,6 +272,67 @@ public sealed class InviteService
             return (null, problem);
         }
 
+        var (created, refused) = await CreateAccountAsync(row, name!, password!, now, cancellationToken)
+            .ConfigureAwait(false);
+        return (created?.Username, refused);
+    }
+
+    /// <summary>Create the account an invite is for, with a passkey rather than a password.</summary>
+    /// <param name="row">The invite, already judged valid.</param>
+    /// <param name="username">The name they chose, trimmed.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The account, or a sentence saying why there is not one.</returns>
+    /// <remarks>
+    /// Called only once the passkey has been verified, so a prompt somebody dismissed never spends
+    /// the invite. Everything after that is <see cref="AcceptAsync"/>'s own sequence — claim, create,
+    /// scope, complete — with a password nobody knows in place of one they chose. Never blank: a
+    /// Jellyfin account with no password signs in with an empty one.
+    /// </remarks>
+    public async Task<(User? Created, string? Problem)> AcceptWithPasskeyAsync(
+        InviteRow row,
+        string? username,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        var name = username?.Trim();
+        if (SetupGate.ValidateUsername(name) is { } problem)
+        {
+            return (null, problem);
+        }
+
+        return await CreateAccountAsync(row, name!, UnknowablePassword(), now, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>Why this name cannot be used for an invite's account, or null when it can.</summary>
+    /// <param name="username">The name, trimmed.</param>
+    /// <returns>One sentence, or null.</returns>
+    /// <remarks>
+    /// Asked before a passkey prompt is shown, so the common mistake is reported while it costs a
+    /// retype rather than a fingerprint. <see cref="CreateAccountAsync"/> asks again, because a name
+    /// free a minute ago need not be free now.
+    /// </remarks>
+    public string? UsernameProblem(string? username)
+        => SetupGate.ValidateUsername(username)
+            ?? (_users.GetUserByName(username!) is not null
+                ? "That name is already taken on this server. Choose another."
+                : null);
+
+    /// <summary>A password nobody knows, for an account whose credential is something else.</summary>
+    /// <returns>A random password.</returns>
+    internal static string UnknowablePassword()
+        => Convert.ToBase64String(RandomNumberGenerator.GetBytes(48));
+
+    private async Task<(User? Created, string? Problem)> CreateAccountAsync(
+        InviteRow row,
+        string name,
+        string password,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
         // Taken names are checked here as well as by CreateUserAsync, so the common mistake costs
         // the invite nothing: below this line a failure has to put a claimed invite back.
         if (_users.GetUserByName(name) is not null)
@@ -279,7 +340,7 @@ public sealed class InviteService
             return (null, "That name is already taken on this server. Choose another.");
         }
 
-        if (!await _store.TryRedeemAsync(row.Id, string.Empty, name!, now, cancellationToken)
+        if (!await _store.TryRedeemAsync(row.Id, string.Empty, name, now, cancellationToken)
                 .ConfigureAwait(false))
         {
             return (null, InviteGate.Explain(InviteStatus.AlreadyUsed));
@@ -288,8 +349,8 @@ public sealed class InviteService
         User created;
         try
         {
-            created = await _users.CreateUserAsync(name!).ConfigureAwait(false);
-            await _users.ChangePassword(created.Id, password!).ConfigureAwait(false);
+            created = await _users.CreateUserAsync(name).ConfigureAwait(false);
+            await _users.ChangePassword(created.Id, password).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
@@ -337,7 +398,7 @@ public sealed class InviteService
             name,
             row.Libraries.Count);
 
-        return (name, null);
+        return (created, null);
     }
 
     /// <summary>The link for an invite that has already been minted, or null.</summary>

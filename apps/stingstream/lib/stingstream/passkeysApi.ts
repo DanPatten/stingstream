@@ -1,3 +1,4 @@
+import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { t } from "i18next";
 import { authHeaders, readError } from "./meshApi";
 import {
@@ -56,7 +57,7 @@ export class PasskeyError extends Error {
   }
 }
 
-const readSentence = async (res: Response): Promise<string | null> => {
+export const readSentence = async (res: Response): Promise<string | null> => {
   try {
     const body = (await res.json()) as { Error?: unknown };
     return typeof body?.Error === "string" && body.Error.trim().length > 0
@@ -67,7 +68,7 @@ const readSentence = async (res: Response): Promise<string | null> => {
   }
 };
 
-const toChallenge = (body: unknown): CeremonyChallenge => {
+export const toChallenge = (body: unknown): CeremonyChallenge => {
   const b = (body ?? {}) as Record<string, unknown>;
   return {
     ceremony: typeof b.Ceremony === "string" ? b.Ceremony : "",
@@ -125,6 +126,12 @@ export async function signInWithPasskey(
   accessToken: string | null;
   userId: string | null;
   username: string;
+  /**
+   * The whole account as the server returned it, `Policy` included. Adopting a session with only
+   * the id and name left `Policy.IsAdministrator` unset, so an administrator who signed in with a
+   * passkey saw a Settings screen with every administrator section missing until a reload.
+   */
+  user: UserDto | null;
 } | null> {
   const begun = await fetchImpl(`${origin}${PASSKEYS_PATH}/login/begin`, {
     method: "POST",
@@ -157,17 +164,33 @@ export async function signInWithPasskey(
     );
   }
 
-  const body = (await finished.json()) as {
+  return readSession(await finished.json());
+}
+
+/**
+ * The session a finished ceremony hands back, read the same way wherever one arrives.
+ *
+ * `user` is the server's whole `UserDto`, not a hand-built `{Id, Name}`: the session is adopted with
+ * it, and everything gated on `Policy` reads it from there.
+ */
+export const readSession = (raw: unknown) => {
+  const body = (raw ?? {}) as {
     AccessToken?: unknown;
     User?: { Id?: unknown; Name?: unknown } | null;
   };
+  const user =
+    body.User &&
+    typeof body.User === "object" &&
+    typeof body.User.Id === "string"
+      ? (body.User as UserDto)
+      : null;
   return {
-    accessToken:
-      typeof body?.AccessToken === "string" ? body.AccessToken : null,
-    userId: typeof body?.User?.Id === "string" ? body.User.Id : null,
-    username: typeof body?.User?.Name === "string" ? body.User.Name : "",
+    accessToken: typeof body.AccessToken === "string" ? body.AccessToken : null,
+    userId: typeof body.User?.Id === "string" ? body.User.Id : null,
+    username: typeof body.User?.Name === "string" ? body.User.Name : "",
+    user,
   };
-}
+};
 
 /**
  * Add a passkey to the account already signed in here.

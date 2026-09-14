@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using StingStream.Core.Invites;
+using StingStream.Core.Passkeys;
 
 namespace StingStream.Core.Controllers;
 
@@ -52,17 +53,20 @@ namespace StingStream.Core.Controllers;
 public sealed class InvitesController : ControllerBase
 {
     private readonly InviteService _invites;
+    private readonly PasskeyService _passkeys;
     private readonly ISessionManager _sessions;
     private readonly IAuthorizationContext _authContext;
     private readonly ILogger<InvitesController> _logger;
 
     public InvitesController(
         InviteService invites,
+        PasskeyService passkeys,
         ISessionManager sessions,
         IAuthorizationContext authContext,
         ILogger<InvitesController> logger)
     {
         _invites = invites;
+        _passkeys = passkeys;
         _sessions = sessions;
         _authContext = authContext;
         _logger = logger;
@@ -271,6 +275,140 @@ public sealed class InvitesController : ControllerBase
         }).ConfigureAwait(false);
 
         _logger.LogInformation("An invite was redeemed as {Username}", username);
+        return result;
+    }
+
+    /// <summary>Start accepting an invite with a passkey instead of a password.</summary>
+    /// <param name="request">The token and the name they chose.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The challenge to answer.</response>
+    /// <response code="400">The name is not usable; the sentence says why.</response>
+    /// <response code="404">No invite has ever had this token.</response>
+    /// <response code="409">This server cannot offer passkeys; the sentence says why.</response>
+    /// <response code="410">There was one, and it cannot be used.</response>
+    /// <returns>The challenge.</returns>
+    /// <remarks>
+    /// Creates nothing. The name is checked here so a taken one is reported before the browser's
+    /// prompt rather than after it, and the account is only made by <c>finish</c> — so a dismissed
+    /// prompt leaves the invite exactly as it was.
+    /// </remarks>
+    [HttpPost("accept/passkey/begin", Name = "StingStreamBeginInvitePasskey")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(InviteError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(InviteError), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(InviteError), StatusCodes.Status410Gone)]
+    public async Task<ActionResult<PasskeyChallenge>> BeginPasskey(
+        [FromBody] AcceptInvitePasskeyBeginRequest request,
+        CancellationToken cancellationToken)
+    {
+        var (status, row) = _invites.Lookup(request?.Token, DateTimeOffset.UtcNow);
+        if (row is null)
+        {
+            return NotFound();
+        }
+
+        if (status != InviteStatus.Valid)
+        {
+            return StatusCode(StatusCodes.Status410Gone, new InviteError { Error = InviteGate.Explain(status)! });
+        }
+
+        var name = request!.Username?.Trim();
+        if (_invites.UsernameProblem(name) is { } problem)
+        {
+            return BadRequest(new InviteError { Error = problem });
+        }
+
+        var (challenge, refused) = await _passkeys
+            .BeginSignUpAsync(row.Id, name!, cancellationToken)
+            .ConfigureAwait(false);
+        return refused is not null
+            ? Conflict(new InviteError { Error = refused })
+            : Ok(challenge);
+    }
+
+    /// <summary>Finish accepting an invite with a passkey: the account is created here.</summary>
+    /// <param name="request">The token, the name, the ceremony id and what the authenticator produced.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The account exists, and here is a session for it.</response>
+    /// <response code="400">The passkey or the name could not be used; the sentence says which.</response>
+    /// <response code="404">No invite has ever had this token.</response>
+    /// <response code="410">There was one, and it cannot be used.</response>
+    /// <returns>A signed-in session, exactly as a passkey sign-in produces.</returns>
+    /// <remarks>
+    /// <para>
+    /// Verify, then create, then save — in that order, so a passkey that fails verification spends
+    /// nothing. <c>AuthenticateDirect</c>, as <c>PasskeysController.FinishLogin</c> uses, because the
+    /// proof was the ceremony and there is no password to check.
+    /// </para>
+    /// <para>
+    /// <b>A save that fails after the account exists still signs them in.</b> The invite is spent by
+    /// then; refusing would leave a person with an account and no way into it. Signed in, they can
+    /// add a passkey from Settings, and the failure is logged as the error it is.
+    /// </para>
+    /// </remarks>
+    [HttpPost("accept/passkey/finish", Name = "StingStreamFinishInvitePasskey")]
+    [AllowAnonymous]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(InviteError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(InviteError), StatusCodes.Status410Gone)]
+    public async Task<ActionResult<AuthenticationResult>> FinishPasskey(
+        [FromBody] AcceptInvitePasskeyFinishRequest request,
+        CancellationToken cancellationToken)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var (status, row) = _invites.Lookup(request?.Token, now);
+        if (row is null)
+        {
+            return NotFound();
+        }
+
+        if (status != InviteStatus.Valid)
+        {
+            return StatusCode(StatusCodes.Status410Gone, new InviteError { Error = InviteGate.Explain(status)! });
+        }
+
+        var name = request!.Username?.Trim() ?? string.Empty;
+        var (signUp, unverified) = await _passkeys
+            .VerifySignUpAsync(request.Ceremony, request.Credential, row.Id, name, cancellationToken)
+            .ConfigureAwait(false);
+        if (signUp is null)
+        {
+            return BadRequest(new InviteError { Error = unverified ?? "That passkey could not be verified." });
+        }
+
+        var (created, problem) = await _invites
+            .AcceptWithPasskeyAsync(row, name, now, cancellationToken)
+            .ConfigureAwait(false);
+        if (created is null)
+        {
+            return BadRequest(new InviteError { Error = problem ?? "Your account could not be created." });
+        }
+
+        try
+        {
+            await _passkeys.SaveSignUpAsync(signUp, created, label: null, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Created {Username} from an invite but could not save its passkey", created.Username);
+        }
+
+        var auth = await _authContext.GetAuthorizationInfo(Request).ConfigureAwait(false);
+        var result = await _sessions.AuthenticateDirect(new AuthenticationRequest
+        {
+            UserId = created.Id,
+            Username = created.Username,
+            App = Fallback(auth.Client, "StingStream"),
+            AppVersion = Fallback(auth.Version, StingStreamApi.Version),
+            DeviceId = Fallback(auth.DeviceId, "stingstream-invite"),
+            DeviceName = Fallback(auth.Device, "Invite"),
+            RemoteEndPoint = HttpContext.GetNormalizedRemoteIP().ToString(),
+        }).ConfigureAwait(false);
+
+        _logger.LogInformation("An invite was redeemed with a passkey as {Username}", created.Username);
         return result;
     }
 

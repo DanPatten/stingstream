@@ -8,10 +8,21 @@ namespace StingStream.Core.Passkeys;
 /// <param name="Options">The options JSON handed to the browser, kept verbatim to verify against.</param>
 /// <param name="UserId">The account, for a registration. Null for a sign-in, which has none yet.</param>
 /// <param name="Expires">When it stops being answerable.</param>
+/// <param name="InviteId">
+/// For a sign-up from an invite: which invite it was begun for. Null otherwise.
+/// </param>
+/// <param name="Username">For a sign-up from an invite: the name it was begun for. Null otherwise.</param>
+/// <remarks>
+/// A sign-up ceremony is issued for one invite and one name, and finishing it creates exactly that
+/// account. Without the pair recorded here, a challenge begun for a name that was checked and free
+/// could be finished for a different one, or against a different invite than the one it was given for.
+/// </remarks>
 public readonly record struct PasskeyCeremony(
     string Options,
     string? UserId,
-    DateTimeOffset Expires);
+    DateTimeOffset Expires,
+    string? InviteId = null,
+    string? Username = null);
 
 /// <summary>
 /// The challenges handed out and not yet answered.
@@ -59,8 +70,15 @@ public sealed class PasskeyCeremonies
     /// <param name="options">The options JSON, verbatim.</param>
     /// <param name="userId">The account, for a registration; null for a sign-in.</param>
     /// <param name="now">The current time.</param>
+    /// <param name="inviteId">For a sign-up from an invite, the invite; otherwise null.</param>
+    /// <param name="username">For a sign-up from an invite, the name; otherwise null.</param>
     /// <returns>The ceremony id, or null when too many are already outstanding.</returns>
-    public string? Remember(string options, string? userId, DateTimeOffset now)
+    public string? Remember(
+        string options,
+        string? userId,
+        DateTimeOffset now,
+        string? inviteId = null,
+        string? username = null)
     {
         Sweep(now);
         if (_pending.Count >= MaxOutstanding)
@@ -69,7 +87,7 @@ public sealed class PasskeyCeremonies
         }
 
         var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
-        _pending[id] = new PasskeyCeremony(options, userId, now + Lifetime);
+        _pending[id] = new PasskeyCeremony(options, userId, now + Lifetime, inviteId, username);
         return id;
     }
 

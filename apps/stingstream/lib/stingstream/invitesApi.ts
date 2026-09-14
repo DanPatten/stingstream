@@ -1,5 +1,11 @@
 import { t } from "i18next";
 import { authHeaders, readError } from "./meshApi";
+import { readSession, toChallenge } from "./passkeysApi";
+import {
+  createCredential,
+  encodeRegistration,
+  type JsonCredentialOptions,
+} from "./webauthn";
 
 /**
  * Person invites: the link an administrator sends, and what happens when somebody opens it.
@@ -22,6 +28,7 @@ import { authHeaders, readError } from "./meshApi";
 
 const LOOKUP_PATH = "/stingstream/api/v1/invites/lookup";
 const ACCEPT_PATH = "/stingstream/api/v1/invites/accept";
+const ACCEPT_PASSKEY_PATH = "/stingstream/api/v1/invites/accept/passkey";
 
 /** How long one call gets before it is called unreachable. */
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -276,6 +283,88 @@ export async function lookupInvite(
     username: typeof body.Username === "string" ? body.Username : "",
     expiresAt: typeof body.ExpiresAt === "string" ? body.ExpiresAt : null,
   };
+}
+
+/** Seams for tests: the browser prompt is not something `bun test` has. */
+export interface InvitePasskeyOptions extends InviteRequestOptions {
+  createCredential?: (
+    options: JsonCredentialOptions,
+  ) => Promise<PublicKeyCredential | null>;
+  encodeRegistration?: (credential: PublicKeyCredential) => unknown;
+}
+
+/**
+ * Create the account this invite is for, with a passkey instead of a password.
+ *
+ * Two requests around the browser's prompt. **Nothing exists until the second one**: `begin` checks
+ * the invite and the name and hands out a challenge, and only `finish` makes the account. So a
+ * dismissed prompt resolves to `null` and leaves the invite exactly as it was, ready to try again or
+ * to use with a password instead.
+ *
+ * The answer is the same session a passkey sign-in produces, whole `User` included.
+ */
+export async function acceptInviteWithPasskey(
+  origin: string,
+  details: { token: string; username: string },
+  options: InvitePasskeyOptions = {},
+): Promise<ReturnType<typeof readSession> | null> {
+  const {
+    fetch: fetchImpl = fetch,
+    createCredential: create = createCredential,
+    encodeRegistration: encode = encodeRegistration,
+  } = options;
+
+  const begun = await request(
+    `${origin}${ACCEPT_PASSKEY_PATH}/begin`,
+    jsonPost({ Token: details.token, Username: details.username }),
+    fetchImpl,
+  );
+  await throwForRefusal(begun);
+
+  const challenge = toChallenge(await begun.json());
+  const credential = await create(challenge.options);
+  if (!credential) return null;
+
+  const finished = await request(
+    `${origin}${ACCEPT_PASSKEY_PATH}/finish`,
+    jsonPost({
+      Token: details.token,
+      Username: details.username,
+      Ceremony: challenge.ceremony,
+      Credential: encode(credential),
+    }),
+    fetchImpl,
+  );
+  await throwForRefusal(finished);
+
+  return readSession(await finished.json());
+}
+
+/** The same status reading `acceptInvite` does, for the two passkey calls. */
+async function throwForRefusal(response: Response): Promise<void> {
+  if (response.ok) return;
+  if (response.status === 400) {
+    throw new InviteRequestError(
+      "invalid",
+      (await refusalSentence(response)) ?? t("invites.error_invalid"),
+    );
+  }
+  if (response.status === 404) {
+    throw new InviteRequestError("unknown", t("invites.error_unknown"));
+  }
+  if (response.status === 409) {
+    throw new InviteRequestError(
+      "server",
+      (await refusalSentence(response)) ?? t("passkeys.error_unavailable"),
+    );
+  }
+  if (response.status === 410) {
+    throw new InviteRequestError(
+      "spent",
+      (await refusalSentence(response)) ?? t("invites.error_spent"),
+    );
+  }
+  throw new InviteRequestError("server", t("invites.error_unexpected"));
 }
 
 /** What Core hands back once the account exists — a session for it. */

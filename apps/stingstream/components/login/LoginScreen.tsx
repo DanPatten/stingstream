@@ -415,10 +415,12 @@ export const LoginScreen: React.FC = () => {
     if (!result.accessToken || !result.userId) {
       throw new Error(t("passkeys.error_sign_in"));
     }
-    adoptSession(result.accessToken, {
-      Id: result.userId,
-      Name: result.username,
-    });
+    // The server's whole user, never a hand-built `{Id, Name}`: without `Policy` an administrator
+    // signed in this way lost every administrator section of Settings until a reload.
+    adoptSession(
+      result.accessToken,
+      result.user ?? { Id: result.userId, Name: result.username },
+    );
   }, [adoptSession, api?.basePath, connectTo, nodeContext, t]);
 
   const handleCreateAccount = useCallback(

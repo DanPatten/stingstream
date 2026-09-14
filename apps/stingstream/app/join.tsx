@@ -1,10 +1,12 @@
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
+import { getStingStreamApiBaseUrl } from "@stingstream/api-client";
 import { useRouter } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, View } from "react-native";
 import { Button } from "@/components/Button";
+import { FormError } from "@/components/common/FormError";
 import { Text } from "@/components/common/Text";
 import { AuthCard } from "@/components/login/AuthCard";
 import { SignInWithOwnServer } from "@/components/stingstream/identity/SignInWithOwnServer";
@@ -13,27 +15,29 @@ import {
   InviteLibraryList,
 } from "@/components/stingstream/invites/InviteAccountForm";
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
+import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
 import { signInWithAssertion } from "@/lib/stingstream/identityApi";
 import {
   acceptInvite,
+  acceptInviteWithPasskey,
   type InviteDescription,
   InviteRequestError,
   lookupInvite,
 } from "@/lib/stingstream/invitesApi";
+import { registerPasskey } from "@/lib/stingstream/passkeysApi";
 import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
 import {
   clearFragment,
   fragmentFromLocation,
-  linkToFromLocation,
   parseAssertion,
   parseReturnCredential,
   parseReturnInvite,
-  parseReturnLink,
+  parseReturnLinkCode,
 } from "@/utils/identity/handoff";
 import { checkJellyfinServer } from "@/utils/jellyfin/checkServer";
+import { buildInviteLink } from "@/utils/mesh/connectionLink";
 import { inviteCodeFromLocation } from "@/utils/mesh/inviteLink";
-import { rememberPendingInvite } from "@/utils/mesh/pendingInvite";
 
 /**
  * `/join` — where every invite link lands, of either kind.
@@ -76,8 +80,11 @@ export default function JoinFromLinkPage() {
   // an assertion where an invite code would be; `inviteCodeFromLocation` would otherwise hand the
   // whole `assertion=…` pair to `lookupInvite` as if it were a token.
   const [assertion] = useState(() => parseAssertion(fragmentFromLocation()));
-  // Their answer to "and link your server?", carried back with the assertion.
-  const [wantsLink] = useState(() => parseReturnLink(fragmentFromLocation()));
+  // The invite their own server made for this one, when they administer it: one sign-in also
+  // connects the two servers.
+  const [linkCode] = useState(() =>
+    parseReturnLinkCode(fragmentFromLocation()),
+  );
   /**
    * The password credential their own server derived, for this server to keep.
    *
@@ -92,14 +99,6 @@ export default function JoinFromLinkPage() {
   const [returnedInvite] = useState(() =>
     parseReturnInvite(fragmentFromLocation()),
   );
-  /**
-   * Their own server's address, as this page resolved it before sending them away.
-   *
-   * Read at mount like everything else here, and for the same reason. It is what lets the
-   * administrator who approves the request hand back a link rather than a code.
-   */
-  const [ownServer] = useState(() => linkToFromLocation());
-
   const [phase, setPhase] = useState<
     | "checking"
     | "person"
@@ -110,7 +109,14 @@ export default function JoinFromLinkPage() {
     // The person invite is open and they have said they already run a server: the same screen,
     // with the address form instead of the password form.
     | "own-server"
+    // Signed up with a password on a server that can do passkeys: offered one before Home.
+    | "offer-passkey"
   >("checking");
+
+  // Null while still being asked; only `supported` draws anything.
+  const passkeys = usePasskeySupport();
+  const [offerBusy, setOfferBusy] = useState(false);
+  const [offerError, setOfferError] = useState<string | null>(null);
 
   /**
    * Whether they already had a session when they opened the link — read **once**, at mount.
@@ -160,8 +166,7 @@ export default function JoinFromLinkPage() {
             // The invite that started this, come back with the answer. The first sign-in is
             // refused without it, and this page no longer holds the one it sent.
             inviteToken: returnedInvite,
-            requestLink: wantsLink,
-            address: ownServer,
+            linkCode,
             salt: credential?.salt,
             verifier: credential?.verifier,
             iterations: credential?.iterations,
@@ -217,7 +222,6 @@ export default function JoinFromLinkPage() {
       // phone build. There is nothing to ask, so fall through to the behaviour this route has
       // always had and let the group Join screen deal with the code.
       if (!nodeContext) {
-        rememberPendingInvite(code);
         if (!cancelled) setPhase("group");
         return;
       }
@@ -233,7 +237,6 @@ export default function JoinFromLinkPage() {
         // Not a person invite. Almost always a group code, which is what this route used to
         // assume unconditionally.
         if (e instanceof InviteRequestError && e.kind === "unknown") {
-          rememberPendingInvite(code);
           setPhase("group");
           return;
         }
@@ -263,10 +266,9 @@ export default function JoinFromLinkPage() {
     assertion,
     code,
     credential,
+    linkCode,
     nodeContext,
-    ownServer,
     returnedInvite,
-    wantsLink,
     setServer,
     t,
     wasSignedIn,
@@ -275,12 +277,27 @@ export default function JoinFromLinkPage() {
   // The group path leaves this screen entirely. Separate from the effect above so the navigation
   // happens after the phase has actually rendered -- replacing mid-decision races the router.
   useEffect(() => {
-    if (phase === "group") router.replace("/settings/servers/join");
+    // A server invite from before `/link` existed. `/link` asks where the reader's server is, the
+    // same as it does for every invite opened on the server that made it.
+    if (phase === "group" && code) {
+      const here = (globalThis as { location?: { origin?: string } }).location
+        ?.origin;
+      const url = buildInviteLink(nodeContext?.origin ?? here, {
+        code,
+        node: "",
+        server: "",
+      });
+      if (url) {
+        (
+          globalThis as { location?: { replace?: (u: string) => void } }
+        ).location?.replace?.(url);
+      }
+    }
     // A new account is signed in by the time this runs, so Home is where they belong. Doing it
     // here rather than inside the submit handler keeps it after the phase has rendered — replacing
     // mid-decision races the router.
     if (phase === "done") router.replace("/");
-  }, [phase, router]);
+  }, [code, nodeContext?.origin, phase, router]);
 
   const handleCreateAccount = useCallback(
     async (username: string, password: string) => {
@@ -303,10 +320,76 @@ export default function JoinFromLinkPage() {
         await setServer({ address: result.url });
       }
       await login(username, password, invite?.serverName ?? undefined);
+      // Dan: offer a passkey after a password sign-up. Only where one would work.
+      setPhase(passkeys?.supported ? "offer-passkey" : "done");
+    },
+    [
+      api?.basePath,
+      code,
+      invite?.serverName,
+      login,
+      nodeContext,
+      passkeys?.supported,
+      setServer,
+      t,
+    ],
+  );
+
+  /**
+   * The account made with a passkey and no password at all.
+   *
+   * Adopts the session `finish` returned rather than signing in again: there is no password to sign
+   * in with. The whole `User` goes to `adoptSession`, `Policy` included, because a hand-built
+   * `{Id, Name}` is what hid an administrator's settings after a passkey sign-in.
+   */
+  const handleCreateWithPasskey = useCallback(
+    async (username: string) => {
+      if (!nodeContext || !code) throw new Error(t("invites.error_unexpected"));
+
+      const session = await acceptInviteWithPasskey(nodeContext.origin, {
+        token: code,
+        username,
+      });
+      if (!session) return;
+      if (!session.accessToken || !session.user) {
+        throw new Error(t("invites.error_unexpected"));
+      }
+
+      if (!api?.basePath) {
+        const target = jellyfinUrlFor(nodeContext);
+        const result = await checkJellyfinServer(target);
+        if (!result) throw new Error(t("login.could_not_connect_to_server"));
+        await setServer({ address: result.url });
+      }
+      adoptSession(session.accessToken, session.user);
       setPhase("done");
     },
-    [api?.basePath, code, invite?.serverName, login, nodeContext, setServer, t],
+    [adoptSession, api?.basePath, code, nodeContext, setServer, t],
   );
+
+  const addOfferedPasskey = useCallback(async () => {
+    if (offerBusy || !api?.basePath) return;
+    setOfferBusy(true);
+    setOfferError(null);
+    try {
+      // True when added, false when the prompt was dismissed. Either way they carry on to Home:
+      // Settings is where a passkey is added later, and asking twice is nagging.
+      await registerPasskey(
+        getStingStreamApiBaseUrl(api.basePath),
+        t("passkeys.default_label"),
+        api.accessToken,
+      );
+      setPhase("done");
+    } catch (e) {
+      setOfferError(
+        e instanceof Error && e.message
+          ? e.message
+          : t("passkeys.error_register"),
+      );
+    } finally {
+      setOfferBusy(false);
+    }
+  }, [api?.accessToken, api?.basePath, offerBusy, t]);
 
   if (phase === "checking" || phase === "group" || phase === "done") {
     return (
@@ -391,6 +474,41 @@ export default function JoinFromLinkPage() {
     );
   }
 
+  if (phase === "offer-passkey") {
+    return (
+      <AuthCard>
+        <Text variant='title' weight='bold'>
+          {t("invites.offer_passkey_title")}
+        </Text>
+        <Text variant='body' tone='secondary' style={{ marginTop: 8 }}>
+          {t("invites.offer_passkey_body")}
+        </Text>
+        <FormError message={offerError} style={{ marginTop: 12 }} />
+        <Button
+          testID='invite-offer-passkey-add'
+          variant='primary'
+          size='lg'
+          onPress={() => void addOfferedPasskey()}
+          loading={offerBusy}
+          disabled={offerBusy}
+          style={{ marginTop: 20 }}
+        >
+          {t("passkeys.add")}
+        </Button>
+        <Button
+          testID='invite-offer-passkey-skip'
+          variant='secondary'
+          size='lg'
+          onPress={() => setPhase("done")}
+          disabled={offerBusy}
+          style={{ marginTop: 12 }}
+        >
+          {t("invites.offer_passkey_skip")}
+        </Button>
+      </AuthCard>
+    );
+  }
+
   // They already run StingStream, so there is no account to create here — their own server says
   // who they are and this one makes the account off the back of that. Dan: "during the invite flow
   // offer the option to sign in with their own server or create an account".
@@ -412,7 +530,13 @@ export default function JoinFromLinkPage() {
     <AuthCard>
       {invite ? (
         <>
-          <InviteAccountForm invite={invite} onSubmit={handleCreateAccount} />
+          <InviteAccountForm
+            invite={invite}
+            onSubmit={handleCreateAccount}
+            onCreateWithPasskey={
+              passkeys?.supported ? handleCreateWithPasskey : undefined
+            }
+          />
           {/* Below the form, not beside it: creating an account is what almost everybody opening
               an invite is here to do, and this is the smaller door. */}
           <View

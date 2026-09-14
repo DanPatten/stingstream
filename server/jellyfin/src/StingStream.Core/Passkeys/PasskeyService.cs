@@ -123,33 +123,19 @@ public sealed class PasskeyService
             return (null, PasskeyOrigin.Explain(support));
         }
 
-        var fido = Build(rp);
         var userId = user.Id.ToString("N");
 
-        var options = fido.RequestNewCredential(new RequestNewCredentialParams
-        {
-            // The user handle. Jellyfin's own id, so a discoverable credential answers with
-            // something this server can resolve without being told a username.
-            User = new Fido2User
-            {
-                Id = Encoding.UTF8.GetBytes(userId),
-                Name = user.Username,
-                DisplayName = user.Username,
-            },
-            // Everything this account already has, so an authenticator that holds one offers to
-            // replace it rather than silently making a second.
-            ExcludeCredentials = _store.ForUser(userId)
+        // The user handle is Jellyfin's own id, so a discoverable credential answers with something
+        // this server can resolve without being told a username. Everything this account already has
+        // is excluded, so an authenticator that holds one offers to replace it rather than silently
+        // making a second.
+        var options = NewCredentialOptions(
+            rp,
+            userId,
+            user.Username,
+            _store.ForUser(userId)
                 .Select(row => new PublicKeyCredentialDescriptor(Base64Url.DecodeFromChars(row.CredentialId)))
-                .ToList(),
-            AuthenticatorSelection = new AuthenticatorSelection
-            {
-                // Discoverable, because sign-in has no username to go on: the point of the button
-                // is that you press it and you are in.
-                ResidentKey = ResidentKeyRequirement.Required,
-                UserVerification = UserVerificationRequirement.Required,
-            },
-            AttestationPreference = AttestationConveyancePreference.None,
-        });
+                .ToList());
 
         var ceremony = _ceremonies.Remember(options.ToJson(), userId, DateTimeOffset.UtcNow);
         if (ceremony is null)
@@ -202,33 +188,204 @@ public sealed class PasskeyService
             return "That took too long. Try again.";
         }
 
-        var original = CredentialCreateOptions.FromJson(ceremony.Options);
-        RegisteredPublicKeyCredential credential;
+        var credential = await VerifyAsync(rp, ceremony, response, cancellationToken).ConfigureAwait(false);
+        if (credential is null)
+        {
+            return "That passkey could not be verified.";
+        }
+
+        await SaveAsync(credential, user, handle: null, rp, label, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("Registered a passkey for {User}", user.Username);
+        return null;
+    }
+
+    /// <summary>Begin making a passkey for an account that an invite is about to create.</summary>
+    /// <param name="inviteId">The invite, already judged valid.</param>
+    /// <param name="username">The name, already judged usable and free.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The ceremony, or a sentence saying why not.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>Nothing is created here.</b> The account is made only when the ceremony is finished, so a
+    /// prompt somebody dismisses leaves no account behind and the invite still unspent.
+    /// </para>
+    /// <para>
+    /// Which means there is no account id for the user handle, and the handle cannot be changed once
+    /// the authenticator has stored it. So a random one is minted and recorded on the row
+    /// (<see cref="PasskeyRow.UserHandle"/>); sign-in compares against it through
+    /// <see cref="HandleFor"/>.
+    /// </para>
+    /// </remarks>
+    public async Task<(PasskeyChallenge? Challenge, string? Problem)> BeginSignUpAsync(
+        string inviteId,
+        string username,
+        CancellationToken cancellationToken)
+    {
+        var (support, party) = await SupportAsync(cancellationToken).ConfigureAwait(false);
+        if (party is not { } rp)
+        {
+            return (null, PasskeyOrigin.Explain(support));
+        }
+
+        var handle = Guid.NewGuid().ToString("N");
+        var options = NewCredentialOptions(rp, handle, username, new List<PublicKeyCredentialDescriptor>());
+        var ceremony = _ceremonies.Remember(options.ToJson(), handle, DateTimeOffset.UtcNow, inviteId, username);
+        if (ceremony is null)
+        {
+            return (null, "Too many sign-in attempts are in flight. Try again in a moment.");
+        }
+
+        return (new PasskeyChallenge { Ceremony = ceremony, Options = Wrap(options.ToJson()) }, null);
+    }
+
+    /// <summary>Verify the passkey made for an invite sign-up, without saving it.</summary>
+    /// <param name="ceremonyId">The ceremony id from <see cref="BeginSignUpAsync"/>.</param>
+    /// <param name="attestation">What the authenticator produced, as raw JSON.</param>
+    /// <param name="inviteId">The invite this finish claims to be for.</param>
+    /// <param name="username">The name this finish claims to be for.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The verified sign-up, or a sentence saying why not.</returns>
+    /// <remarks>
+    /// Not saved, because the account it belongs to is created after this answers and only if it
+    /// answers yes. <see cref="SaveSignUpAsync"/> writes it once the account exists.
+    /// </remarks>
+    public async Task<(PasskeySignUp? SignUp, string? Problem)> VerifySignUpAsync(
+        string? ceremonyId,
+        JsonElement attestation,
+        string inviteId,
+        string username,
+        CancellationToken cancellationToken)
+    {
+        if (PasskeyPayload.Read<AuthenticatorAttestationRawResponse>(attestation) is not { } response)
+        {
+            return (null, "That passkey could not be read.");
+        }
+
+        var (_, party) = await SupportAsync(cancellationToken).ConfigureAwait(false);
+        if (party is not { } rp)
+        {
+            return (null, "Passkeys are not available on this server.");
+        }
+
+        var pending = _ceremonies.Take(ceremonyId, DateTimeOffset.UtcNow);
+        if (pending is not { } ceremony || !SignUpMatches(ceremony, inviteId, username))
+        {
+            return (null, "That took too long. Try again.");
+        }
+
+        var credential = await VerifyAsync(rp, ceremony, response, cancellationToken).ConfigureAwait(false);
+        return credential is null
+            ? (null, "That passkey could not be verified.")
+            : (new PasskeySignUp(credential, ceremony.UserId!, rp), null);
+    }
+
+    /// <summary>Save a verified sign-up passkey against the account the invite created.</summary>
+    /// <param name="signUp">What <see cref="VerifySignUpAsync"/> returned.</param>
+    /// <param name="user">The account, now that it exists.</param>
+    /// <param name="label">What to call it.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public async Task SaveSignUpAsync(
+        PasskeySignUp signUp,
+        User user,
+        string? label,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(signUp);
+        ArgumentNullException.ThrowIfNull(user);
+        await SaveAsync(signUp.Credential, user, signUp.Handle, signUp.Party, label, cancellationToken)
+            .ConfigureAwait(false);
+        _logger.LogInformation("Registered a passkey for {User} while accepting an invite", user.Username);
+    }
+
+    /// <summary>Whether a sign-up ceremony is being finished for the invite and name it was begun for.</summary>
+    /// <param name="ceremony">The ceremony, as it was remembered.</param>
+    /// <param name="inviteId">The invite the finish names.</param>
+    /// <param name="username">The name the finish names.</param>
+    /// <returns>True when both match.</returns>
+    /// <remarks>
+    /// The name compares case-insensitively, as Jellyfin's own uniqueness check does, and is the
+    /// trimmed form the controller passes to both calls.
+    /// </remarks>
+    public static bool SignUpMatches(PasskeyCeremony ceremony, string? inviteId, string? username)
+        => ceremony.InviteId is not null
+            && ceremony.UserId is not null
+            && string.Equals(ceremony.InviteId, inviteId, StringComparison.Ordinal)
+            && string.Equals(ceremony.Username, username, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The user handle a stored passkey's authenticator holds.</summary>
+    /// <param name="row">The stored passkey.</param>
+    /// <returns>The recorded handle, or the account id when none was recorded.</returns>
+    public static string HandleFor(PasskeyRow row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+        return string.IsNullOrEmpty(row.UserHandle) ? row.UserId : row.UserHandle;
+    }
+
+    private static CredentialCreateOptions NewCredentialOptions(
+        PasskeyRelyingParty rp,
+        string handle,
+        string username,
+        IReadOnlyList<PublicKeyCredentialDescriptor> exclude)
+        => Build(rp).RequestNewCredential(new RequestNewCredentialParams
+        {
+            User = new Fido2User
+            {
+                Id = Encoding.UTF8.GetBytes(handle),
+                Name = username,
+                DisplayName = username,
+            },
+            ExcludeCredentials = exclude,
+            AuthenticatorSelection = new AuthenticatorSelection
+            {
+                // Discoverable, because sign-in has no username to go on: the point of the button
+                // is that you press it and you are in.
+                ResidentKey = ResidentKeyRequirement.Required,
+                UserVerification = UserVerificationRequirement.Required,
+            },
+            AttestationPreference = AttestationConveyancePreference.None,
+        });
+
+    private async Task<RegisteredPublicKeyCredential?> VerifyAsync(
+        PasskeyRelyingParty rp,
+        PasskeyCeremony ceremony,
+        AuthenticatorAttestationRawResponse response,
+        CancellationToken cancellationToken)
+    {
         try
         {
             var made = await Build(rp).MakeNewCredentialAsync(
                 new MakeNewCredentialParams
                 {
                     AttestationResponse = response,
-                    OriginalOptions = original,
+                    OriginalOptions = CredentialCreateOptions.FromJson(ceremony.Options),
                     IsCredentialIdUniqueToUserCallback = (args, _) =>
                         Task.FromResult(!_store.Exists(Base64Url.EncodeToString(args.CredentialId))),
                 },
                 cancellationToken).ConfigureAwait(false);
-            credential = made
+            return made
                 ?? throw new InvalidOperationException("A verified registration has no credential.");
         }
         catch (Fido2VerificationException ex)
         {
             _logger.LogWarning(ex, "A passkey registration failed verification");
-            return "That passkey could not be verified.";
+            return null;
         }
+    }
 
-        await _store.SaveAsync(
+    private Task SaveAsync(
+        RegisteredPublicKeyCredential credential,
+        User user,
+        string? handle,
+        PasskeyRelyingParty rp,
+        string? label,
+        CancellationToken cancellationToken)
+        => _store.SaveAsync(
             new PasskeyRow
             {
                 CredentialId = Base64Url.EncodeToString(credential.Id),
-                UserId = userId,
+                UserId = user.Id.ToString("N"),
+                UserHandle = handle,
                 RelyingParty = rp.Domain,
                 PublicKey = credential.PublicKey,
                 SignCount = credential.SignCount,
@@ -241,11 +398,7 @@ public sealed class PasskeyService
                 Label = string.IsNullOrWhiteSpace(label) ? "Passkey" : label.Trim(),
                 CreatedAt = DateTimeOffset.UtcNow,
             },
-            cancellationToken).ConfigureAwait(false);
-
-        _logger.LogInformation("Registered a passkey for {User}", user.Username);
-        return null;
-    }
+            cancellationToken);
 
     /// <summary>Begin signing in with a passkey. No username, by design.</summary>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -342,7 +495,7 @@ public sealed class PasskeyService
                         Task.FromResult(
                             string.Equals(
                                 Encoding.UTF8.GetString(args.UserHandle),
-                                stored.UserId,
+                                HandleFor(stored),
                                 StringComparison.Ordinal)),
                 },
                 cancellationToken).ConfigureAwait(false);
@@ -417,6 +570,15 @@ public sealed class PasskeyService
         return document.RootElement.Clone();
     }
 }
+
+/// <summary>A verified passkey for an account an invite is about to create.</summary>
+/// <param name="Credential">The verified credential.</param>
+/// <param name="Handle">The user handle the authenticator holds.</param>
+/// <param name="Party">The relying party it was verified against.</param>
+public sealed record PasskeySignUp(
+    RegisteredPublicKeyCredential Credential,
+    string Handle,
+    PasskeyRelyingParty Party);
 
 /// <summary>A challenge, and the id to carry it back with.</summary>
 public sealed class PasskeyChallenge

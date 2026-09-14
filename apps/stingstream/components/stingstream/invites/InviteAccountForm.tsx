@@ -23,6 +23,12 @@ export interface InviteAccountFormProps {
   invite: InviteDescription;
   /** Creates the account and signs in. Throws with a ready-to-show sentence when it cannot. */
   onSubmit: (username: string, password: string) => Promise<void>;
+  /**
+   * Creates the account with a passkey instead. Passed only when this browser and this server can
+   * both do passkeys, so the link is absent rather than broken everywhere else. Resolves quietly
+   * when the person dismissed the prompt.
+   */
+  onCreateWithPasskey?: (username: string) => Promise<void>;
 }
 
 /**
@@ -51,6 +57,7 @@ export interface InviteAccountFormProps {
 export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
   invite,
   onSubmit,
+  onCreateWithPasskey,
 }) => {
   const { color } = useTheme();
   const { t } = useTranslation();
@@ -89,6 +96,29 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
       setBusy(false);
     }
   }, [busy, username, password, onSubmit, t]);
+
+  // Only the name is checked: there is no password on this path, and an error under an empty
+  // password field would ask for the one thing this button exists to skip.
+  const submitPasskey = useCallback(async () => {
+    if (busy || !onCreateWithPasskey) return;
+    Keyboard.dismiss();
+    setTouched((s) => ({ ...s, username: true }));
+    setFormError(null);
+    if (validateSetupForm({ username, password: "" }).username) return;
+
+    setBusy(true);
+    try {
+      await onCreateWithPasskey(username.trim());
+    } catch (e) {
+      setFormError(
+        e instanceof Error && e.message
+          ? e.message
+          : t("invites.error_unexpected"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, username, onCreateWithPasskey, t]);
 
   const revealToggle = (
     <FocusPressable
@@ -190,6 +220,22 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
       >
         {t("invites.create_account")}
       </Button>
+
+      {/* Under the button, as on the sign-in form: the same link in the same place means the same
+          thing on both screens. */}
+      {onCreateWithPasskey ? (
+        <FocusPressable
+          testID='invite-create-with-passkey'
+          onPress={() => void submitPasskey()}
+          accessibilityRole='button'
+          disabled={busy}
+          style={{ paddingVertical: 14, alignSelf: "center" }}
+        >
+          <Text variant='body' tone={busy ? "tertiary" : "accent"}>
+            {t("invites.create_with_passkey")}
+          </Text>
+        </FocusPressable>
+      ) : null}
     </View>
   );
 };

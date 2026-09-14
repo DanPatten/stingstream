@@ -60,6 +60,17 @@ public sealed class PasskeyRow
 
     /// <summary>When it last signed somebody in, or null.</summary>
     public DateTimeOffset? LastUsedAt { get; set; }
+
+    /// <summary>
+    /// The WebAuthn user handle the authenticator holds, when it is not <see cref="UserId"/>.
+    /// </summary>
+    /// <remarks>
+    /// Null for every passkey added to an account that already existed, where the handle simply is
+    /// the account id. Set for one made while accepting an invite: the handle is fixed when the
+    /// credential is created, and at that moment the account it will belong to does not exist yet,
+    /// so there was no id to use. <see cref="PasskeyService.HandleFor"/> is the one place that reads it.
+    /// </remarks>
+    public string? UserHandle { get; set; }
 }
 
 /// <summary>
@@ -122,13 +133,27 @@ public sealed class PasskeyStore
                 CREATE INDEX IF NOT EXISTS ix_passkeys_user ON passkeys (user_id);
                 CREATE INDEX IF NOT EXISTS ix_passkeys_rp ON passkeys (relying_party);
                 """);
+
+            // Additive, nullable, and swallowed when already there -- the shape `InviteStore` uses,
+            // and for the same reason: the CREATE above only runs on a database that does not exist
+            // yet. Null is what every existing row means: its handle is its account id.
+            try
+            {
+                CoreDatabase.Execute(c, "ALTER TABLE passkeys ADD COLUMN user_handle TEXT;");
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException e)
+                when (e.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+            {
+                // Already migrated.
+            }
+
             _schemaReady = true;
         }
     }
 
     private const string Select =
         "SELECT credential_id, user_id, relying_party, public_key, sign_count, transports, "
-        + "backup_eligible, backed_up, aaguid, label, created_at, last_used_at FROM passkeys";
+        + "backup_eligible, backed_up, aaguid, label, created_at, last_used_at, user_handle FROM passkeys";
 
     /// <summary>Every passkey one account holds, newest first.</summary>
     /// <param name="userId">The Jellyfin user id.</param>
@@ -189,10 +214,11 @@ public sealed class PasskeyStore
                 """
                 INSERT INTO passkeys
                     (credential_id, user_id, relying_party, public_key, sign_count, transports,
-                     backup_eligible, backed_up, aaguid, label, created_at, last_used_at)
-                VALUES ($c, $u, $r, $k, $s, $t, $be, $bu, $a, $l, $ca, $lu)
+                     backup_eligible, backed_up, aaguid, label, created_at, last_used_at, user_handle)
+                VALUES ($c, $u, $r, $k, $s, $t, $be, $bu, $a, $l, $ca, $lu, $h)
                 ON CONFLICT(credential_id) DO UPDATE SET
-                    user_id = excluded.user_id, relying_party = excluded.relying_party,
+                    user_id = excluded.user_id, user_handle = excluded.user_handle,
+                    relying_party = excluded.relying_party,
                     public_key = excluded.public_key, sign_count = excluded.sign_count,
                     transports = excluded.transports,
                     backup_eligible = excluded.backup_eligible,
@@ -210,7 +236,8 @@ public sealed class PasskeyStore
                 ("$a", row.Aaguid),
                 ("$l", row.Label),
                 ("$ca", Stamp(row.CreatedAt)),
-                ("$lu", row.LastUsedAt is { } used ? Stamp(used) : null)),
+                ("$lu", row.LastUsedAt is { } used ? Stamp(used) : null),
+                ("$h", row.UserHandle)),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -345,5 +372,6 @@ public sealed class PasskeyStore
         Label = r.GetString(9),
         CreatedAt = ReadStamp(r.GetString(10)),
         LastUsedAt = r.IsDBNull(11) ? null : ReadStamp(r.GetString(11)),
+        UserHandle = r.IsDBNull(12) ? null : r.GetString(12),
     };
 }

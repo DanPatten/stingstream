@@ -273,6 +273,36 @@ public sealed class AcceptInviteRequest
     public string? Password { get; set; }
 }
 
+/// <summary>The start of accepting an invite with a passkey: which invite, and the name chosen.</summary>
+public sealed class AcceptInvitePasskeyBeginRequest
+{
+    /// <summary>The token out of the link's fragment.</summary>
+    public string? Token { get; set; }
+
+    /// <summary>The name they want. Same rules as the first-run screen.</summary>
+    public string? Username { get; set; }
+}
+
+/// <summary>The end of accepting an invite with a passkey.</summary>
+/// <remarks>
+/// The credential is raw JSON for the reason given on <c>PasskeyRegistrationRequest</c>: Jellyfin's
+/// serializer cannot bind Fido2NetLib's own models.
+/// </remarks>
+public sealed class AcceptInvitePasskeyFinishRequest
+{
+    /// <summary>The token out of the link's fragment.</summary>
+    public string? Token { get; set; }
+
+    /// <summary>The name they want. Must be the one the ceremony was begun for.</summary>
+    public string? Username { get; set; }
+
+    /// <summary>The ceremony id from `accept/passkey/begin`.</summary>
+    public string? Ceremony { get; set; }
+
+    /// <summary>What the authenticator produced, verbatim.</summary>
+    public System.Text.Json.JsonElement Credential { get; set; }
+}
+
 /// <summary>A token, on its own, for the route that only looks one up.</summary>
 public sealed class InviteTokenRequest
 {
