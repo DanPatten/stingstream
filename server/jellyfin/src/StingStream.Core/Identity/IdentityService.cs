@@ -132,7 +132,7 @@ public sealed class IdentityService
     {
         if (string.IsNullOrWhiteSpace(audience) || string.IsNullOrWhiteSpace(nonce))
         {
-            return (null, "That sign-in request is incomplete. Start again from the other server.");
+            return (null, "This sign-in request is incomplete. Return to the other server and try again.");
         }
 
         try
@@ -153,7 +153,7 @@ public sealed class IdentityService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not sign an identity assertion for {User}", userName);
-            return (null, "This server could not sign you in to the other one. Try again.");
+            return (null, "Sign-in failed. Try again.");
         }
     }
 
@@ -191,7 +191,7 @@ public sealed class IdentityService
             // The mesh being unreachable is not the same as an assertion being bad, and reporting
             // it as one would send somebody hunting a problem on their own server.
             _logger.LogError(ex, "Could not check an identity assertion");
-            return (null, "This server cannot check sign-ins right now. Try again shortly.");
+            return (null, "Sign-in is temporarily unavailable. Try again shortly.");
         }
 
         // Spent before anything else is decided, and spent even when the rest fails: a nonce that
@@ -306,7 +306,7 @@ public sealed class IdentityService
             _logger.LogWarning(
                 "Dropped a link to {Issuer} whose local account no longer exists",
                 link.IssuerName);
-            return (null, "Your account on this server is gone. Ask for a new invite link.");
+            return (null, "This account no longer exists. Ask for a new invite link.");
         }
 
         // Names are refreshed, the account is not. Somebody who renames themselves on their own
@@ -365,7 +365,7 @@ public sealed class IdentityService
 
         if (name is null)
         {
-            return (null, "Could not find a free name for your account here. Ask an administrator.");
+            return (null, "An account name could not be assigned. Contact an administrator.");
         }
 
         // Claimed before the account is created, and given back if creation fails -- the same shape
@@ -391,7 +391,7 @@ public sealed class IdentityService
         {
             await _inviteStore.ReleaseAsync(invite.Id, cancellationToken).ConfigureAwait(false);
             _logger.LogError(ex, "Could not create a linked account for {Name}", name);
-            return (null, "Your account could not be created. Ask whoever invited you to try again.");
+            return (null, "Your account could not be created. Ask the person who invited you to send a new invite link.");
         }
 
         try
@@ -410,7 +410,7 @@ public sealed class IdentityService
                 name,
                 claims.Server);
             await _invites.DisableAccountAsync(created).ConfigureAwait(false);
-            return (null, "Your account could not be set up. Ask whoever invited you to try again.");
+            return (null, "Your account could not be set up. Ask the person who invited you to send a new invite link.");
         }
 
         await _store.SaveAsync(

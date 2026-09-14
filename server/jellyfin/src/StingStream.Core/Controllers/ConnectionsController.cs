@@ -94,7 +94,7 @@ public sealed class ConnectionsController : StingStreamControllerBase
     {
         if (string.IsNullOrWhiteSpace(body?.Code))
         {
-            return BadRequest(new { error = "This invite link is not valid. Ask for a new one." });
+            return BadRequest(new { error = "This invite link is not valid. Ask the sender for a new one." });
         }
 
         return await ConnectAsync(body.Code, Libraries(body.Libraries), cancellationToken)
@@ -144,7 +144,7 @@ public sealed class ConnectionsController : StingStreamControllerBase
     {
         if (string.IsNullOrWhiteSpace(body?.Code))
         {
-            return BadRequest(new { error = "This invite link is not valid. Ask for a new one." });
+            return BadRequest(new { error = "This invite link is not valid. Ask the sender for a new one." });
         }
 
         var now = DateTimeOffset.UtcNow;

@@ -238,6 +238,24 @@ code, comments, logs, `docs/**` or this file.
   "Film downloads" on the status screen.
 - **One idea per string.** If a message needs three clauses to be true, the screen probably needs a
   title and a line, not a longer sentence.
+- **Write like a shipped SaaS product, not like a model explaining itself.** The copy should be
+  indistinguishable from Stripe, Linear or Plex. Tells to cut on sight:
+  - contrasts that narrate the mechanism: "You sign in there, not here", "Not your password";
+  - reassurance about what does not happen, and descriptions of what goes on behind the scenes;
+  - filler and hedges: "simply", "just", "seamlessly", "please note", "that did not work";
+  - "Something went wrong" when the actual problem is known.
+
+  Dan, 2026-09-13, on "You will sign in there, not here": *"is bad language"*.
+- **Buttons are verbs, in sentence case, one to three words.** "Create invite link", "Connect",
+  "Remove server", "Continue". Titles are short noun phrases or imperatives: "Join {{server}}",
+  "Choose libraries to share".
+- **Errors say what failed, then the one thing to do.** "This invite link has expired. Ask the sender
+  for a new one." Never blame the reader, never apologize, never explain the system.
+- **One term per concept, everywhere.** Servers are **connected**: "Add server", "Connected
+  servers", "Remove server". Never "link", "pool" or "federate" on a screen. What an admin sends is
+  an **invite link**, never an "invitation" or an "invite code". The reader's own machine is **your
+  server**, never "my server" or "the server you run".
+- **American spelling and wording.** "Canceled", "Select" (not "Tick" or "Untick"), "finalize".
 
 ## Where things are documented
 

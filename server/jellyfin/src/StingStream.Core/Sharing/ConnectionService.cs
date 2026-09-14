@@ -134,21 +134,21 @@ public sealed class ConnectionService
         var text = error?.Message ?? string.Empty;
         if (text.Contains("expired", StringComparison.OrdinalIgnoreCase))
         {
-            return "This invitation has expired. Ask for a new invite link.";
+            return "This invite link has expired. Ask the sender for a new one.";
         }
 
         if (text.Contains("already been used", StringComparison.OrdinalIgnoreCase))
         {
-            return "This invitation has already been used. Ask for a new invite link.";
+            return "This invite link has already been used. Ask the sender for a new one.";
         }
 
         if (text.Contains("no such invite", StringComparison.OrdinalIgnoreCase)
             || text.Contains("not valid", StringComparison.OrdinalIgnoreCase))
         {
-            return "This invite link is not valid. Ask for a new one.";
+            return "This invite link is not valid. Ask the sender for a new one.";
         }
 
-        return "The other server could not be reached. Check that it is online and try again.";
+        return "The other server could not be reached. Make sure it is online and try again.";
     }
 
     private async Task AbandonAsync(string group)

@@ -219,11 +219,11 @@ pub fn decide(db: &Db, group: &GroupId, token: &InviteToken, by: &str) -> AdmitR
             group_name: local.name,
         },
         Ok(MeshInviteOutcome::AlreadyUsed) => AdmitResponse::Refused {
-            reason: "This invite has already been used. Ask whoever sent it for a new one."
+            reason: "This invite link has already been used. Ask the sender for a new one."
                 .to_string(),
         },
         Ok(MeshInviteOutcome::Expired) => AdmitResponse::Refused {
-            reason: "This invitation has expired. Ask for a new invite link.".to_string(),
+            reason: "This invite link has expired. Ask the sender for a new one.".to_string(),
         },
         Ok(MeshInviteOutcome::Unknown) => AdmitResponse::Refused {
             reason: NO_SUCH_INVITE.to_string(),
@@ -231,7 +231,7 @@ pub fn decide(db: &Db, group: &GroupId, token: &InviteToken, by: &str) -> AdmitR
         Err(e) => {
             tracing::error!(error = %e, "could not read the invite table");
             AdmitResponse::Refused {
-                reason: "This server could not check the invite. Try again in a moment."
+                reason: "The invite link could not be checked. Try again shortly."
                     .to_string(),
             }
         }
@@ -240,7 +240,7 @@ pub fn decide(db: &Db, group: &GroupId, token: &InviteToken, by: &str) -> AdmitR
 
 /// One sentence for both "no such token" and "no such group", on purpose. See [`decide`].
 const NO_SUCH_INVITE: &str =
-    "This invite is not valid. Ask whoever sent it to send the whole link again.";
+    "This invite link is not valid. Ask the sender for a new one.";
 
 // --- framing ---------------------------------------------------------------------------------
 //
