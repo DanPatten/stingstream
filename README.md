@@ -161,7 +161,8 @@ already run.
 
 **What does StingStream not do?** It does not provide any content, and it ships with no indexers or
 other sources configured — every one of those is something you add yourself. It plays and shares
-media you already have, with people you already know.
+media you already have, with people you already know. Only add sources and media you have the right
+to use.
 
 ---
 

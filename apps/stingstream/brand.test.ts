@@ -247,6 +247,23 @@ describe("brand guard: zero user-visible upstream names", () => {
     expect(violations).toEqual([]);
   });
 
+  // Neutral about where media comes from. StingStream manages media its owner has the right to
+  // use; copy describes the tool in plain technical terms and never reads as a way to get content.
+  // "Disc rips", "grab", a "seedbox" placeholder and "request something and StingStream will fetch
+  // it" all shipped before this. Dan, 2026-09-13: "we dont condone piracy". See the root CLAUDE.md.
+  test("no piracy-flavoured wording in en.json", () => {
+    const en = JSON.parse(
+      readFileSync(join(root, "translations/en.json"), "utf8"),
+    ) as LocaleTree;
+    const violations = localeViolations(
+      en,
+      "",
+      "en.json",
+      /\b(rips?|ripped|pira\w*|warez|seedbox\w*|grab(s|bed|bing)?|free (movies|films|shows|tv)|scene releases?|will fetch it)\b/i,
+    );
+    expect(violations).toEqual([]);
+  });
+
   test("app.json is StingStream's own", () => {
     const appJson = JSON.parse(readFileSync(join(root, "app.json"), "utf8"));
     expect(appJson.expo.scheme).toBe("stingstream");
