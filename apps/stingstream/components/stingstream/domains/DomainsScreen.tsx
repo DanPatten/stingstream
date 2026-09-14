@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { getNodeBaseUrl } from "@stingstream/api-client";
+import { useAtomValue } from "jotai";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
@@ -6,10 +8,21 @@ import { Button } from "@/components/Button";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { FocusTarget } from "@/components/settings/FocusTarget";
+import { DECLINED_DETECTED_DOMAIN_KEY } from "@/constants/Networking";
 import { space } from "@/constants/theme";
-import { useDeleteMeshTunnel, useMeshDomains } from "@/lib/stingstream/mesh";
-import { hasTunnel } from "@/utils/mesh/domainsStatus";
-import { confirmDestructive } from "../shared/confirm";
+import {
+  useDeleteMeshTunnel,
+  useMeshDomains,
+  useSetMeshSharingSettings,
+} from "@/lib/stingstream/mesh";
+import { apiAtom } from "@/providers/JellyfinProvider";
+import {
+  bareHostname,
+  detectedDomain,
+  domainsMethod,
+} from "@/utils/mesh/domainsStatus";
+import { storage } from "@/utils/mmkv";
+import { confirmAction, confirmDestructive } from "../shared/confirm";
 import { DomainsStatus } from "./DomainsStatus";
 import { ManualDomainDialog } from "./ManualDomainDialog";
 import { TunnelDialog } from "./TunnelDialog";
@@ -24,43 +37,78 @@ import { TunnelDialog } from "./TunnelDialog";
  * set their domain ... setting the name should be part of the cloudflare flow. Right now its
  * unclear and too much is meshed together"*.
  *
- * That names the actual fault. The field was the shared half of two routes that exclude each other,
- * so the card asked somebody to fill it in *and* offered two buttons that would each fill it in for
- * them, with nothing saying whether doing one meant they should also do the other. What is here now
- * is a fact and a choice, in that order:
+ * What is here now is a fact and a choice, in that order:
  *
  * - **The address**, which every server has: a LAN one until a domain is set, that domain after.
  *   Read-only, because it is the outcome of a route rather than a setting of its own.
- * - **Two rows, one each for the two routes.** Cloudflare, which is a press and a token; or your
- *   own domain, which is a router, DNS and a certificate. Each opens a dialog that carries the
- *   whole of its route including naming the server, so neither leaves anything on the page to
- *   coordinate by hand.
+ * - **The two routes.** Cloudflare, which is a press and a token; or your own domain, which is a
+ *   router, DNS and a certificate, or a proxy that already does all three. Each opens a dialog that
+ *   carries the whole of its route including naming the server.
  *
- * ## The two ways, and there are only two
+ * ## One in use, the other a switch
  *
- * A third briefly existed: Cloudflare's account-free tunnel, on a `*.trycloudflare.com` name that
- * changes every restart. Dan cut it — *"they either configure a domain manually OR via
- * cloudflare"* — and it is gone from the node too, not merely hidden. An address that cannot be
- * sent to anybody is not an answer to the question this page asks.
+ * With nothing set up, both rows are setups. Once one route is in use it is marked so, and the
+ * other row becomes a switch to it — Dan: *"If a domain was already setup then reflect that with a
+ * way to switch between the two methods"*. The switches do the coordinating a person would
+ * otherwise do by hand: moving to Cloudflare prefills the hostname already in use, and moving to
+ * your own domain stops the tunnel once the new address is saved.
  *
- * With a tunnel up, the Cloudflare row is replaced by the tunnel itself and its Disconnect. The
- * manual row stays: moving from a tunnel to your own reverse proxy means setting the address there
- * first, and disconnecting afterwards.
+ * ## An address the node never heard of
+ *
+ * A domain can already work without the node knowing it: a tunnel or proxy the owner runs
+ * themselves, which the app is connected through right now. The page used to show the LAN address
+ * over that. It now asks, once, whether to save the domain it can see (`detectedDomain`), and
+ * remembers a no for that address so it does not ask on every visit. Asked rather than saved,
+ * because the stored address is what invite links are built from.
+ *
+ * A third route briefly existed, Cloudflare's account-free tunnel on a name that changes every
+ * restart. Dan cut it, and it is gone from the node too.
  */
 export function DomainsScreen() {
   const { t } = useTranslation();
   const domains = useMeshDomains();
   const stop = useDeleteMeshTunnel();
+  const saveAddress = useSetMeshSharingSettings();
+  const api = useAtomValue(apiAtom);
   const [setUpOpen, setSetUpOpen] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
 
-  const running = hasTunnel(domains.data);
-  // Deliberately no check on whether `cloudflared` is installed. It used to hide the setup button
-  // and show "cloudflared is not installed on it" instead, which was wrong twice: an installed
-  // node has no `third_party/` to look in, so the message pointed at a path that did not exist for
-  // the reader most likely to see it -- and the answer to "there is no binary" is to go and get
-  // one, which is what `sidedoor::cloudflared::ensure` now does on the first press. Dan: *"I want
-  // a one click cloudflare setup"*.
+  const status = domains.data;
+  const method = domainsMethod(status);
+  // No check on whether `cloudflared` is installed: `sidedoor::cloudflared::ensure` fetches one on
+  // the first press. Dan: *"I want a one click cloudflare setup"*.
+
+  // The node's address, not the media server's path inside it, which would put an upstream
+  // product's name on screen and is not what anybody pointed a domain at.
+  const connected = api?.basePath ? getNodeBaseUrl(api.basePath) : null;
+  const detected = detectedDomain(status, connected);
+
+  // Once per page visit: a refetch after a declined prompt must not ask again, and a save that
+  // lands makes `detected` null on its own.
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!detected || asked.current) return;
+    if (storage.getString(DECLINED_DETECTED_DOMAIN_KEY) === detected) return;
+    asked.current = true;
+    void (async () => {
+      const host = bareHostname(detected);
+      const yes = await confirmAction(
+        t("domains.detected_title", { host }),
+        t("domains.detected_message"),
+        t("domains.detected_confirm"),
+      );
+      if (!yes) {
+        storage.set(DECLINED_DETECTED_DOMAIN_KEY, detected);
+        return;
+      }
+      try {
+        await saveAddress.mutateAsync({ publicAddress: detected });
+        toast.success(t("sharing.own_saved"));
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+    })();
+  }, [detected, saveAddress, t]);
 
   const disconnect = async () => {
     const confirmed = await confirmDestructive(
@@ -77,23 +125,33 @@ export function DomainsScreen() {
     }
   };
 
+  const inUse = t("domains.in_use");
+
   return (
     <View style={{ gap: space["6"] }}>
       <FocusTarget id={["public-domain", "domains-status"]}>
         <ListGroup title={t("domains.status_title")}>
-          {/* What is true right now, first: a domain that resolves nowhere and a certificate that
-              expired last week both used to look exactly like success from in here. Wrapped so the
-              group can draw its hairline onto it -- the rule is cloned onto the child's style, and
-              `DomainsStatus` takes no style of its own. */}
+          {/* Wrapped so the group can draw its hairline onto it: the rule is cloned onto the
+              child's style, and `DomainsStatus` takes no style of its own. */}
           <View>
-            <DomainsStatus status={domains.data} />
+            <DomainsStatus status={status} />
           </View>
+        </ListGroup>
+      </FocusTarget>
 
-          {running ? (
+      <FocusTarget id={["cloudflare-tunnel"]}>
+        <ListGroup
+          title={
+            method === "none"
+              ? t("domains.choose_title")
+              : t("domains.method_title_active")
+          }
+        >
+          {method === "cloudflare" ? (
             <ListItem
               icon='domains'
               title={t("domains.tunnel_row_title")}
-              subtitle={t("domains.tunnel_running")}
+              subtitle={inUse}
             >
               <Button
                 variant='ghost'
@@ -106,43 +164,64 @@ export function DomainsScreen() {
               </Button>
             </ListItem>
           ) : null}
-        </ListGroup>
-      </FocusTarget>
 
-      <FocusTarget id={["cloudflare-tunnel"]}>
-        <ListGroup title={t("domains.choose_title")}>
-          {/* Cloudflare first, and only while there is no tunnel: with one up, the row above is
-              this route's state and setting a second tunnel over the top of it is not a thing
-              anybody means to do from here. */}
-          {running ? null : (
+          {method === "own" ? (
+            <ListItem
+              icon='network'
+              title={t("domains.own_row_title")}
+              subtitle={inUse}
+              showArrow
+              onPress={() => setManualOpen(true)}
+              testID='domains-own-in-use'
+            />
+          ) : null}
+
+          {/* The route not in use, level with the one that is. Setups while nothing is set up,
+              switches once something is. */}
+          {method !== "cloudflare" ? (
             <ListItem
               icon='domains'
-              title={t("domains.setup_action")}
+              title={
+                method === "own"
+                  ? t("domains.switch_to_cloudflare")
+                  : t("domains.setup_action")
+              }
               subtitle={t("domains.setup_detail")}
               showArrow
               onPress={() => setSetUpOpen(true)}
               testID='domains-tunnel-setup'
             />
-          )}
+          ) : null}
 
-          {/* The other route, level with it rather than tucked underneath. They are not equally
-              easy, which the subtitles say; they are equally real, which the layout should. */}
-          <ListItem
-            icon='network'
-            title={t("domains.manual_action")}
-            subtitle={t("domains.manual_detail")}
-            showArrow
-            onPress={() => setManualOpen(true)}
-            testID='domains-manual-help'
-          />
+          {method !== "own" ? (
+            <ListItem
+              icon='network'
+              title={
+                method === "cloudflare"
+                  ? t("domains.switch_to_own")
+                  : t("domains.manual_action")
+              }
+              subtitle={t("domains.manual_detail")}
+              showArrow
+              onPress={() => setManualOpen(true)}
+              testID='domains-manual-help'
+            />
+          ) : null}
         </ListGroup>
       </FocusTarget>
 
-      <TunnelDialog visible={setUpOpen} onClose={() => setSetUpOpen(false)} />
+      <TunnelDialog
+        visible={setUpOpen}
+        onClose={() => setSetUpOpen(false)}
+        initialHostname={
+          status?.publicAddress ? bareHostname(status.publicAddress) : ""
+        }
+      />
       <ManualDomainDialog
         visible={manualOpen}
         onClose={() => setManualOpen(false)}
-        status={domains.data}
+        status={status}
+        tunnelRunning={method === "cloudflare"}
       />
     </View>
   );

@@ -9,12 +9,14 @@ import { NODE_GATEWAY_PORT } from "@/constants/Networking";
 import { space } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import {
+  useDeleteMeshTunnel,
   useMeshSharingSettings,
   useSetMeshSharingSettings,
 } from "@/lib/stingstream/mesh";
 import type { MeshDomainsStatus } from "@/lib/stingstream/meshApi";
 import { useHealthz } from "@/lib/stingstream/status";
 import { isUntouched } from "@/utils/mesh/sharingAddress";
+import { confirmAction } from "../shared/confirm";
 import {
   SharingAddress,
   type SharingAddressValue,
@@ -63,17 +65,24 @@ export function ManualDomainDialog({
   visible,
   onClose,
   status,
+  tunnelRunning = false,
 }: {
   visible: boolean;
   onClose: () => void;
   /** For this machine's own LAN address, so step one names a real value. */
   status: MeshDomainsStatus | undefined;
+  /**
+   * A Cloudflare tunnel is the route in use, so saving here is a switch: the tunnel is stopped once
+   * the new address is stored. Left running, it would keep answering on its hostname.
+   */
+  tunnelRunning?: boolean;
 }) {
   const { color } = useTheme();
   const { t } = useTranslation();
   const healthz = useHealthz();
   const settings = useMeshSharingSettings();
   const save = useSetMeshSharingSettings();
+  const stopTunnel = useDeleteMeshTunnel();
 
   const [own, setOwn] = useState<SharingAddressValue>(sharingAddress());
   const [error, setError] = useState<string | null>(null);
@@ -113,8 +122,19 @@ export function ManualDomainDialog({
 
   const onSave = async () => {
     setError(null);
+    if (tunnelRunning) {
+      const confirmed = await confirmAction(
+        t("domains.switch_stop_tunnel_title"),
+        t("domains.switch_stop_tunnel_message"),
+        t("domains.switch_confirm"),
+      );
+      if (!confirmed) return;
+    }
     try {
+      // The address first, the tunnel second: a save that fails must not also take down the route
+      // that was working. `delete_tunnel` leaves the stored address alone, so the order holds.
       await save.mutateAsync({ publicAddress: sharingAddressUrl(own) });
+      if (tunnelRunning) await stopTunnel.mutateAsync();
       toast.success(t("sharing.own_saved"));
       onClose();
     } catch (e) {

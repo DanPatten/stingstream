@@ -16,3 +16,11 @@
  * another port, so this is the shipped default rather than the truth.
  */
 export const NODE_GATEWAY_PORT = 8790;
+
+/**
+ * MMKV key holding the one detected domain an admin said no to saving, on the Remote access page.
+ *
+ * One origin rather than a list: declining is about the address in front of you, so reaching the
+ * server through a different domain later is a new question and should be asked.
+ */
+export const DECLINED_DETECTED_DOMAIN_KEY = "domains.declinedDetectedDomain";

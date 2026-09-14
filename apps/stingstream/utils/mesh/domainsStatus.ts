@@ -81,6 +81,56 @@ export const hasTunnel = (status: MeshDomainsStatus | undefined): boolean =>
   !!status && status.tunnel.kind !== "none";
 
 /**
+ * Which of the two routes this server is on, so the page can mark one "In use" and offer the other
+ * as a switch rather than as a second setup.
+ *
+ * A tunnel wins over a stored address because setting one up writes the address itself
+ * (`post_tunnel`): with both present, the address is the tunnel's.
+ */
+export type DomainsMethod = "cloudflare" | "own" | "none";
+
+export const domainsMethod = (
+  status: MeshDomainsStatus | undefined,
+): DomainsMethod => {
+  if (hasTunnel(status)) return "cloudflare";
+  if (status?.publicAddress) return "own";
+  return "none";
+};
+
+/**
+ * The public domain this app is already reaching the server through, when the node does not know it.
+ *
+ * Dan's own setup is the case: a tunnel he runs himself answers on a real domain, the app is
+ * connected through it, and the page said the LAN address because nothing had ever stored it. The
+ * page offers to save what it finds here, so this only answers for an address that could be saved:
+ * https, a real hostname, and not one of the addresses a house network hands out.
+ */
+export const detectedDomain = (
+  status: MeshDomainsStatus | undefined,
+  connectedUrl: string | null | undefined,
+): string | null => {
+  if (!status || !connectedUrl) return null;
+  if (status.publicAddress || hasTunnel(status)) return null;
+
+  let url: URL;
+  try {
+    url = new URL(connectedUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:") return null;
+
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // Any IP at all, not only the private ranges: a public one is not something the node will store
+  // either (`sharingAddressProblem`), so offering it would end in a refused save.
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(":")) return null;
+  if (!host.includes(".") || host === "localhost") return null;
+  if (/\.(local|lan|home|internal|localhost)$/.test(host)) return null;
+
+  return `${url.protocol}//${url.host}`;
+};
+
+/**
  * `media.example.com` from anything somebody might type or paste.
  *
  * The setup flow needs a bare hostname for the DNS record, and the field beside it accepts an

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, View } from "react-native";
 import { toast } from "sonner-native";
@@ -30,15 +30,25 @@ const TOKEN_URL = "https://dash.cloudflare.com/profile/api-tokens";
 export function TunnelDialog({
   visible,
   onClose,
+  initialHostname = "",
 }: {
   visible: boolean;
   onClose: () => void;
+  /** The domain already in use, when this is a switch rather than a first setup. */
+  initialHostname?: string;
 }) {
   const { t } = useTranslation();
   const start = useSetMeshTunnel();
   const [hostname, setHostname] = useState("");
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  // Seeded when the dialog opens, and only then: re-seeding on a refetch would overwrite what
+  // somebody is typing. `ManualDomainDialog` does the same for the same reason.
+  useEffect(() => {
+    if (visible) setHostname(initialHostname);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
 
   const close = () => {
     // The token goes when the dialog does, successfully or not. It is single-use by design and

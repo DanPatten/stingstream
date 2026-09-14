@@ -1,11 +1,8 @@
 import type { NetworkConfiguration } from "@jellyfin/sdk/lib/generated-client/models";
-import { getNodeBaseUrl } from "@stingstream/api-client";
-import { useAtomValue } from "jotai";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { ListGroup } from "@/components/list/ListGroup";
-import { ListItem } from "@/components/list/ListItem";
 import { DomainsScreen } from "@/components/stingstream/domains/DomainsScreen";
 import {
   SaveStatus,
@@ -24,8 +21,6 @@ import {
   useNetworkConfiguration,
   useUpdateNetworkConfiguration,
 } from "@/lib/stingstream/jellyfinConfig";
-import { apiAtom } from "@/providers/JellyfinProvider";
-import { storage } from "@/utils/mmkv";
 import { FocusTarget } from "../FocusTarget";
 import { LocalNetworkSettings } from "../LocalNetworkSettings";
 import { ScopedBlock, SettingsPane } from "./SettingsPane";
@@ -38,10 +33,11 @@ import { ScopedBlock, SettingsPane } from "./SettingsPane";
  * because an address is what most people arrive wanting; the ports, proxies and
  * certificate that decide how that address is served follow.
  *
- * The page used to be two rows reporting the addresses this app happened to be
- * using, which is a diagnostic rather than a setting — it could tell you the
- * remote URL was wrong but not let you fix it. Everything that decides the
- * answer lives in Jellyfin's own network document and is editable here: the
+ * There is no "Current server" group reporting the Remote and Active URLs this
+ * app happened to be using. It repeated the address card as a diagnostic, and
+ * Dan struck it out; the one useful thing it knew, a domain the app reaches the
+ * server through, is now offered for saving by `DomainsScreen`. Everything else
+ * that decides the answer lives in Jellyfin's own network document and is editable here: the
  * base URL a reverse proxy mounts the server under, the proxies whose
  * forwarded-for headers are trusted, the ports announced to the router, and the
  * certificate an HTTPS listener serves.
@@ -90,10 +86,6 @@ export const NetworkPane: React.FC = () => {
       detail={t("home.settings.nav.network_hint")}
     >
       <DomainsScreen />
-
-      <View style={{ marginTop: space["6"] }}>
-        <CurrentAddresses />
-      </View>
 
       <View style={{ marginTop: space["6"] }}>
         <QueryState {...stateOf(query)}>
@@ -198,39 +190,5 @@ export const NetworkPane: React.FC = () => {
         </ScopedBlock>
       </View>
     </SettingsPane>
-  );
-};
-
-/**
- * What this app is actually talking to, which is not the same question as what
- * the server is configured to offer — and the pair is how you tell a broken
- * reverse proxy from a broken setting.
- *
- * **The node's address, not the media server's path inside it.** Both values are
- * held as `…/jellyfin`, which is the gateway's internal route rather than
- * anything a reader typed or needs: printing it verbatim put an upstream
- * product's name in visible text on this screen (the brand-word sweep caught it
- * the moment this pane existed) and told the reader nothing they could act on.
- * `getNodeBaseUrl` gives the address the node actually answers on, which is what
- * both rows are asking about.
- */
-const CurrentAddresses: React.FC = () => {
-  const { t } = useTranslation();
-  const api = useAtomValue(apiAtom);
-  const stored = storage.getString("serverUrl");
-  const remote = stored ? getNodeBaseUrl(stored) : null;
-  const active = api?.basePath ? getNodeBaseUrl(api.basePath) : null;
-
-  return (
-    <ListGroup title={t("home.settings.network.current_server")}>
-      <ListItem
-        title={t("home.settings.network.remote_url")}
-        subtitle={remote ?? t("home.settings.network.not_configured")}
-      />
-      <ListItem
-        title={t("home.settings.network.active_url")}
-        subtitle={active ?? t("home.settings.network.not_connected")}
-      />
-    </ListGroup>
   );
 };

@@ -135,6 +135,15 @@ node keeps speaking plain HTTP on loopback — exactly the same shape as the tun
 proxy on your own machine. Set the address on the Remote access page and you are done. A proxy on another
 machine needs an inbound port that actually reaches you.
 
+If you open the Remote access page *through* that domain before the node has an address stored,
+the page asks once whether to save the domain it is being reached on (`detectedDomain` in
+`apps/stingstream/utils/mesh/domainsStatus.ts`). A no is remembered for that address in this app.
+
+Once a route is in use, the page marks it *In use* and offers the other as a switch: *Switch to
+Cloudflare* prefills the hostname already in use, and *Use your own domain instead* stops the tunnel
+after the new address is saved (the address first, so a failed save never takes a working tunnel
+down).
+
 ### A forwarded port and your own certificate
 
 The Remote access page has the instructions behind the *Point a domain here yourself* row, because none

@@ -2349,7 +2349,6 @@
     "setup_submit": "Set up",
     "tunnel_starting_toast": "Setting up the tunnel",
     "tunnel_row_title": "Cloudflare tunnel",
-    "tunnel_running": "Cloudflare is handling this address.",
     "tunnel_disconnect": "Disconnect",
     "tunnel_disconnect_title": "Disconnect the tunnel?",
     "tunnel_disconnect_message": "This server stops being reachable from outside your network, and links you have sent stop working. The tunnel and its DNS record stay in your Cloudflare account.",
@@ -2370,7 +2369,18 @@
     "manual_step4_body": "Put cert.pem and key.pem in {{tls}}. Without a certificate, a browser will not trust the domain and cannot sign anybody in. Renewals are picked up automatically.",
     "manual_proxy": "Already running Caddy, nginx or your own tunnel? It handles HTTPS, so the steps above are already done.",
     "manual_this_machine": "this machine",
-    "manual_tls_folder": "the tls folder in this server's data directory"
+    "manual_tls_folder": "the tls folder in this server's data directory",
+    "method_title_active": "How it is reached",
+    "in_use": "In use",
+    "own_row_title": "Your own domain",
+    "switch_to_cloudflare": "Switch to Cloudflare",
+    "switch_to_own": "Use your own domain instead",
+    "switch_stop_tunnel_title": "Stop the Cloudflare tunnel?",
+    "switch_stop_tunnel_message": "Your server is reached through your own domain instead. The tunnel stays in your Cloudflare account.",
+    "switch_confirm": "Switch",
+    "detected_title": "Use {{host}} as your server's address?",
+    "detected_message": "You are connected through this address. Saving it lets invite links use it.",
+    "detected_confirm": "Use this address"
   },
   "libraries": {
     "folder_title": "Folder",

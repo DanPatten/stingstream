@@ -3,7 +3,13 @@ import type {
   MeshDomainsStatus,
   MeshTunnelStatus,
 } from "@/lib/stingstream/meshApi";
-import { bareHostname, domainsSummary, hasTunnel } from "./domainsStatus";
+import {
+  bareHostname,
+  detectedDomain,
+  domainsMethod,
+  domainsSummary,
+  hasTunnel,
+} from "./domainsStatus";
 
 const tunnel = (over: Partial<MeshTunnelStatus> = {}): MeshTunnelStatus => ({
   kind: "none",
@@ -142,6 +148,66 @@ describe("hasTunnel", () => {
     expect(
       hasTunnel(status({ tunnel: tunnel({ kind: "named", state: "error" }) })),
     ).toBe(true);
+  });
+});
+
+describe("domainsMethod", () => {
+  test("names the route in use, and a tunnel owns the address it wrote", () => {
+    expect(domainsMethod(undefined)).toBe("none");
+    expect(domainsMethod(status())).toBe("none");
+    expect(
+      domainsMethod(status({ publicAddress: "https://media.example.com" })),
+    ).toBe("own");
+    expect(
+      domainsMethod(
+        status({
+          publicAddress: "https://media.example.com",
+          tunnel: tunnel({ kind: "named", state: "connected" }),
+        }),
+      ),
+    ).toBe("cloudflare");
+  });
+});
+
+describe("detectedDomain", () => {
+  test("offers the domain the app is already connected through", () => {
+    // Dan's setup: his own tunnel answers on a real domain and the node had never stored it.
+    expect(detectedDomain(status(), "https://meals.danha.top")).toBe(
+      "https://meals.danha.top",
+    );
+    expect(detectedDomain(status(), "https://media.example.com:8443/")).toBe(
+      "https://media.example.com:8443",
+    );
+  });
+
+  test("says nothing about an address that is not a public domain", () => {
+    for (const url of [
+      "http://media.example.com",
+      "https://192.168.0.16:5173",
+      "https://localhost:5173",
+      "https://nas",
+      "https://nas.local",
+      "https://[::1]:8790",
+      "not a url",
+    ])
+      expect(detectedDomain(status(), url)).toBeNull();
+    expect(detectedDomain(status(), null)).toBeNull();
+  });
+
+  test("says nothing once the node already has an address or a tunnel", () => {
+    expect(
+      detectedDomain(
+        status({ publicAddress: "https://media.example.com" }),
+        "https://other.example.com",
+      ),
+    ).toBeNull();
+    expect(
+      detectedDomain(
+        status({ tunnel: tunnel({ kind: "named", state: "error" }) }),
+        "https://meals.danha.top",
+      ),
+    ).toBeNull();
+    expect(detectedDomain(undefined, "https://meals.danha.top")).toBeNull();
   });
 });
 
