@@ -61,8 +61,14 @@ export default function LinkPage() {
 
   // The code admits a server to a connection, so it does not stay in the address bar or the
   // history. The page holds it in state from here on.
+  //
+  // **Twice.** The router parses the URL at mount and writes its own back a tick later, fragment
+  // and all, which undoes the first clear. Seen in a browser, the only place it is visible.
   useEffect(() => {
-    if (link) clearFragment();
+    if (!link) return;
+    clearFragment();
+    const again = setTimeout(clearFragment, 500);
+    return () => clearTimeout(again);
   }, [link]);
 
   // Which node this page is served by, which decides whether it is standing on the server that made
