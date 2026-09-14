@@ -482,6 +482,13 @@ That is both halves, so there is no request and no queue.
   decide.
 - A connection that fails is logged and never fails the sign-in. They can add the server from
   Servers afterwards.
+- **Somebody who already has an account here** takes the returning path, and the invite still
+  counts: it is spent there, so it stays single use, and the servers connect. Before this the invite
+  was ignored and their server kept an invitation nobody would open.
+- **Already signed in on their own server?** `/authorize` checks the password with a one-off device
+  id and keeps the existing session. Signing in again used the browser's own device id, Jellyfin
+  replaced that device's session, and the teardown in another tab signed the person out of their own
+  server.
 
 ### 11e. Connecting servers
 
