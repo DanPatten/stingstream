@@ -629,6 +629,46 @@ function Start-Tool {
     return $tool
 }
 
+function Start-DetachedTool {
+    <#
+    .SYNOPSIS
+        Start-Tool for a process that is meant to outlive the script that started it.
+    .DESCRIPTION
+        `Start-Process -NoNewWindow -RedirectStandardOutput` creates the child with handle
+        inheritance on, so it inherits every inheritable handle its parent holds -- including the
+        pipe the *caller* reads this script's output from. A node that stays up then holds that pipe
+        open forever, and whoever ran `powershell tools\dev.ps1` through a pipe (an agent's shell
+        tool, `| Select-Object`, CI) waits on an end of output that never comes. It cost two hours
+        on 2026-09-13 with nothing on screen: the Stop hook never saw it only because it writes to a
+        file.
+
+        So on Windows the node is launched through ShellExecute (Start-Process with neither
+        -NoNewWindow nor a redirect), which never inherits handles, and a hidden cmd.exe does the
+        redirect to the same two log files. `Process` is that cmd.exe: it lives exactly as long as
+        the node and exits with its code, and its command line carries the node's, so Stop-Owned
+        still finds both by data directory.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [Parameter(Mandatory)][string]$FilePath,
+        [string[]]$Arguments = @()
+    )
+    if (-not $script:IsWindowsHost) {
+        return Start-Tool -Name $Name -FilePath $FilePath -Arguments $Arguments
+    }
+    $stdout = Join-Path $script:LogDir "$Name.out.log"
+    $stderr = Join-Path $script:LogDir "$Name.err.log"
+    $quote = { param($s) if ($s -match '[\s"]') { '"' + ($s -replace '"', '\"') + '"' } else { $s } }
+    $argText = ($Arguments | ForEach-Object { & $quote ([string]$_) }) -join ' '
+    $inner = "`"$FilePath`" $argText > `"$stdout`" 2> `"$stderr`""
+    $p = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', "`"$inner`"") `
+        -WindowStyle Hidden -PassThru
+    $tool = [pscustomobject]@{ Name = $Name; Process = $p; Stdout = $stdout; Stderr = $stderr }
+    $script:Processes.Add($tool)
+    Write-Host "      started $Name (pid $($p.Id), detached) -> $stdout" -ForegroundColor DarkGray
+    return $tool
+}
+
 function Get-ProcessTable {
     <#
     .SYNOPSIS

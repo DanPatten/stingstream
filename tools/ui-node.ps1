@@ -204,7 +204,9 @@ Initialize-Harness -RepoRoot $RepoRoot -WorkDir $DataDir -SupervisorExe $Supervi
 
 function Start-UiNodeProcess {
     param([string[]]$Arguments)
-    $tool = Start-Tool -Name 'ui-node' -FilePath $Supervisor -Arguments $Arguments
+    # Detached, because this node outlives the script: see Start-DetachedTool for the pipe it
+    # would otherwise hold open on whoever ran us.
+    $tool = Start-DetachedTool -Name 'ui-node' -FilePath $Supervisor -Arguments $Arguments
     Start-Sleep -Milliseconds 800
     return $tool
 }
