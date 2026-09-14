@@ -558,7 +558,7 @@ a server where they are only a member.
 | `DELETE /connections/requests/{id}` | administrator, or the member who brought it | decline or withdraw |
 
 **Invitations and requests last seven days**, which is how long the mesh honours an unspent invite.
-An invitation nobody opened shows as *Invitation pending* with **Cancel invitation**, and the mesh
+An invite link nobody opened shows as *Pending invite* with **Cancel invite**, and the mesh
 removes it once it has expired.
 
 #### Removing a server
