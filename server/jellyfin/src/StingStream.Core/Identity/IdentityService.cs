@@ -203,11 +203,14 @@ public sealed class IdentityService
             ? null
             : _store.Find(claims.Iss, claims.Sub);
 
-        // Only looked up when there is no link, so an invite is never spent by somebody who
-        // already had an account here.
+        // Looked up for somebody with no link, who needs it to have an account at all, and for
+        // somebody returning with their server's invite, for whom it is this server's consent to
+        // connect. Never otherwise, so an invite is not spent by an ordinary returning sign-in.
         InviteRow? invite = null;
         var inviteUsable = false;
-        if (claims is not null && existing is null && !string.IsNullOrWhiteSpace(inviteToken))
+        if (claims is not null
+            && !string.IsNullOrWhiteSpace(inviteToken)
+            && (existing is null || !string.IsNullOrWhiteSpace(linkCode)))
         {
             var (status, row) = _invites.Lookup(inviteToken, now);
             invite = row;
@@ -234,12 +237,30 @@ public sealed class IdentityService
         // their server, which can take longer than a browser waits for a sign-in, and a connection
         // that fails is something they can add again from Servers while a sign-in that failed
         // because of one would be a person locked out of an account they now have.
-        if (existing is null
-            && invite is not null
+        if (invite is not null
+            && inviteUsable
             && result.User is not null
             && !string.IsNullOrWhiteSpace(linkCode))
         {
-            ConnectInBackground(linkCode, invite, claims!.Server);
+            // Somebody who already has an account here, arriving on a new invite from their own
+            // server. Found end to end: the invite was ignored, the servers stayed apart, and their
+            // server was left holding an invitation nobody would ever open. The invite is spent here
+            // so it stays single use; a first sign-in already spent it in FirstTimeAsync.
+            var consented = existing is null
+                || await _inviteStore
+                    .TryRedeemAsync(invite.Id, string.Empty, result.User.Username, now, cancellationToken)
+                    .ConfigureAwait(false);
+            if (consented)
+            {
+                if (existing is not null)
+                {
+                    await _inviteStore
+                        .SetRedeemedUserAsync(invite.Id, result.User.Id.ToString("N"), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                ConnectInBackground(linkCode, invite, claims!.Server);
+            }
         }
 
         return result;
