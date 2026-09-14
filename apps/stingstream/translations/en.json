@@ -2247,7 +2247,7 @@
     "own_server_placeholder": "your-server.example.com",
     "own_server_continue": "Continue",
     "own_server_cancel": "Back",
-    "own_server_not_found": "No StingStream server was found at that address.",
+    "own_server_not_found": "Enter a server address, such as media.example.com or 192.168.1.20:8790.",
     "own_server_failed": "Your server could not be reached. Try again.",
     "join_own_server_prompt": "Have your own StingStream server?",
     "join_own_server_action": "Sign in with your server",

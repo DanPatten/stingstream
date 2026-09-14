@@ -1,51 +1,54 @@
-import { probeCandidate } from "@/lib/stingstream/sidedoor";
-
 /**
- * Turn what somebody typed into the origin of a StingStream node, or null.
+ * Turn what somebody typed into the origin of the server they mean, or null.
  *
- * Two screens ask this question and they have to agree on the answer: signing in with your own
- * server from `/join`, and adding a server from Settings. Both are the same act seen from
- * different ends, and a second copy of this would be a second set of rules about which addresses
- * work.
+ * Three screens ask this question and they have to agree on the answer: signing in with your own
+ * server, adding a server from Settings, and an invite link opened on the server that made it. All
+ * of them then send the browser to that origin, and the page there does the rest.
  *
- * **`/sidedoor/v1/hello`, not `/System/Info/Public`.** The probe is cross-origin by construction:
- * the page was served by one node and is asking about another, and a node answers no other route
- * to another origin. `checkJellyfinServer` was used here first and could never have worked outside
- * a test where both were the same host, because the browser blocked it on CORS before the other
- * node ever saw it. The side door exists for exactly this question (`docs/SIDEDOOR.md` §4).
+ * **Worked out from the text, never by asking the address.** This used to probe
+ * `/sidedoor/v1/hello` before navigating. On a page served from a public domain, a fetch to a home
+ * or LAN address (`127.0.0.1`, `192.168.x.x`) is exactly what Chrome's local network access check
+ * stops to ask permission for, so everybody who typed their own server saw a browser prompt and,
+ * while it was open, a "not found" error. A navigation is not subject to that check. Dan: *"anything
+ * to reduce friction here"*. What is lost is an inline error for a typo; the browser's own "can't
+ * reach this site" page says the same thing.
  *
- * HTTPS first, then plain HTTP, unless they typed a scheme themselves. A bare `host:port` on a LAN
- * is the common case and is almost never HTTPS; a domain almost always is.
+ * **The scheme, when they did not type one**, follows what the address looks like: a name on a
+ * home network (`localhost`, an IP, a single word, `.local`, `.lan`, `.home.arpa`) is plain HTTP,
+ * because that is what a node serves there; anything else is a domain, and a domain is HTTPS.
  */
 export const resolveServerOrigin = async (
   typed: string,
-): Promise<string | null> => {
-  const bare = typed.trim().replace(/\/+$/, "");
-  if (!bare) return null;
+): Promise<string | null> => serverOriginFromInput(typed);
 
-  const candidates = /^https?:\/\//i.test(bare)
-    ? [bare]
-    : [`https://${bare}`, `http://${bare}`];
+export const serverOriginFromInput = (typed: string): string | null => {
+  const bare = typed.trim();
+  if (!bare || /\s/.test(bare)) return null;
 
-  for (const url of candidates) {
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      return null;
-    }
-    // No expected node id: nobody has told us which node lives there, and the answer is what
-    // tells us it is a node at all.
-    const outcome = await probeCandidate(
-      {
-        kind: "own",
-        host: parsed.hostname,
-        port: Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80),
-        url,
-      },
-      "",
-    );
-    if (outcome.ok) return url;
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(bare);
+  let parsed: URL;
+  try {
+    parsed = new URL(hasScheme ? bare : `http://${bare}`);
+  } catch {
+    return null;
   }
-  return null;
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  if (!parsed.hostname) return null;
+
+  if (!hasScheme && !isHomeNetworkHost(parsed.hostname)) {
+    parsed.protocol = "https:";
+  }
+  return parsed.origin;
+};
+
+const HOME_SUFFIXES = [".local", ".lan", ".home", ".internal", ".home.arpa"];
+
+/** A host that only means something on the reader's own network. */
+export const isHomeNetworkHost = (hostname: string): boolean => {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return true;
+  if (host.includes(":")) return true; // IPv6
+  if (!host.includes(".")) return true;
+  return HOME_SUFFIXES.some((suffix) => host.endsWith(suffix));
 };
