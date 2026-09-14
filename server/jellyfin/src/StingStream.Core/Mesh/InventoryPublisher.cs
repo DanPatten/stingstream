@@ -97,6 +97,31 @@ public sealed class InventoryPublisher : BackgroundService
     /// <summary>Force a full snapshot on the next pass.</summary>
     public void RequestSnapshot() => _nextSnapshotUtc = DateTime.MinValue;
 
+    /// <summary>How often share rows for groups that no longer exist are removed.</summary>
+    public static readonly TimeSpan PruneInterval = TimeSpan.FromMinutes(1);
+
+    private DateTime _nextPruneUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// Remove the share choice of every connection this node is no longer in.
+    /// </summary>
+    /// <remarks>
+    /// A connection removed from the <em>other</em> side leaves the group through the mesh, which
+    /// Core never hears about, so its row here would otherwise stay for ever.
+    /// </remarks>
+    private async Task PruneSharedAsync(
+        IReadOnlyDictionary<string, IReadOnlyList<Guid>> shareRows,
+        IReadOnlyList<MeshGroup> groups,
+        CancellationToken cancellationToken)
+    {
+        var live = new HashSet<string>(groups.Select(g => g.Group), StringComparer.OrdinalIgnoreCase);
+        foreach (var group in shareRows.Keys.Where(g => !live.Contains(g)).ToList())
+        {
+            await _shared.RemoveAsync(group, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Removed the share choice of {Group}, which this node has left", group);
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (_mesh.BaseUrl is null)
@@ -148,6 +173,15 @@ public sealed class InventoryPublisher : BackgroundService
     /// </remarks>
     public async Task PassAsync(CancellationToken cancellationToken)
     {
+        var now = DateTime.UtcNow;
+
+        // Read before the groups, never after. A share row is written only once its group exists,
+        // so every row in this read has its group in the list fetched next; reading afterwards could
+        // catch a connection made in between and delete what its owner has just chosen.
+        var shareRows = now >= _nextPruneUtc
+            ? await _shared.AllAsync(cancellationToken).ConfigureAwait(false)
+            : null;
+
         var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
         if (groups is null)
         {
@@ -156,7 +190,11 @@ public sealed class InventoryPublisher : BackgroundService
             return;
         }
 
-        var now = DateTime.UtcNow;
+        if (shareRows is not null)
+        {
+            await PruneSharedAsync(shareRows, groups, cancellationToken).ConfigureAwait(false);
+            _nextPruneUtc = now + PruneInterval;
+        }
 
         // Capacity first, and regardless of group membership. It is a property of the node, not of
         // a group, and the mesh fills in its own stream limits when it stores it -- so a node that

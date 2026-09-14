@@ -43,6 +43,12 @@ public interface ISharedLibraries
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>One entry per link that has ever been configured.</returns>
     Task<IReadOnlyDictionary<string, IReadOnlyList<Guid>>> AllAsync(CancellationToken cancellationToken);
+
+    /// <summary>Forget a link's choice, when the link itself is gone.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    Task RemoveAsync(string group, CancellationToken cancellationToken);
 }
 
 /// <inheritdoc cref="ISharedLibraries"/>

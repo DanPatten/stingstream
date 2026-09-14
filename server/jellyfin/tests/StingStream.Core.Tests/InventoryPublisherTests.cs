@@ -261,6 +261,15 @@ public class InventoryPublisherTests
 
         public Task<IReadOnlyDictionary<string, IReadOnlyList<Guid>>> AllAsync(
             CancellationToken cancellationToken) => Task.FromResult(_all);
+
+        /// <summary>Groups whose share choice the publisher removed.</summary>
+        public List<string> Removed { get; } = new();
+
+        public Task RemoveAsync(string group, CancellationToken cancellationToken)
+        {
+            Removed.Add(group);
+            return Task.CompletedTask;
+        }
     }
 
 
