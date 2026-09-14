@@ -21,6 +21,9 @@ public sealed class ConnectionInvite
     /// <summary>This server's name, for the page that opens the link.</summary>
     public string Server { get; set; } = string.Empty;
 
+    /// <summary>The group the invite joins, so the page that shows the link can cancel it.</summary>
+    public string Group { get; set; } = string.Empty;
+
     /// <summary>
     /// The origin to put the link on: the domain when one is set, this machine's LAN address when
     /// not, null when neither is known and the page falls back to however it reached this server.
@@ -92,6 +95,7 @@ public sealed class ConnectionService
                 Code = invite.Code,
                 Node = status.Node,
                 Server = status.ServerName,
+                Group = group.Group,
                 Address = await AddressAsync(status, cancellationToken).ConfigureAwait(false),
             };
         }
@@ -128,6 +132,7 @@ public sealed class ConnectionService
             Code = invite.Code,
             Node = status.Node,
             Server = status.ServerName,
+            Group = group,
             Address = await AddressAsync(status, cancellationToken).ConfigureAwait(false),
         };
     }

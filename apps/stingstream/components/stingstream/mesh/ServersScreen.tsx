@@ -201,7 +201,11 @@ function ServerListRow({
           }
         />
         {link ? (
-          <InviteLinkDialog link={link} onClose={() => setLink(null)} />
+          <InviteLinkDialog
+            link={link}
+            group={row.group}
+            onClose={() => setLink(null)}
+          />
         ) : null}
       </>
     );

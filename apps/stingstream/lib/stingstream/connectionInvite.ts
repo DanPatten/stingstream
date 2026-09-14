@@ -10,6 +10,8 @@ export interface ConnectionInvite {
   code: string;
   node: string;
   server: string;
+  /** The group the invite joins, for cancelling it. Empty from a server too old to say. */
+  group: string;
   /** Where the link should point: the domain when one is set, else the LAN address. */
   address: string | null;
 }
@@ -18,5 +20,6 @@ export const toConnectionInvite = (raw: unknown): ConnectionInvite => ({
   code: field<string>(raw, ...both("code")) ?? "",
   node: field<string>(raw, ...both("node")) ?? "",
   server: field<string>(raw, ...both("server")) ?? "",
+  group: field<string>(raw, ...both("group")) ?? "",
   address: field<string>(raw, ...both("address"))?.trim() || null,
 });

@@ -76,6 +76,7 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
   const create = useCreateConnectionInvite();
   const [selected, setSelected] = useState<string[] | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [group, setGroup] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const submit = useCallback(async () => {
@@ -84,13 +85,16 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
       const invite = await create.mutateAsync(selected);
       const url = linkFor(invite);
       if (!url) throw new Error(t("sharing.add_server_failed"));
+      setGroup(invite.group || null);
       setLink(url);
     } catch (e) {
       setError((e as Error)?.message || t("sharing.add_server_failed"));
     }
   }, [create, linkFor, selected, t]);
 
-  if (link) return <InviteLinkDialog link={link} onClose={onClose} />;
+  if (link) {
+    return <InviteLinkDialog link={link} group={group} onClose={onClose} />;
+  }
 
   return (
     <Dialog

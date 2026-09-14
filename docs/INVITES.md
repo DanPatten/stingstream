@@ -529,6 +529,9 @@ reached. Dan: *"when generating ANY invite links always use the domain name if s
 `POST /connections/invite/{group}`, which mints a fresh code for the same group. The node stores
 only a hash of each code, so the first cannot be read back; the libraries chosen at creation stay.
 
+**The Invite link ready dialog** shows the link as a QR code too, and offers **Cancel invite**, which
+leaves the group the invite created (Core answers `group` beside the code for that).
+
 #### `/link`, which does the same thing wherever it is opened
 
 | Link | Page served by | Signed in as | Result |
