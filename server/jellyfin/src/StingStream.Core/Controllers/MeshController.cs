@@ -31,14 +31,17 @@ public sealed class MeshController : StingStreamControllerBase
     private readonly Sharing.SharedLibraryStore _shared;
     private readonly Invites.InviteService _invites;
     private readonly Mesh.InventoryPublisher _publisher;
+    private readonly Sharing.ConnectionStore _connections;
 
     public MeshController(
         IMeshClient mesh,
         FederatedLibraryService federated,
         Sharing.SharedLibraryStore shared,
         Invites.InviteService invites,
-        Mesh.InventoryPublisher publisher)
+        Mesh.InventoryPublisher publisher,
+        Sharing.ConnectionStore connections)
     {
+        _connections = connections;
         _mesh = mesh;
         _federated = federated;
         _shared = shared;
@@ -394,7 +397,21 @@ public sealed class MeshController : StingStreamControllerBase
         CancellationToken cancellationToken)
     {
         var peers = await _mesh.PeersAsync(group, cancellationToken).ConfigureAwait(false);
-        return peers is null ? MeshUnavailable() : Ok(peers);
+        if (peers is null)
+        {
+            return MeshUnavailable();
+        }
+
+        var addresses = await _connections.AddressesAsync(cancellationToken).ConfigureAwait(false);
+        foreach (var peer in peers)
+        {
+            if (addresses.TryGetValue(peer.Group, out var address))
+            {
+                peer.Address = address;
+            }
+        }
+
+        return Ok(peers);
     }
 
     /// <summary>

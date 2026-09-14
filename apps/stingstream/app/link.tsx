@@ -384,7 +384,11 @@ function ConnectStep({ invite }: { invite: ConnectionInviteLink }) {
   const submit = async (libraries: string[] | null) => {
     setError(null);
     try {
-      await connect.mutateAsync({ code: invite.code, libraries });
+      await connect.mutateAsync({
+        code: invite.code,
+        libraries,
+        address: invite.address,
+      });
       await mesh.syncGroups();
       toast.success(t("sharing.connected", { server }));
       router.replace("/settings/servers");

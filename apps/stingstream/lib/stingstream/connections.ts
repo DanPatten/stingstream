@@ -118,12 +118,17 @@ export async function connectToServer(
   token: string | null | undefined,
   code: string,
   libraries: string[] | null,
+  address?: string | null,
 ): Promise<MeshJoinResponse> {
   const res = await send(
     `${connectionsBase(apiBaseUrl)}/connect`,
     "POST",
     token,
-    libraries === null ? { code } : { code, libraries },
+    {
+      code,
+      ...(libraries === null ? {} : { libraries }),
+      ...(address ? { address } : {}),
+    },
   );
   if (!res.ok) throw await failure(res, "POST /connections/connect");
   return toJoin(await res.json());
@@ -223,10 +228,65 @@ export function useConnectToServer() {
   return useMutation<
     MeshJoinResponse,
     Error,
-    { code: string; libraries: string[] | null }
+    { code: string; libraries: string[] | null; address?: string | null }
   >({
-    mutationFn: ({ code, libraries }) =>
-      connectToServer(base!, token, code, libraries),
+    mutationFn: ({ code, libraries, address }) =>
+      connectToServer(base!, token, code, libraries, address),
+    onSuccess: invalidate,
+  });
+}
+
+/** What this server remembers about one connection. */
+export interface ConnectionDetails {
+  /** Where the other server is reached, or null. */
+  address: string | null;
+  /** The account here that connected it, or empty. */
+  connectedByName: string;
+}
+
+const toDetails = (raw: unknown): ConnectionDetails => ({
+  address: field<string>(raw, ...both("address"))?.trim() || null,
+  connectedByName: field<string>(raw, ...both("connectedByName")) ?? "",
+});
+
+export function useConnectionDetails(
+  group: string,
+): UseQueryResult<ConnectionDetails> {
+  const { base, token, authed } = useConnectionsApi();
+  return useQuery({
+    queryKey: [...CONNECTIONS_QUERY_KEY, "details", base, group],
+    meta: LIVE,
+    queryFn: async () => {
+      const res = await send(
+        `${connectionsBase(base!)}/groups/${encodeURIComponent(group)}`,
+        "GET",
+        token,
+      );
+      if (!res.ok) throw await failure(res, "GET /connections/groups/{group}");
+      return toDetails(await res.json());
+    },
+    enabled: authed && Boolean(group),
+    retry: 1,
+  });
+}
+
+/** Change where the other server is reached. Empty clears it. */
+export function useSetConnectionAddress(group: string) {
+  const { base, token } = useConnectionsApi();
+  const invalidate = useInvalidate();
+  return useMutation<ConnectionDetails, Error, string>({
+    mutationFn: async (address) => {
+      const res = await send(
+        `${connectionsBase(base!)}/groups/${encodeURIComponent(group)}/address`,
+        "PUT",
+        token,
+        { address },
+      );
+      if (!res.ok) {
+        throw await failure(res, "PUT /connections/groups/{group}/address");
+      }
+      return toDetails(await res.json());
+    },
     onSuccess: invalidate,
   });
 }

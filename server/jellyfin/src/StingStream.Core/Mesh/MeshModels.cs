@@ -524,6 +524,13 @@ public sealed class MeshPeer
     /// Core neither builds nor interprets it. See <c>docs/SIDEDOOR.md</c>.
     /// </summary>
     public System.Text.Json.JsonElement? SideDoor { get; set; }
+
+    /// <summary>
+    /// The address this server saved for the connection: from the invite link, or typed by an
+    /// administrator. Null when none. Core's own, merged in by <c>MeshController.Peers</c>; the mesh
+    /// never sends it. See <c>Sharing/ConnectionStore</c>.
+    /// </summary>
+    public string? Address { get; set; }
 }
 
 /// <summary>One scored candidate from <c>GET /mesh/v1/sources/{group}/{item_key}</c>.</summary>

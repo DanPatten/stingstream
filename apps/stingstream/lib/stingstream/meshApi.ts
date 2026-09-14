@@ -56,6 +56,11 @@ export interface MeshNodePeer {
    * sender races when it hands a receiver a URL for a movie held by another node.
    */
   sideDoor?: SideDoorRecord | null;
+  /**
+   * The address this server saved for the connection: from the invite link, or typed when the
+   * other server moved. Core's own, not gossiped. See `Sharing/ConnectionStore`.
+   */
+  address?: string | null;
 }
 
 /** `GET /mesh/status`. */
@@ -244,6 +249,7 @@ export const toPeer = (raw: unknown): MeshNodePeer => ({
   // nothing here read it, so a cast sender racing a peer's side door always fell through to the
   // discovery-record fallback. See docs/SIDEDOOR.md §5, "Where the client gets the record".
   sideDoor: field<SideDoorRecord>(raw, ...both("sideDoor")) ?? null,
+  address: field<string>(raw, ...both("address"))?.trim() || null,
 });
 
 export const toStatus = (raw: unknown): MeshNodeStatus => ({

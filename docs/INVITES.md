@@ -532,6 +532,13 @@ only a hash of each code, so the first cannot be read back; the libraries chosen
 **The Invite link ready dialog** shows the link as a QR code too, and offers **Cancel invite**, which
 leaves the group the invite created (Core answers `group` beside the code for that).
 
+**The link carries the maker's address** (`addr`), and `POST /connections/connect` saves it in
+`connections` in `core.db` (`Sharing/ConnectionStore`), with the account that connected. `GET
+/mesh/peers` merges it in as `address`, so the Servers page shows the other server the moment the
+connection is made rather than after its first heartbeat. A saved address wins over the announced
+one. The connected server's own page edits it (`PUT /connections/groups/{group}/address`) for when
+that server moves, and shows who connected it in place of a member list.
+
 #### `/link`, which does the same thing wherever it is opened
 
 | Link | Page served by | Signed in as | Result |

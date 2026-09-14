@@ -30,8 +30,11 @@ export const useInviteLinkFor = () => {
     : api?.basePath
       ? getNodeBaseUrl(api.basePath)
       : null;
-  return (invite: ConnectionInvite): string | null =>
-    buildInviteLink(invite.address ?? fallback, invite);
+  return (invite: ConnectionInvite): string | null => {
+    const host = invite.address ?? fallback;
+    // The address goes in the link too, so the server that connects remembers it straight away.
+    return buildInviteLink(host, { ...invite, address: host });
+  };
 };
 
 /**

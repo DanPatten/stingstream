@@ -4,11 +4,16 @@ import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { PageContainer } from "@/components/common/PageContainer";
-import { Pill } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
-import { radius } from "@/constants/theme";
+import { ListGroup } from "@/components/list/ListGroup";
+import { ListItem } from "@/components/list/ListItem";
+import { radius, space } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  useConnectionDetails,
+  useSetConnectionAddress,
+} from "@/lib/stingstream/connections";
 import {
   MeshUnavailableError,
   useLeaveMeshGroup,
@@ -17,19 +22,24 @@ import {
   useNodeMeshStatus,
 } from "@/lib/stingstream/mesh";
 import { useMesh } from "@/providers/MeshProvider";
+import { SaveStatus, TextFieldRow } from "../settings/fields";
+import { useAutosave } from "../settings/useAutosave";
 import { confirmDestructive } from "../shared/confirm";
 import { GapNotice } from "../shared/GapNotice";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { GroupMembers } from "./GroupMembers";
 import { SharedLibrariesSection } from "./SharedLibraries";
 
 /**
- * One connected server: what this server shares with it, who is in the connection, and Remove.
+ * One connected server: its address, who connected it, what this server shares with it, and Remove.
  *
  * **Named after the other server**, not the group. A connection is one group per pair of servers,
  * and the group was named by whichever server made the invite, so on that server the group carries
  * its own name. The other member is what the reader is looking at.
+ *
+ * **No member list.** A connection is two servers, and listing both by name told the reader nothing
+ * the title did not. Dan: *"dont show members - instead just show the user this is connected
+ * through, dont list server names here"*.
  *
  * No rotate secret, no per-member removal, no invite button. Dan: *"lets remove the rotate secret
  * feature - we dont need that - just delete and re-add."*
@@ -51,13 +61,11 @@ export function GroupDetailScreen({ group }: { group: string }) {
   );
 
   const me = status.data?.node?.toLowerCase();
-  const peerRows = peers.data ?? [];
-  const other = peerRows.find(
+  const other = (peers.data ?? []).find(
     (peer) => (peer.node ?? "").toLowerCase() !== me,
   );
   const server =
     other?.serverName || info?.name || t("sharing.server_untitled");
-  const onlineCount = peerRows.filter((p) => p.online).length;
 
   const onRemove = useCallback(() => {
     void (async () => {
@@ -130,48 +138,78 @@ export function GroupDetailScreen({ group }: { group: string }) {
           <Text variant='title' weight='semibold'>
             {server}
           </Text>
-          <View
-            style={{
-              flexDirection: "row",
-              flexWrap: "wrap",
-              gap: 8,
-              marginTop: 10,
-            }}
-          >
-            <Pill
-              label={t("sharing.member_count", { count: peerRows.length })}
-            />
-            <Pill
-              tone={onlineCount > 0 ? "success" : "neutral"}
-              label={t("sharing.online_count", { count: onlineCount })}
-            />
-          </View>
         </View>
 
         {isAdmin ? (
           <>
             <View style={{ height: 20 }} />
+            <ConnectionSection group={group} />
+            <View style={{ height: 20 }} />
             <SharedLibrariesSection group={group} />
+            <View style={{ marginTop: 32 }}>
+              <Button
+                testID='sharing-remove-server'
+                variant='danger'
+                icon='delete'
+                onPress={onRemove}
+                loading={leave.isPending}
+              >
+                {t("sharing.remove_server")}
+              </Button>
+            </View>
           </>
-        ) : null}
-
-        <View style={{ height: 20 }} />
-        <GroupMembers peers={peers.data} />
-
-        {isAdmin ? (
-          <View style={{ marginTop: 32 }}>
-            <Button
-              testID='sharing-remove-server'
-              variant='danger'
-              icon='delete'
-              onPress={onRemove}
-              loading={leave.isPending}
-            >
-              {t("sharing.remove_server")}
-            </Button>
-          </View>
         ) : null}
       </QueryState>
     </PageContainer>
+  );
+}
+
+/**
+ * Where the other server is reached, and who connected it.
+ *
+ * The address saves itself like every other settings field. Dan: *"allow the user to change the
+ * domain in case the server moves"*.
+ */
+function ConnectionSection({ group }: { group: string }) {
+  const { t } = useTranslation();
+  const details = useConnectionDetails(group);
+  const setAddress = useSetConnectionAddress(group);
+
+  const { draft, set, saving } = useAutosave({
+    value: details.data,
+    save: async (next) => {
+      try {
+        await setAddress.mutateAsync(next.address?.trim() ?? "");
+        toast.success(t("sharing.connection_saved"));
+      } catch (e) {
+        toast.error(
+          e instanceof Error ? e.message : t("sharing.connection_save_failed"),
+        );
+      }
+    },
+  });
+
+  if (!draft) return null;
+
+  return (
+    <View style={{ gap: space["2"] }}>
+      <ListGroup>
+        <TextFieldRow
+          title={t("sharing.connection_address")}
+          value={draft.address ?? ""}
+          placeholder={t("sharing.connection_address_placeholder")}
+          keyboardType='url'
+          autoCapitalize='none'
+          onChangeText={(v) => set((d) => ({ ...d, address: v }))}
+        />
+        {draft.connectedByName ? (
+          <ListItem
+            title={t("sharing.connected_by")}
+            value={draft.connectedByName}
+          />
+        ) : null}
+      </ListGroup>
+      <SaveStatus saving={saving} />
+    </View>
   );
 }

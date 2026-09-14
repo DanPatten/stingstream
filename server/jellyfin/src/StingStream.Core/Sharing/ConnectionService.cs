@@ -52,6 +52,7 @@ public sealed class ConnectionService
     private readonly SharedLibraryStore _shared;
     private readonly InventoryPublisher _publisher;
     private readonly InviteService _invites;
+    private readonly ConnectionStore _records;
     private readonly ILogger<ConnectionService> _logger;
 
     public ConnectionService(
@@ -59,12 +60,14 @@ public sealed class ConnectionService
         SharedLibraryStore shared,
         InventoryPublisher publisher,
         InviteService invites,
+        ConnectionStore records,
         ILogger<ConnectionService> logger)
     {
         _mesh = mesh;
         _shared = shared;
         _publisher = publisher;
         _invites = invites;
+        _records = records;
         _logger = logger;
     }
 
@@ -79,7 +82,8 @@ public sealed class ConnectionService
     /// </remarks>
     public async Task<ConnectionInvite> CreateInviteAsync(
         IReadOnlyList<Guid> libraries,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? connectedBy = null)
     {
         var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false)
             ?? throw new MeshException("The mesh is not answering.");
@@ -88,6 +92,7 @@ public sealed class ConnectionService
         try
         {
             await _shared.SetAsync(group.Group, libraries, cancellationToken).ConfigureAwait(false);
+            await _records.SaveAsync(group.Group, null, connectedBy, cancellationToken).ConfigureAwait(false);
             var invite = await _mesh.InviteAsync(group.Group, cancellationToken).ConfigureAwait(false);
             _publisher.RequestSnapshot();
             return new ConnectionInvite
@@ -170,13 +175,22 @@ public sealed class ConnectionService
     /// <param name="libraries">What this server shares.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The connection.</returns>
+    /// <remarks>
+    /// <paramref name="address"/> is the other server's, from the invite link. Saving it here is what
+    /// puts it on the Servers page the moment this returns, before that server's first heartbeat.
+    /// A malformed one is dropped rather than failing a connection that has already been made.
+    /// </remarks>
     public async Task<MeshJoinResult> ConnectAsync(
         string code,
         IReadOnlyList<Guid> libraries,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? address = null,
+        string? connectedBy = null)
     {
         var joined = await _mesh.JoinGroupAsync(code.Trim(), cancellationToken).ConfigureAwait(false);
         await _shared.SetAsync(joined.Group, libraries, cancellationToken).ConfigureAwait(false);
+        ConnectionStore.TryNormalizeAddress(address, out var origin);
+        await _records.SaveAsync(joined.Group, origin, connectedBy, cancellationToken).ConfigureAwait(false);
         _publisher.RequestSnapshot();
         _logger.LogInformation("Connected to {Server}", joined.Name);
         return joined;
@@ -227,6 +241,7 @@ public sealed class ConnectionService
         {
             await _mesh.LeaveGroupAsync(group, CancellationToken.None).ConfigureAwait(false);
             await _shared.RemoveAsync(group, CancellationToken.None).ConfigureAwait(false);
+            await _records.RemoveAsync(group, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {

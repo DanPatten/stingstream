@@ -28,6 +28,11 @@ export interface ConnectionInviteLink {
   /** What that server calls itself. */
   server: string;
   /**
+   * Where that server is reached, origin only. Carried so the server that connects can show it the
+   * moment the connection is made, before the first heartbeat says the same thing.
+   */
+  address?: string | null;
+  /**
    * Set when the link has already been passed from the server that made it to the reader's own.
    * Only matters for a link that carries no node id, which could otherwise bounce for ever.
    */
@@ -90,6 +95,7 @@ export const buildInviteLink = (
     ["code", invite.code.trim()],
     ["node", invite.node?.trim() || undefined],
     ["server", invite.server?.trim() || undefined],
+    ["addr", originOf(invite.address) ?? undefined],
     ["fwd", invite.forwarded ? "1" : undefined],
   ])}`;
 };
@@ -127,6 +133,7 @@ export const parseLink = (
       code: parts.code.trim(),
       node: parts.node ?? "",
       server: parts.server ?? "",
+      address: originOf(parts.addr) ?? undefined,
       forwarded: parts.fwd === "1" || undefined,
     },
   };

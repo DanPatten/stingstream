@@ -36,17 +36,20 @@ public sealed class ConnectionsController : StingStreamControllerBase
 {
     private readonly ConnectionService _connections;
     private readonly ConnectionRequestStore _requests;
+    private readonly ConnectionStore _records;
     private readonly IUserManager _users;
     private readonly ILogger<ConnectionsController> _logger;
 
     public ConnectionsController(
         ConnectionService connections,
         ConnectionRequestStore requests,
+        ConnectionStore records,
         IUserManager users,
         ILogger<ConnectionsController> logger)
     {
         _connections = connections;
         _requests = requests;
+        _records = records;
         _users = users;
         _logger = logger;
     }
@@ -68,7 +71,7 @@ public sealed class ConnectionsController : StingStreamControllerBase
         try
         {
             return Ok(await _connections
-                .CreateInviteAsync(Libraries(body?.Libraries), cancellationToken)
+                .CreateInviteAsync(Libraries(body?.Libraries), cancellationToken, CurrentUserId())
                 .ConfigureAwait(false));
         }
         catch (Exception ex) when (ex is MeshException or InvalidOperationException or System.Net.Http.HttpRequestException)
@@ -125,9 +128,59 @@ public sealed class ConnectionsController : StingStreamControllerBase
             return BadRequest(new { error = "This invite link is not valid. Ask the sender for a new one." });
         }
 
-        return await ConnectAsync(body.Code, Libraries(body.Libraries), cancellationToken)
+        return await ConnectAsync(body.Code, Libraries(body.Libraries), cancellationToken, body.Address)
             .ConfigureAwait(false);
     }
+
+    /// <summary>What this server remembers about one connection.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The address and who connected it; both may be empty.</response>
+    /// <returns>The connection.</returns>
+    [HttpGet("groups/{group}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<ConnectionDetails>> Details(
+        [FromRoute] string group,
+        CancellationToken cancellationToken)
+    {
+        var record = await _records.GetAsync(group, cancellationToken).ConfigureAwait(false);
+        return Ok(Describe(record));
+    }
+
+    /// <summary>Change where the other server is reached, for when it moves.</summary>
+    /// <param name="group">The group id.</param>
+    /// <param name="body">The address; empty clears it.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">Saved.</response>
+    /// <response code="400">Not a usable address.</response>
+    /// <returns>The connection.</returns>
+    [HttpPut("groups/{group}/address")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ConnectionDetails>> SetAddress(
+        [FromRoute] string group,
+        [FromBody] ConnectionAddressBody? body,
+        CancellationToken cancellationToken)
+    {
+        if (!ConnectionStore.TryNormalizeAddress(body?.Address, out var address))
+        {
+            return BadRequest(new { error = "Enter a server address, such as media.example.com." });
+        }
+
+        await _records.SetAddressAsync(group, address, cancellationToken).ConfigureAwait(false);
+        return Ok(Describe(await _records.GetAsync(group, cancellationToken).ConfigureAwait(false)));
+    }
+
+    private ConnectionDetails Describe(ConnectionRecord? record)
+        => new()
+        {
+            Address = record?.Address,
+            ConnectedByName = Guid.TryParse(record?.ConnectedBy, out var id)
+                ? _users.GetUserById(id)?.Username ?? string.Empty
+                : string.Empty,
+        };
 
     /// <summary>Invite links waiting for an administrator.</summary>
     /// <response code="200">Every request for an administrator; a member's own for a member.</response>
@@ -215,7 +268,7 @@ public sealed class ConnectionsController : StingStreamControllerBase
             return NotFound();
         }
 
-        var result = await ConnectAsync(row.Code, Libraries(body?.Libraries), cancellationToken)
+        var result = await ConnectAsync(row.Code, Libraries(body?.Libraries), cancellationToken, null)
             .ConfigureAwait(false);
 
         // Removed whether it worked or not when the invite itself is spent or expired: it can never
@@ -252,11 +305,12 @@ public sealed class ConnectionsController : StingStreamControllerBase
     private async Task<ActionResult<MeshJoinResult>> ConnectAsync(
         string code,
         IReadOnlyList<Guid> libraries,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? address)
     {
         try
         {
-            return Ok(await _connections.ConnectAsync(code, libraries, cancellationToken)
+            return Ok(await _connections.ConnectAsync(code, libraries, cancellationToken, address, CurrentUserId())
                 .ConfigureAwait(false));
         }
         catch (Exception ex) when (ex is MeshException or InvalidOperationException or System.Net.Http.HttpRequestException or TaskCanceledException)
@@ -294,6 +348,26 @@ public sealed class ConnectBody
 
     /// <summary>The libraries this server shares. Absent shares every library.</summary>
     public IReadOnlyList<Guid>? Libraries { get; set; }
+
+    /// <summary>The other server's address, from the invite link. Optional.</summary>
+    public string? Address { get; set; }
+}
+
+/// <summary>Body of <c>PUT /connections/groups/{group}/address</c>.</summary>
+public sealed class ConnectionAddressBody
+{
+    /// <summary>The address. Empty clears it.</summary>
+    public string? Address { get; set; }
+}
+
+/// <summary>One connection, as its own page shows it.</summary>
+public sealed class ConnectionDetails
+{
+    /// <summary>Where the other server is reached, or null.</summary>
+    public string? Address { get; set; }
+
+    /// <summary>The account here that connected it, or empty.</summary>
+    public string ConnectedByName { get; set; } = string.Empty;
 }
 
 /// <summary>Body of <c>POST /connections/requests</c>: what an invite link carried.</summary>

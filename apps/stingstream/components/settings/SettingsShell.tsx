@@ -3,12 +3,17 @@ import { useAtomValue } from "jotai";
 import type { PropsWithChildren } from "react";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
+import { Icon } from "@/components/common/Icon";
+import { Text } from "@/components/common/Text";
 import {
   buildSettingsCategories,
   categoryForRoute,
+  type SettingsCategory,
+  settingsPath,
 } from "@/components/shell/buildSettingsCategories";
 import { settingsTwoPane } from "@/constants/Settings";
+import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { userAtom } from "@/providers/JellyfinProvider";
@@ -58,10 +63,31 @@ export const SettingsShell: React.FC<
 
   // The prop wins; the route is the fallback, so a page nobody remembered to
   // label still lights the right row.
-  const activeKey =
-    categoryKey ?? categoryForRoute(groups, pathname ?? "")?.key;
+  const routeCategory = categoryForRoute(groups, pathname ?? "");
+  const activeKey = categoryKey ?? routeCategory?.key;
 
-  if (!settingsTwoPane(width, isWebWide)) return <>{children}</>;
+  // A page inside a category rather than the category itself: This server, one connected server,
+  // one library, one plugin. Those had no way back but the column or the browser. Dan: *"do an audit
+  // on most setting screens either add a back button or something"*. One rule here covers every
+  // one of them, including pages added later. Web only: a device's stack header already has one.
+  const parent =
+    Platform.OS === "web" &&
+    routeCategory &&
+    settingsPath(pathname ?? "") !== settingsPath(routeCategory.route)
+      ? routeCategory
+      : null;
+  const back = parent ? <BackToCategory category={parent} /> : null;
+
+  if (!settingsTwoPane(width, isWebWide)) {
+    return back ? (
+      <View style={{ flex: 1, backgroundColor: color.bg["0"] }}>
+        {back}
+        {children}
+      </View>
+    ) : (
+      <>{children}</>
+    );
+  }
 
   return (
     <View
@@ -76,8 +102,43 @@ export const SettingsShell: React.FC<
           pushes the column out instead of scrolling inside it, and the page
           grows a horizontal scrollbar. Same reason `WebShellLayout` sets it. */}
       <View testID='settings-pane' style={{ flex: 1, minWidth: 0 }}>
+        {back}
         {children}
       </View>
+    </View>
+  );
+};
+
+/** "‹ Servers": up one level, the same move the category's own row makes from here. */
+const BackToCategory: React.FC<{ category: SettingsCategory }> = ({
+  category,
+}) => {
+  const { color } = useTheme();
+  const { t } = useTranslation();
+  const router = useRouter();
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+      <Pressable
+        testID='settings-back'
+        role='link'
+        aria-label={`${t("shell.back")}: ${category.label}`}
+        // `navigate`, as `SettingsNav` does for the same move: it pops to the category page already
+        // below in the stack instead of pushing a second copy of it.
+        onPress={() => router.navigate(category.route as never)}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          alignSelf: "flex-start",
+          gap: 4,
+          paddingVertical: 6,
+          paddingRight: 8,
+        }}
+      >
+        <Icon name='chevronLeft' size={18} color={color.text.secondary} />
+        <Text variant='body' tone='secondary'>
+          {category.label}
+        </Text>
+      </Pressable>
     </View>
   );
 };

@@ -39,6 +39,9 @@ export interface ServerRow {
 
 /** Where a browser can reach a peer, preferring its own name over a plain-HTTP LAN address. */
 export const peerAddress = (peer: MeshNodePeer): string | null => {
+  // Saved for the connection: from the invite link, or typed when the server moved. It wins,
+  // because it exists precisely where the announced one is missing or wrong.
+  if (peer.address) return peer.address;
   const record = peer.sideDoor;
   if (!record) return null;
   const own = candidatesToTry(record)[0]?.url;
