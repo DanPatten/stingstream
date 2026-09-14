@@ -69,8 +69,9 @@ The ordering is deliberate. The service registration has to come after `AddJelly
 exists and `SwaggerGenOptions` can be extended) and after `AddJellyfinApiAuthorization` (so Core's
 controllers can use Jellyfin's own policies). The middleware has to be *inside* the `Map` lambda,
 because Jellyfin maps its entire pipeline under its configured `BaseUrl` — which is why, on a
-supervisor-run node with `BaseUrl=/jellyfin`, StingStream's routes really live at
-`/jellyfin/stingstream/...` and the gateway rewrites `/stingstream/...` onto them.
+supervisor-run node with `BaseUrl=/stingstream`, StingStream's routes really live at
+`/stingstream/stingstream/...` and the gateway rewrites `/stingstream/api/...` and
+`/stingstream/qbt/...` onto them.
 
 ### 4. `Jellyfin.Server/Filters/CachingOpenApiProvider.cs` — key the cache on the document name
 

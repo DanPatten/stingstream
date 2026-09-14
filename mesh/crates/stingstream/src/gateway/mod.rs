@@ -7,15 +7,17 @@
 //! | `/healthz` | the gateway itself | JSON child states, for humans and for `tools/e2e-m1.ps1` |
 //! | `/stingstream/mesh/*` | the mesh node | its loopback API, minus the `/stingstream` half. **Loopback clients only** — see [`proxy_to_mesh`]. |
 //! | `/stream/*` | the mesh node | ranged reads of a peer's file, proxied byte for byte |
-//! | `/stingstream/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
-//! | `/jellyfin/*` | Jellyfin | includes the `/jellyfin/socket` WebSocket |
+//! | `/stingstream/api/*`, `/stingstream/qbt/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
+//! | `/stingstream/*` (anything else) | Jellyfin | unchanged: Jellyfin's own absolute links, under its `BaseUrl` |
+//! | `/jellyfin/*` | Jellyfin | mapped onto `/stingstream/*`, including the socket; what installed apps use |
 //! | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children | **`--dev` only** |
 //! | everything else | the web bundle | `apps/stingstream/dist`, with SPA fallback; the placeholder page when there is no bundle |
 //!
-//! Jellyfin is started with `BaseUrl=/jellyfin`, and ASP.NET's `app.Map(BaseUrl, ...)` puts
-//! *every* Jellyfin route — `StingStream.Core`'s included — underneath it. So `/stingstream/...`
-//! on the gateway maps to `/jellyfin/stingstream/...` upstream. That asymmetry is the whole reason
-//! [`proxy::Upstream::upstream_prefix`] exists.
+//! Jellyfin is started with `BaseUrl=/stingstream` ([`MEDIA_BASE_URL`]; `/jellyfin` until
+//! 2026-09-13), and ASP.NET's `app.Map(BaseUrl, ...)` puts *every* Jellyfin route —
+//! `StingStream.Core`'s included — underneath it. So `/stingstream/api/...` on the gateway maps to
+//! `/stingstream/stingstream/api/...` upstream, and [`is_core_path`] is what tells Core's paths
+//! from Jellyfin's under the one prefix.
 
 pub mod brand;
 pub mod discovery;
@@ -41,8 +43,28 @@ use proxy::{ProxyClient, Upstream};
 
 /// Gateway path prefix under which `StingStream.Core` answers.
 pub const STINGSTREAM_PREFIX: &str = "/stingstream";
-/// Gateway path prefix for Jellyfin, and Jellyfin's own `BaseUrl`.
+/// Gateway path prefix clients use for Jellyfin. **Not** Jellyfin's own `BaseUrl` any more: that is
+/// [`MEDIA_BASE_URL`], and this prefix is mapped onto it.
 pub const JELLYFIN_PREFIX: &str = "/jellyfin";
+/// Jellyfin's own `BaseUrl`, which every route it serves (Core's included) sits under upstream.
+pub const MEDIA_BASE_URL: &str = crate::preseed::jellyfin::BASE_URL;
+
+/// The first segments under `/stingstream` that belong to `StingStream.Core` rather than to
+/// Jellyfin. With `BaseUrl=/stingstream`, Jellyfin's own absolute links also start `/stingstream/`,
+/// so the gateway tells the two apart here. Jellyfin's routes are PascalCase (`/Items`, `/socket`
+/// aside) and none is named `api` or `qbt`; `api-docs` does not match because the test is on a
+/// whole segment.
+const CORE_SEGMENTS: &[&str] = &["api", "qbt"];
+
+/// Whether a gateway path under `/stingstream` is one of Core's.
+fn is_core_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix(STINGSTREAM_PREFIX) else {
+        return false;
+    };
+    let rest = rest.strip_prefix('/').unwrap_or_default();
+    let segment = rest.split(['/', '?']).next().unwrap_or_default();
+    CORE_SEGMENTS.contains(&segment)
+}
 /// Gateway path prefix for the mesh node's API. Upstream it is [`MESH_UPSTREAM_PREFIX`].
 pub const MESH_PREFIX: &str = "/stingstream/mesh";
 /// Where the mesh serves that API on its own port (`docs/MESH.md`, "Local API").
@@ -129,13 +151,14 @@ pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle)
         .route("/healthz", get(healthz))
         .route("/sidedoor/v1/hello", get(sidedoor_hello))
         .route("/", get(index))
-        // `StingStream.Core` is inside Jellyfin, so both of these dial the same child; only the
-        // path rewriting differs.
+        // `StingStream.Core` is inside Jellyfin, so everything under `/stingstream` dials the same
+        // child. Core's segments get Core's rewrite; the rest is Jellyfin at its own `BaseUrl`, which
+        // is where its self-generated absolute links point.
         .route(
             "/stingstream/{*rest}",
-            any(proxy_to_core),
+            any(proxy_under_stingstream),
         )
-        .route("/stingstream", any(proxy_to_core))
+        .route("/stingstream", any(proxy_under_stingstream))
         // Registered after the catch-all above, and matched before it: matchit scores a literal
         // segment above a wildcard regardless of insertion order. The router test below is what
         // keeps that true.
@@ -664,20 +687,31 @@ async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Respo
             .into_response();
     }
 
-    // Jellyfin's BaseUrl is /jellyfin, and ASP.NET maps every route under it, so Core's
-    // controllers really live at /jellyfin/stingstream/... upstream.
+    // ASP.NET maps every Jellyfin route under its BaseUrl, so Core's controllers really live at
+    // {MEDIA_BASE_URL}/stingstream/... upstream.
     forward(
         state,
         req,
         "jellyfin",
         STINGSTREAM_PREFIX,
-        format!("{JELLYFIN_PREFIX}{STINGSTREAM_PREFIX}"),
+        format!("{MEDIA_BASE_URL}{STINGSTREAM_PREFIX}"),
     )
     .await
 }
 
+/// Everything under `/stingstream` that is not the mesh: Core's segments go to Core, the rest is
+/// Jellyfin at its own `BaseUrl`, unchanged.
+async fn proxy_under_stingstream(State(state): State<GatewayState>, req: Request) -> Response {
+    if is_core_path(req.uri().path()) {
+        return proxy_to_core(State(state), req).await;
+    }
+    forward(state, req, "jellyfin", STINGSTREAM_PREFIX, MEDIA_BASE_URL.to_string()).await
+}
+
+/// `/jellyfin/*`, the path every installed app and saved server address uses, mapped onto
+/// Jellyfin's `BaseUrl`.
 async fn proxy_to_jellyfin(State(state): State<GatewayState>, req: Request) -> Response {
-    forward(state, req, "jellyfin", JELLYFIN_PREFIX, JELLYFIN_PREFIX.to_string()).await
+    forward(state, req, "jellyfin", JELLYFIN_PREFIX, MEDIA_BASE_URL.to_string()).await
 }
 
 /// The mesh node's own HTTP API — **from this machine only**.
@@ -1034,7 +1068,8 @@ mod tests {
 
     #[test]
     fn core_requests_are_rewritten_under_jellyfins_base_url() {
-        let upstream_prefix = format!("{JELLYFIN_PREFIX}{STINGSTREAM_PREFIX}");
+        assert_eq!(MEDIA_BASE_URL, "/stingstream");
+        let upstream_prefix = format!("{MEDIA_BASE_URL}{STINGSTREAM_PREFIX}");
         assert_eq!(
             proxy::rewrite_path(
                 "/stingstream/api/v1/openapi.json",
@@ -1042,25 +1077,45 @@ mod tests {
                 &upstream_prefix
             )
             .unwrap(),
-            "/jellyfin/stingstream/api/v1/openapi.json"
+            "/stingstream/stingstream/api/v1/openapi.json"
         );
         assert_eq!(
             proxy::rewrite_path("/stingstream/qbt/api/v2/auth/login", STINGSTREAM_PREFIX, &upstream_prefix)
                 .unwrap(),
-            "/jellyfin/stingstream/qbt/api/v2/auth/login"
+            "/stingstream/stingstream/qbt/api/v2/auth/login"
         );
     }
 
     #[test]
-    fn jellyfin_requests_including_the_socket_pass_through_unchanged() {
+    fn only_cores_own_segments_count_as_core() {
+        assert!(is_core_path("/stingstream/api/v1/watch"));
+        assert!(is_core_path("/stingstream/api"));
+        assert!(is_core_path("/stingstream/qbt/api/v2/app/webapiVersion"));
+        // Jellyfin at its own BaseUrl: its links, its socket, its swagger page.
+        assert!(!is_core_path("/stingstream/Items/1/Images/Primary"));
+        assert!(!is_core_path("/stingstream/socket?api_key=k"));
+        assert!(!is_core_path("/stingstream/api-docs/swagger"));
+        assert!(!is_core_path("/stingstream"));
+        assert!(!is_core_path("/jellyfin/api/v1"));
+    }
+
+    #[test]
+    fn media_requests_land_on_jellyfins_base_url_from_either_prefix() {
+        // The path installed apps use is mapped onto the new BaseUrl, socket included.
         assert_eq!(
-            proxy::rewrite_path("/jellyfin/socket?api_key=k", JELLYFIN_PREFIX, JELLYFIN_PREFIX)
+            proxy::rewrite_path("/jellyfin/socket?api_key=k", JELLYFIN_PREFIX, MEDIA_BASE_URL)
                 .unwrap(),
-            "/jellyfin/socket?api_key=k"
+            "/stingstream/socket?api_key=k"
         );
         assert_eq!(
-            proxy::rewrite_path("/jellyfin/System/Info", JELLYFIN_PREFIX, JELLYFIN_PREFIX).unwrap(),
-            "/jellyfin/System/Info"
+            proxy::rewrite_path("/jellyfin/System/Info", JELLYFIN_PREFIX, MEDIA_BASE_URL).unwrap(),
+            "/stingstream/System/Info"
+        );
+        // Jellyfin's own absolute links already carry the BaseUrl and pass through unchanged.
+        assert_eq!(
+            proxy::rewrite_path("/stingstream/Items/1/Images/Primary", STINGSTREAM_PREFIX, MEDIA_BASE_URL)
+                .unwrap(),
+            "/stingstream/Items/1/Images/Primary"
         );
     }
 

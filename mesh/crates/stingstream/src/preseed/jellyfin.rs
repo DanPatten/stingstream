@@ -18,8 +18,13 @@ use anyhow::{Context, Result};
 
 use super::xml;
 
-/// Jellyfin's `BaseUrl`, and the gateway prefix it is served under.
-pub const BASE_URL: &str = "/jellyfin";
+/// Jellyfin's `BaseUrl`, which is what the Remote access page shows as the server's base URL.
+///
+/// `/stingstream` since 2026-09-13; it was `/jellyfin`. Dan: *"can we change this to stingstream
+/// instead as the default"*. The gateway still accepts `/jellyfin/*` from clients and maps it onto
+/// this (`gateway::proxy_to_jellyfin`), so installed apps and saved server addresses keep working.
+/// `network.xml` is rewritten on every start, so an existing node moves on its next restart.
+pub const BASE_URL: &str = "/stingstream";
 
 /// Settings the supervisor owns in `network.xml`.
 #[derive(Debug, Clone)]
@@ -151,7 +156,7 @@ mod tests {
         assert!(x.contains("<InternalHttpPort>18096</InternalHttpPort>"));
         assert!(x.contains("<PublicHttpPort>18096</PublicHttpPort>"));
         assert!(x.contains("<string>127.0.0.1</string>"));
-        assert!(x.contains("<BaseUrl>/jellyfin</BaseUrl>"));
+        assert!(x.contains("<BaseUrl>/stingstream</BaseUrl>"));
     }
 
     #[test]

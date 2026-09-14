@@ -706,17 +706,19 @@ Children bind `127.0.0.1` on supervisor-assigned ports: `[ports]` in `config.tom
 *preferences* (8096 / 7878 / 8989 / 6789, matching upstream defaults), a taken port falls back to an
 ephemeral one, and `0` always means "pick one". The real values land in `runtime.json`.
 
-Jellyfin runs with `BaseUrl=/jellyfin`, and ASP.NET maps its entire pipeline underneath that — so
-`StingStream.Core`'s routes really live at `/jellyfin/stingstream/...`, and the gateway rewrites
-`/stingstream/...` onto them. Gateway routes, in match order:
+Jellyfin runs with `BaseUrl=/stingstream` (it was `/jellyfin` until 2026-09-13), and ASP.NET maps
+its entire pipeline underneath that — so `StingStream.Core`'s routes really live at
+`/stingstream/stingstream/...`, and the gateway rewrites `/stingstream/api/...` and
+`/stingstream/qbt/...` onto them. Gateway routes, in match order:
 
 | Path | Goes to |
 |---|---|
 | `/healthz` | the gateway: JSON child states, 200 when healthy and 503 when not |
 | `/stingstream/mesh/*` | the mesh's loopback API, minus the `/stingstream` half — **from 127.0.0.1 only** (M3b) |
-| `/stingstream/*` | Jellyfin, rewritten to `/jellyfin/stingstream/*` |
+| `/stingstream/api/*`, `/stingstream/qbt/*` | Core inside Jellyfin, rewritten to `/stingstream/stingstream/*` |
+| `/stingstream/*` (anything else) | Jellyfin at its own `BaseUrl`, unchanged: where its absolute links point |
 | `/stream/*` | the mesh: ranged reads of a peer's file, proxied byte for byte (M3b) |
-| `/jellyfin/*` | Jellyfin, including the `/jellyfin/socket` WebSocket |
+| `/jellyfin/*` | Jellyfin, rewritten to `/stingstream/*`: the path installed apps and saved addresses use |
 | `/sidedoor/v1/hello` | the gateway itself: which node, was this connection TLS, what address does the caller look like from here. CORS-open on purpose, and deliberately not `/healthz` — the racing probes are cross-origin, and `/healthz` carries child ports and the data directory (M3d) |
 | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children — **`--dev` only** |
 | everything else | the web bundle, with SPA fallback; the placeholder page when there is no bundle (M3b) |

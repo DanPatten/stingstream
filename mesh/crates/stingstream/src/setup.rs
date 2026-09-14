@@ -51,7 +51,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 /// than the background one: a wedged Core must not hold `/healthz` open for five seconds.
 const ON_DEMAND_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Path under the Jellyfin child's own base URL. Jellyfin is started with `BaseUrl=/jellyfin` and
+/// Path under the Jellyfin child's own base URL. Jellyfin is started with `BaseUrl=/stingstream` and
 /// ASP.NET maps every route — Core's included — underneath it, so the child's `base_url` from
 /// `runtime.json` already carries that half and this is what goes after it. (The same asymmetry
 /// [`crate::gateway::proxy::Upstream::upstream_prefix`] exists for.)
@@ -109,7 +109,7 @@ impl SetupHandle {
     }
 
     /// A handle that will ask Core. `core_base_url` is the Jellyfin child's `base_url` from
-    /// `runtime.json` (`http://127.0.0.1:<port>/jellyfin`).
+    /// `runtime.json` (`http://127.0.0.1:<port>/stingstream`).
     pub fn polling(core_base_url: &str, runtime_json: PathBuf) -> Self {
         let client = match reqwest::Client::builder().timeout(REQUEST_TIMEOUT).build() {
             Ok(c) => c,
