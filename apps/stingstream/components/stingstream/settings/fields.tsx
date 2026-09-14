@@ -7,6 +7,7 @@ import { ListItem } from "@/components/list/ListItem";
 
 import { useBreakpointName } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
+import { commitAutosaves } from "./autosaver";
 
 /** How wide the field is on a desktop-width row, where it sits beside its label. */
 const FIELD_WIDTH = 260;
@@ -73,7 +74,12 @@ export function TextFieldRow({
       keyboardType={keyboardType}
       editable={editable !== false && !disabledByAdmin}
       autoCapitalize={autoCapitalize}
-      onBlur={onBlur}
+      // Leaving the field, or pressing Enter, is what commits it. See `useAutosave`.
+      onBlur={() => {
+        onBlur?.();
+        commitAutosaves();
+      }}
+      onSubmitEditing={commitAutosaves}
       style={compact ? { marginTop: 8 } : { width: FIELD_WIDTH }}
     />
   );

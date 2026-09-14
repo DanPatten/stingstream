@@ -1,14 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-
-/**
- * How long a field sits still before the change is sent.
- *
- * Long enough that typing a path or a server name is one save rather than one
- * per pause for thought, short enough that nobody has left the screen by the
- * time it fires. Leaving the screen saves immediately anyway — see the unmount
- * flush below — so this is only about how many requests a single edit costs.
- */
-export const AUTOSAVE_DELAY = 1000;
+import { AUTOSAVE_IDLE_DELAY, Autosaver, registerAutosaver } from "./autosaver";
 
 /**
  * A settings draft that saves itself.
@@ -20,14 +11,17 @@ export const AUTOSAVE_DELAY = 1000;
  * document and then asked for a click to send it, which is one more thing to forget on ten
  * different screens.
  *
- * What replaces it:
+ * What replaces it follows the usual settings-page convention:
  *
- * - **A toggle saves at once.** Flipping a switch is the decision; there is nothing to debounce.
+ * - **A toggle saves at once.** Flipping a switch is the decision; there is nothing to wait for.
  *   Pass `{ now: true }`.
- * - **A text field saves when it stops changing**, `AUTOSAVE_DELAY` after the last keystroke, so a
- *   path is one request rather than forty.
+ * - **A text field saves when it is committed**: it loses focus or Enter is pressed. `TextFieldRow`
+ *   does that for every pane through `commitAutosaves`. It used to save a second after each pause
+ *   in typing, which on the server name was a request and a toast per hesitation. A field left
+ *   focused still saves after `AUTOSAVE_IDLE_DELAY`.
  * - **Leaving the page flushes** whatever is still pending, because the alternative is losing an
  *   edit made a second before a back press.
+ * - **Nothing the server already has is sent**, and saves go one at a time. See `Autosaver`.
  *
  * The caller keeps ownership of the request itself, including its success and failure toasts — the
  * documents here go to four different APIs and each has its own message. Anything `save` throws is
@@ -37,7 +31,7 @@ export const AUTOSAVE_DELAY = 1000;
 export function useAutosave<T>({
   value,
   save,
-  delay = AUTOSAVE_DELAY,
+  delay = AUTOSAVE_IDLE_DELAY,
 }: {
   /** The saved truth: query data, or the value a parent passes down. */
   value: T | null | undefined;
@@ -47,7 +41,7 @@ export function useAutosave<T>({
 }): {
   /** `null` until `value` first arrives, which is what a pane renders on. */
   draft: T | null;
-  /** Edit the draft. `now` sends it immediately rather than after the pause. */
+  /** Edit the draft. `now` sends it immediately rather than when the field is committed. */
   set: (update: (current: T) => T, options?: { now?: boolean }) => void;
   /** A request is in flight. */
   saving: boolean;
@@ -56,13 +50,22 @@ export function useAutosave<T>({
   const [saving, setSaving] = useState(false);
 
   // The draft the *edits* read, kept out of state on purpose: `set` has to build the next document
-  // and hand it to the timer synchronously, and a state updater has not run yet at that point.
+  // and hand it on synchronously, and a state updater has not run yet at that point.
   const current = useRef<T | null>(null);
-  const pending = useRef<T | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mounted = useRef(true);
   const saveRef = useRef(save);
   saveRef.current = save;
+
+  const saver = useRef<Autosaver<T> | null>(null);
+  if (saver.current == null) {
+    saver.current = new Autosaver<T>(
+      (next) => saveRef.current(next),
+      (on) => {
+        if (mounted.current) setSaving(on);
+      },
+      delay,
+    );
+  }
 
   // Seeded once, then owned by the form. Re-seeding on every refetch would throw away a half-typed
   // value the moment react-query revalidated — which, now that saving *causes* a revalidation, is
@@ -70,56 +73,30 @@ export function useAutosave<T>({
   useEffect(() => {
     if (value != null && current.current == null) {
       current.current = value;
+      saver.current?.seed(value);
       setDraft(value);
     }
   }, [value]);
 
-  const flush = useCallback(async () => {
-    if (timer.current) {
-      clearTimeout(timer.current);
-      timer.current = null;
-    }
-    const next = pending.current;
-    pending.current = null;
-    if (next == null) return;
-
-    if (mounted.current) setSaving(true);
-    try {
-      await saveRef.current(next);
-    } catch {
-      // The caller's `save` reports its own failure. This only stops the rejection escaping.
-    } finally {
-      if (mounted.current) setSaving(false);
-    }
-  }, []);
-
-  const flushRef = useRef(flush);
-  flushRef.current = flush;
-
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    const s = saver.current as Autosaver<T>;
+    const unregister = registerAutosaver(s as Autosaver<unknown>);
+    return () => {
       mounted.current = false;
-      void flushRef.current();
-    },
-    [],
-  );
+      unregister();
+      void s.commit();
+    };
+  }, []);
 
   const set = useCallback(
     (update: (c: T) => T, options?: { now?: boolean }) => {
       if (current.current == null) return;
       const next = update(current.current);
       current.current = next;
-      pending.current = next;
       setDraft(next);
-
-      if (options?.now) {
-        void flushRef.current();
-        return;
-      }
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => void flushRef.current(), delay);
+      saver.current?.edit(next, options);
     },
-    [delay],
+    [],
   );
 
   return { draft, set, saving };
