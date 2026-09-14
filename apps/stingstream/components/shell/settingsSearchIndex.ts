@@ -132,7 +132,6 @@ const CONTROLS: Control[] = [
   // Media services
   { id: "indexers", category: "services" },
   { id: "download-clients", category: "services" },
-  { id: "arr-sync", category: "services" },
 
   // Libraries. One row per library, each carrying the switch every "downloading
   // is not set up" notice is trying to reach: turning a library on is what

@@ -19,9 +19,8 @@ import { useSharedSettingsField } from "./useSharedSettingsField";
  * "Server settings" page made you find out which by opening six tabs.
  *
  * `SyncStatusBanner` sits above both: everything on this page is pushed into
- * Radarr and Sonarr, and a page that edited settings without saying whether
- * they had reached the two apps would be describing an intention rather than a
- * state.
+ * Radarr and Sonarr, and when that push fails the page says so and offers a
+ * retry. When it has not failed the banner draws nothing.
  */
 export const ServicesPane: React.FC = () => {
   const { t } = useTranslation();
@@ -38,14 +37,10 @@ export const ServicesPane: React.FC = () => {
         error={query.error}
         onRetry={query.refetch}
       >
-        <FocusTarget id='arr-sync'>
-          <SyncStatusBanner />
+        <SyncStatusBanner />
+        <FocusTarget id='indexers'>
+          <IndexersSection />
         </FocusTarget>
-        <View style={{ marginTop: space["4"] }}>
-          <FocusTarget id='indexers'>
-            <IndexersSection />
-          </FocusTarget>
-        </View>
         {value ? (
           <View style={{ marginTop: space["6"] }}>
             <FocusTarget id='download-clients'>
