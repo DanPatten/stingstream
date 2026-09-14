@@ -7,15 +7,15 @@ import { Button } from "@/components/Button";
 import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Input } from "@/components/common/Input";
-import { Text } from "@/components/common/Text";
-import { primaryAddressFor, useNodeContext } from "@/hooks/useNodeContext";
+import { useNodeContext } from "@/hooks/useNodeContext";
 import { useServerName } from "@/hooks/useServerName";
 import { useCreateConnectionInvite } from "@/lib/stingstream/connections";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { resolveServerOrigin } from "@/utils/identity/resolveServer";
-import { buildInviteLink, buildStartLink } from "@/utils/mesh/connectionLink";
+import { buildStartLink } from "@/utils/mesh/connectionLink";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
-import { copyInviteLink, goToServer, openInNewTab } from "./openOrCopy";
+import { InviteLinkDialog, useInviteLinkFor } from "./InviteLinkDialog";
+import { goToServer } from "./openOrCopy";
 import { ShareLibrariesPicker } from "./ShareLibrariesPicker";
 
 /**
@@ -62,20 +62,17 @@ function AddServerDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** This server's address as somebody elsewhere reaches it, and its origin as this browser does. */
+/** This server's origin as this browser reaches it. */
 const useHere = () => {
   const node = useNodeContext();
   const api = useAtomValue(apiAtom);
   const fallback = api?.basePath ? getNodeBaseUrl(api.basePath) : null;
-  return {
-    shareable: node ? primaryAddressFor(node) : fallback,
-    origin: node?.origin ?? fallback,
-  };
+  return { origin: node?.origin ?? fallback };
 };
 
 function InviteDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
-  const here = useHere();
+  const linkFor = useInviteLinkFor();
   const create = useCreateConnectionInvite();
   const [selected, setSelected] = useState<string[] | null>(null);
   const [link, setLink] = useState<string | null>(null);
@@ -85,56 +82,15 @@ function InviteDialog({ onClose }: { onClose: () => void }) {
     setError(null);
     try {
       const invite = await create.mutateAsync(selected);
-      const url = buildInviteLink(here.shareable, invite);
+      const url = linkFor(invite);
       if (!url) throw new Error(t("sharing.add_server_failed"));
       setLink(url);
     } catch (e) {
       setError((e as Error)?.message || t("sharing.add_server_failed"));
     }
-  }, [create, here.shareable, selected, t]);
+  }, [create, linkFor, selected, t]);
 
-  if (link) {
-    return (
-      <Dialog
-        visible
-        onClose={onClose}
-        title={t("sharing.add_server_ready_title")}
-        description={t("sharing.add_server_ready_detail")}
-      >
-        <View style={{ gap: 12 }}>
-          <Text
-            testID='sharing-invite-link'
-            variant='caption'
-            tone='tertiary'
-            numberOfLines={2}
-            selectable
-          >
-            {link}
-          </Text>
-          <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap" }}>
-            <Button
-              testID='sharing-invite-copy'
-              variant='primary'
-              size='sm'
-              icon='share'
-              onPress={() => void copyInviteLink(link)}
-            >
-              {t("sharing.add_server_copy")}
-            </Button>
-            <Button
-              testID='sharing-invite-open'
-              variant='secondary'
-              size='sm'
-              icon='openExternal'
-              onPress={() => openInNewTab(link)}
-            >
-              {t("sharing.add_server_open")}
-            </Button>
-          </View>
-        </View>
-      </Dialog>
-    );
-  }
+  if (link) return <InviteLinkDialog link={link} onClose={onClose} />;
 
   return (
     <Dialog

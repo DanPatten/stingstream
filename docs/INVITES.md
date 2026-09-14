@@ -521,6 +521,14 @@ who runs both servers opens it, and somebody who does not sends it.
 `utils/mesh/connectionLink.ts` builds and reads it. The code rides in the fragment, like every
 credential here.
 
+**The host is the domain when one is set**, and the LAN address when not, the same order account
+invites use. Core answers it as `address` beside the code, because the page only knows how it was
+reached. Dan: *"when generating ANY invite links always use the domain name if set"*.
+
+**A pending invite shows its link again.** Pressing it on the Servers page calls
+`POST /connections/invite/{group}`, which mints a fresh code for the same group. The node stores
+only a hash of each code, so the first cannot be read back; the libraries chosen at creation stay.
+
 #### `/link`, which does the same thing wherever it is opened
 
 | Link | Page served by | Signed in as | Result |

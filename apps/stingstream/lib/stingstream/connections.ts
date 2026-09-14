@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
+import { type ConnectionInvite, toConnectionInvite } from "./connectionInvite";
 import { MESH_QUERY_KEY } from "./mesh";
 import {
   authHeaders,
@@ -26,12 +27,7 @@ import {
  * `utils/mesh/connectionLink.ts` for the links themselves.
  */
 
-/** What an invite link is built from. */
-export interface ConnectionInvite {
-  code: string;
-  node: string;
-  server: string;
-}
+export type { ConnectionInvite } from "./connectionInvite";
 
 /** An invite link waiting for an administrator here. Never carries the code. */
 export interface ConnectionRequestSummary {
@@ -95,12 +91,25 @@ export async function createConnectionInvite(
     libraries === null ? {} : { libraries },
   );
   if (!res.ok) throw await failure(res, "POST /connections/invite");
-  const raw = (await res.json()) as unknown;
-  return {
-    code: field<string>(raw, ...both("code")) ?? "",
-    node: field<string>(raw, ...both("node")) ?? "",
-    server: field<string>(raw, ...both("server")) ?? "",
-  };
+  return toConnectionInvite(await res.json());
+}
+
+/**
+ * A fresh code for an invite this server already made, so a pending invite can show its link again.
+ * The node keeps only a hash of each code, so the first one cannot be read back.
+ */
+export async function reissueConnectionInvite(
+  apiBaseUrl: string,
+  token: string | null | undefined,
+  group: string,
+): Promise<ConnectionInvite> {
+  const res = await send(
+    `${connectionsBase(apiBaseUrl)}/invite/${encodeURIComponent(group)}`,
+    "POST",
+    token,
+  );
+  if (!res.ok) throw await failure(res, "POST /connections/invite/{group}");
+  return toConnectionInvite(await res.json());
 }
 
 /** Use another server's invite, sharing `libraries` back. Administrator only. */
@@ -201,6 +210,13 @@ export function useCreateConnectionInvite() {
   });
 }
 
+export function useReissueConnectionInvite() {
+  const { base, token } = useConnectionsApi();
+  return useMutation<ConnectionInvite, Error, string>({
+    mutationFn: (group) => reissueConnectionInvite(base!, token, group),
+  });
+}
+
 export function useConnectToServer() {
   const { base, token } = useConnectionsApi();
   const invalidate = useInvalidate();
@@ -243,7 +259,8 @@ export function useApproveConnectionRequest() {
         token,
         libraries === null ? {} : { libraries },
       );
-      if (!res.ok) throw await failure(res, "POST /connections/requests/approve");
+      if (!res.ok)
+        throw await failure(res, "POST /connections/requests/approve");
       return toJoin(await res.json());
     },
     // Settled rather than success: an approval of a spent invite removes the request too.

@@ -20,6 +20,7 @@ import {
   useApproveConnectionRequest,
   useConnectionRequests,
   useDeclineConnectionRequest,
+  useReissueConnectionInvite,
 } from "@/lib/stingstream/connections";
 import {
   MeshUnavailableError,
@@ -38,6 +39,7 @@ import { ActionRow } from "../shared/ActionRow";
 import { GapNotice } from "../shared/GapNotice";
 import { IconAction } from "../shared/IconAction";
 import { useIsStingStreamAdmin } from "../shared/RequiresAdmin";
+import { InviteLinkDialog, useInviteLinkFor } from "./InviteLinkDialog";
 import { openInNewTab } from "./openOrCopy";
 import { ShareLibrariesPicker } from "./ShareLibrariesPicker";
 
@@ -90,11 +92,7 @@ export function ServersScreen() {
         <View testID='sharing-servers'>
           <ListGroup>
             {rows.map((row) => (
-              <ServerListRow
-                key={row.key}
-                row={row}
-                onApprove={setApproving}
-              />
+              <ServerListRow key={row.key} row={row} onApprove={setApproving} />
             ))}
           </ListGroup>
 
@@ -120,10 +118,7 @@ export function ServersScreen() {
       </FocusTarget>
 
       {approving ? (
-        <ApproveDialog
-          request={approving}
-          onClose={() => setApproving(null)}
-        />
+        <ApproveDialog request={approving} onClose={() => setApproving(null)} />
       ) : null}
     </View>
   );
@@ -148,42 +143,67 @@ function ServerListRow({
   const isAdmin = useIsStingStreamAdmin();
   const leave = useLeaveMeshGroup();
   const decline = useDeclineConnectionRequest();
+  const reissue = useReissueConnectionInvite();
+  const linkFor = useInviteLinkFor();
+  const [link, setLink] = useState<string | null>(null);
 
   if (row.pending === "invitation") {
+    // The code itself is never stored, so pressing the row mints a fresh one for the same
+    // connection. Dan: *"for pending invites on server list I should be able to click it to get
+    // the invite link again"*.
+    const showLink = () => {
+      if (!row.group || reissue.isPending) return;
+      reissue.mutate(row.group, {
+        onSuccess: (invite) => {
+          const url = linkFor(invite);
+          if (url) setLink(url);
+          else toast.error(t("sharing.add_server_failed"));
+        },
+        onError: (e) => toast.error(e.message),
+      });
+    };
     return (
-      <ActionRow
-        testID='sharing-invitation'
-        title={t("sharing.invitation_pending")}
-        subtitle={
-          row.createdAt
-            ? t("sharing.invitation_created", {
-                date: new Date(row.createdAt).toLocaleDateString(undefined, {
-                  day: "numeric",
-                  month: "short",
-                }),
-              })
-            : ""
-        }
-        leading={<Icon name='servers' size={18} color={color.text.tertiary} />}
-        onPress={() => {}}
-        actions={
-          <IconAction
-            testID='sharing-invitation-cancel'
-            icon='close'
-            tone='danger'
-            label={t("sharing.invitation_cancel")}
-            busy={leave.isPending}
-            disabled={leave.isPending}
-            onPress={() =>
-              row.group &&
-              leave.mutate(row.group, {
-                onSuccess: () => toast.success(t("sharing.invitation_cancelled")),
-                onError: (e) => toast.error(e.message),
-              })
-            }
-          />
-        }
-      />
+      <>
+        <ActionRow
+          testID='sharing-invitation'
+          title={t("sharing.invitation_pending")}
+          subtitle={
+            row.createdAt
+              ? t("sharing.invitation_created", {
+                  date: new Date(row.createdAt).toLocaleDateString(undefined, {
+                    day: "numeric",
+                    month: "short",
+                  }),
+                })
+              : ""
+          }
+          leading={
+            <Icon name='servers' size={18} color={color.text.tertiary} />
+          }
+          onPress={showLink}
+          actions={
+            <IconAction
+              testID='sharing-invitation-cancel'
+              icon='close'
+              tone='danger'
+              label={t("sharing.invitation_cancel")}
+              busy={leave.isPending}
+              disabled={leave.isPending}
+              onPress={() =>
+                row.group &&
+                leave.mutate(row.group, {
+                  onSuccess: () =>
+                    toast.success(t("sharing.invitation_cancelled")),
+                  onError: (e) => toast.error(e.message),
+                })
+              }
+            />
+          }
+        />
+        {link ? (
+          <InviteLinkDialog link={link} onClose={() => setLink(null)} />
+        ) : null}
+      </>
     );
   }
 

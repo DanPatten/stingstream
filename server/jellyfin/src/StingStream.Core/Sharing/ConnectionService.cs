@@ -20,6 +20,12 @@ public sealed class ConnectionInvite
 
     /// <summary>This server's name, for the page that opens the link.</summary>
     public string Server { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The origin to put the link on: the domain when one is set, this machine's LAN address when
+    /// not, null when neither is known and the page falls back to however it reached this server.
+    /// </summary>
+    public string? Address { get; set; }
 }
 
 /// <summary>
@@ -86,6 +92,7 @@ public sealed class ConnectionService
                 Code = invite.Code,
                 Node = status.Node,
                 Server = status.ServerName,
+                Address = await AddressAsync(status, cancellationToken).ConfigureAwait(false),
             };
         }
         catch (Exception)
@@ -93,6 +100,64 @@ public sealed class ConnectionService
             await AbandonAsync(group.Group).ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>A fresh code for a connection this server already made, or null when it has no such group.</summary>
+    /// <param name="group">The group the pending invite created.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The invite.</returns>
+    /// <remarks>
+    /// The Servers page lists an invite nobody has used yet, and pressing it shows the link again.
+    /// The mesh keeps only a hash of each code, so the original cannot be read back; a new code for
+    /// the same group is the same invite as far as anybody can tell. The libraries were chosen when
+    /// the group was made and stay as they are. Earlier codes keep working until one is used.
+    /// </remarks>
+    public async Task<ConnectionInvite?> ReissueInviteAsync(string group, CancellationToken cancellationToken)
+    {
+        var groups = await _mesh.GroupsAsync(cancellationToken).ConfigureAwait(false);
+        if (groups?.Any(g => string.Equals(g.Group, group, StringComparison.OrdinalIgnoreCase)) != true)
+        {
+            return null;
+        }
+
+        var status = await _mesh.StatusAsync(cancellationToken).ConfigureAwait(false)
+            ?? throw new MeshException("The mesh is not answering.");
+        var invite = await _mesh.InviteAsync(group, cancellationToken).ConfigureAwait(false);
+        return new ConnectionInvite
+        {
+            Code = invite.Code,
+            Node = status.Node,
+            Server = status.ServerName,
+            Address = await AddressAsync(status, cancellationToken).ConfigureAwait(false),
+        };
+    }
+
+    /// <summary>
+    /// Where an invite link should point: the domain if there is one, the LAN address if not.
+    /// </summary>
+    /// <remarks>
+    /// The same order, and for the same reason, as the account invite links in
+    /// <c>InviteService.BuildLinkAsync</c>. Dan: <em>"when generating ANY invite links always use the
+    /// domain name if set"</em>. The page used to choose, and it only knew the LAN address.
+    /// </remarks>
+    private async Task<string?> AddressAsync(MeshStatus status, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var settings = await _mesh.SharingSettingsAsync(cancellationToken).ConfigureAwait(false);
+            var host = settings?.PublicAddress?.Trim().TrimEnd('/');
+            if (!string.IsNullOrEmpty(host))
+            {
+                return host;
+            }
+        }
+        catch (Exception ex) when (ex is MeshException or System.Net.Http.HttpRequestException or TaskCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not read this node's public address for an invite link");
+        }
+
+        var lan = status.DecodeSideDoor()?.First("lan-ip-http")?.Url?.TrimEnd('/');
+        return string.IsNullOrEmpty(lan) ? null : lan;
     }
 
     /// <summary>Use an invite another server made, sharing <paramref name="libraries"/> back.</summary>

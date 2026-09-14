@@ -78,6 +78,34 @@ public sealed class ConnectionsController : StingStreamControllerBase
         }
     }
 
+    /// <summary>Show a pending invite's link again, as a fresh code for the same connection.</summary>
+    /// <param name="group">The group the invite created.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The invite.</response>
+    /// <response code="400">It could not be made, and why.</response>
+    /// <response code="404">This server has no such connection.</response>
+    /// <returns>The code, this node's id and this server's name, for the link.</returns>
+    [HttpPost("invite/{group}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<ConnectionInvite>> Reissue(
+        [FromRoute] string group,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var invite = await _connections.ReissueInviteAsync(group, cancellationToken).ConfigureAwait(false);
+            return invite is null ? NotFound() : Ok(invite);
+        }
+        catch (Exception ex) when (ex is MeshException or InvalidOperationException or System.Net.Http.HttpRequestException)
+        {
+            _logger.LogWarning(ex, "Could not show an invite link again");
+            return BadRequest(new { error = "The invite link could not be created. Try again." });
+        }
+    }
+
     /// <summary>Use another server's invite link, sharing the chosen libraries back.</summary>
     /// <param name="body">The code and the libraries this server shares.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
