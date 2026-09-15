@@ -200,6 +200,7 @@ function ConnectionSection({
   announced: string | null;
 }) {
   const { t } = useTranslation();
+  const router = useRouter();
   const details = useConnectionDetails(group);
   const setAddress = useSetConnectionAddress(group);
 
@@ -239,12 +240,23 @@ function ConnectionSection({
           placeholder={t("sharing.connection_address_placeholder")}
           keyboardType='url'
           autoCapitalize='none'
+          wide
           onChangeText={(v) => set((d) => ({ ...d, address: v }))}
         />
         {draft.connectedByName ? (
           <ListItem
+            testID='sharing-connected-by'
             title={t("sharing.connected_by")}
             value={draft.connectedByName}
+            // To that person on Users, when the account still exists.
+            onPress={
+              draft.connectedById
+                ? () =>
+                    router.push(
+                      `/settings/users?user=${encodeURIComponent(draft.connectedById)}` as never,
+                    )
+                : undefined
+            }
           />
         ) : null}
       </ListGroup>

@@ -242,11 +242,14 @@ export interface ConnectionDetails {
   address: string | null;
   /** The account here that connected it, or empty. */
   connectedByName: string;
+  /** That account's id, for linking to it; empty when it no longer exists. */
+  connectedById: string;
 }
 
 const toDetails = (raw: unknown): ConnectionDetails => ({
   address: field<string>(raw, ...both("address"))?.trim() || null,
   connectedByName: field<string>(raw, ...both("connectedByName")) ?? "",
+  connectedById: field<string>(raw, ...both("connectedById")) ?? "",
 });
 
 export function useConnectionDetails(

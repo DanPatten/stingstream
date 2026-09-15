@@ -177,8 +177,11 @@ public sealed class ConnectionsController : StingStreamControllerBase
         => new()
         {
             Address = record?.Address,
-            ConnectedByName = Guid.TryParse(record?.ConnectedBy, out var id)
-                ? _users.GetUserById(id)?.Username ?? string.Empty
+            ConnectedById = Guid.TryParse(record?.ConnectedBy, out var id) && _users.GetUserById(id) is not null
+                ? id.ToString("N")
+                : string.Empty,
+            ConnectedByName = Guid.TryParse(record?.ConnectedBy, out var byId)
+                ? _users.GetUserById(byId)?.Username ?? string.Empty
                 : string.Empty,
         };
 
@@ -368,6 +371,9 @@ public sealed class ConnectionDetails
 
     /// <summary>The account here that connected it, or empty.</summary>
     public string ConnectedByName { get; set; } = string.Empty;
+
+    /// <summary>That account's id, for linking to it; empty when the account no longer exists.</summary>
+    public string ConnectedById { get; set; } = string.Empty;
 }
 
 /// <summary>Body of <c>POST /connections/requests</c>: what an invite link carried.</summary>

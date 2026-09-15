@@ -2,6 +2,7 @@ import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useFocusEffect } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useMemo, useState } from "react";
+import { useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
@@ -77,9 +78,14 @@ export function UsersScreen() {
 
   const [inviting, setInviting] = useState(false);
   const [showing, setShowing] = useState<MintedInvite | null>(null);
+  // `?user=<id>` opens that person straight away: how another page links to somebody, since a person
+  // has no page of their own. Used by "Connected by" on a connected server.
+  const { user: linkedUser } = useLocalSearchParams<{ user?: string }>();
   // The id rather than the account: `UserDialog` reads the row back out of the list, so it keeps
   // showing the truth after its own edits invalidate it.
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(
+    typeof linkedUser === "string" && linkedUser ? linkedUser : null,
+  );
 
   const rows = useMemo(
     () => buildUserRows(users.data, invites.data, me?.Id, owner.data),
