@@ -11,13 +11,7 @@ import { useTheme } from "@/hooks/useTheme";
  * the top"*. A caption under the controls is read after somebody has already tried the greyed-out
  * button; a banner above them is read first.
  */
-export function Notice({
-  text,
-  testID,
-}: {
-  text: string;
-  testID?: string;
-}) {
+export function Notice({ text, testID }: { text: string; testID?: string }) {
   const { color } = useTheme();
   return (
     <View

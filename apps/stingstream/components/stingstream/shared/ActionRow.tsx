@@ -88,9 +88,7 @@ export const ActionRow: React.FC<{
       >
         {leading}
         <View style={{ flexShrink: 1, marginLeft: 12 }}>
-          <View
-            style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
-          >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
             <Text numberOfLines={1} style={{ flexShrink: 1 }}>
               {title}
             </Text>

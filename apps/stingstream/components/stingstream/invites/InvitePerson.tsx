@@ -228,9 +228,7 @@ const MintInviteDialog: React.FC<{
           <LibraryPicker
             available={available}
             selected={
-              isAdministrator
-                ? available.map((library) => library.id)
-                : chosen
+              isAdministrator ? available.map((library) => library.id) : chosen
             }
             onToggle={toggle}
             loading={libraries.isPending}

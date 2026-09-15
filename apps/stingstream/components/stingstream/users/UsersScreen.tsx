@@ -1,8 +1,7 @@
 import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useMemo, useState } from "react";
-import { useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";

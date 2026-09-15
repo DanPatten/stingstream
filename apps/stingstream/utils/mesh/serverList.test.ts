@@ -1,11 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ConnectionRequestSummary } from "@/lib/stingstream/connections";
 import type { MeshNodeGroup, MeshNodePeer } from "@/lib/stingstream/meshApi";
-import {
-  buildServerList,
-  peerAddress,
-  pendingInvitations,
-} from "./serverList";
+import { buildServerList, peerAddress, pendingInvitations } from "./serverList";
 
 // Which servers the page lists, in what order, and which one is this one. Pinned here for the
 // reason `buildUserRows` is: they are rules, and they should not need a mesh to check.
@@ -154,10 +150,14 @@ describe("buildServerList, connections still being made", () => {
   });
 
   test("invitations are oldest first", () => {
-    const rows = buildServerList(here, [], [
-      group({ group: "new", createdAt: "2026-09-10T00:00:00Z" }),
-      group({ group: "old", createdAt: "2026-09-01T00:00:00Z" }),
-    ]);
+    const rows = buildServerList(
+      here,
+      [],
+      [
+        group({ group: "new", createdAt: "2026-09-10T00:00:00Z" }),
+        group({ group: "old", createdAt: "2026-09-01T00:00:00Z" }),
+      ],
+    );
     expect(rows.slice(1).map((r) => r.group)).toEqual(["old", "new"]);
   });
 });

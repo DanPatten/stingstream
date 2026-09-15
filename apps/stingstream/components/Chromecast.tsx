@@ -67,10 +67,7 @@ export function Chromecast(props: Props) {
           <CastButton tintColor='transparent' />
         </View>
       ) : null}
-      <HeaderIcon
-        name='cast'
-        tintColor={connected ? accent[500] : undefined}
-      />
+      <HeaderIcon name='cast' tintColor={connected ? accent[500] : undefined} />
     </HeaderButton>
   );
 }

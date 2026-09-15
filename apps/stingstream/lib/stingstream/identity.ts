@@ -1,4 +1,7 @@
-import { getNodeBaseUrl, getStingStreamApiBaseUrl } from "@stingstream/api-client";
+import {
+  getNodeBaseUrl,
+  getStingStreamApiBaseUrl,
+} from "@stingstream/api-client";
 import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";

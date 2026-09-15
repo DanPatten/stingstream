@@ -45,8 +45,9 @@ export function openInNewTab(url: string): void {
  */
 export async function goToServer(url: string): Promise<void> {
   if (Platform.OS === "web") {
-    (globalThis as { location?: { assign?: (u: string) => void } }).location
-      ?.assign?.(url);
+    (
+      globalThis as { location?: { assign?: (u: string) => void } }
+    ).location?.assign?.(url);
     return;
   }
   const WebBrowser = await import("expo-web-browser");
