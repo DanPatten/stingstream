@@ -474,7 +474,24 @@ export function useSaveRequestUser() {
         { trusted: args.trusted, weeklyQuota: args.weeklyQuota },
         token,
       ),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.users }),
+    // The switch moves when it is pressed; a refusal puts it back and the caller toasts why.
+    onMutate: async (args) => {
+      await queryClient.cancelQueries({ queryKey: keys.users });
+      const previous = queryClient.getQueryData<RequestUser[]>(keys.users);
+      queryClient.setQueryData<RequestUser[]>(keys.users, (users) =>
+        users?.map((user) =>
+          sameUser(user.userId, args.userId)
+            ? { ...user, trusted: args.trusted, weeklyQuota: args.weeklyQuota }
+            : user,
+        ),
+      );
+      return { previous };
+    },
+    onError: (_error, _args, context) => {
+      if (context?.previous)
+        queryClient.setQueryData(keys.users, context.previous);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.users }),
   });
 }
 

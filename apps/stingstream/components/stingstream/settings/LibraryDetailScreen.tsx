@@ -141,7 +141,6 @@ function LibraryDetail({ library }: { library: Library }) {
             </Text>
             <FolderList
               paths={library.paths}
-              disabled={save.isPending}
               // A built-in library with no folder of its own follows the default, so its last
               // folder can go; an added library cannot be left with none, and Recordings always
               // has exactly one.

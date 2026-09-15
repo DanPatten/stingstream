@@ -480,9 +480,25 @@ export function useSharedLibraries(group: string | null | undefined) {
  * server in seconds rather than in up to fifteen minutes.
  */
 export function useSetSharedLibraries() {
-  const { request } = useMeshApi();
+  const { base, request } = useMeshApi();
   const queryClient = useQueryClient();
   return useMutation({
+    // The tick lands when it is pressed, and the PUT follows. A refusal puts it back.
+    onMutate: async ({ group, libraries }) => {
+      const key = [...MESH_QUERY_KEY, "libraries", base, group];
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData(key);
+      queryClient.setQueryData(key, (current: unknown) =>
+        current && typeof current === "object"
+          ? { ...current, shared: libraries }
+          : current,
+      );
+      return { key, previous };
+    },
+    onError: (_error, _vars, context) => {
+      if (context?.previous !== undefined)
+        queryClient.setQueryData(context.key, context.previous);
+    },
     mutationFn: ({
       group,
       libraries,

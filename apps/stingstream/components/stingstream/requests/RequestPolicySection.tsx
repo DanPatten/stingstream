@@ -191,7 +191,6 @@ export function RequestPolicySection() {
               >
                 <SettingSwitch
                   value={user.trusted}
-                  disabled={saveUser.isPending}
                   onValueChange={(v) =>
                     setTrust(user.userId, user.userName, v, user.weeklyQuota)
                   }

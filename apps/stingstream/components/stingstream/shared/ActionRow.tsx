@@ -32,12 +32,23 @@ import { useTheme } from "@/hooks/useTheme";
 export const ActionRow: React.FC<{
   testID: string;
   title: string;
+  /** Beside the title: a small tag such as "You". */
+  titleAccessory?: ReactNode;
   subtitle: string;
   leading: ReactNode;
   actions: ReactNode;
   onPress: () => void;
   style?: StyleProp<ViewStyle>;
-}> = ({ testID, title, subtitle, leading, actions, onPress, style }) => {
+}> = ({
+  testID,
+  title,
+  titleAccessory,
+  subtitle,
+  leading,
+  actions,
+  onPress,
+  style,
+}) => {
   const { color } = useTheme();
   const states = usePressableStates();
 
@@ -77,7 +88,14 @@ export const ActionRow: React.FC<{
       >
         {leading}
         <View style={{ flexShrink: 1, marginLeft: 12 }}>
-          <Text numberOfLines={1}>{title}</Text>
+          <View
+            style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+          >
+            <Text numberOfLines={1} style={{ flexShrink: 1 }}>
+              {title}
+            </Text>
+            {titleAccessory}
+          </View>
           <Text
             variant='caption'
             tone='secondary'

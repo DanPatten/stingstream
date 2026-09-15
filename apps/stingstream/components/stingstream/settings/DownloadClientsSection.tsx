@@ -603,7 +603,6 @@ function UsenetRow({
         ) : null}
         <SettingSwitch
           value={on}
-          disabled={saveDownloading.isPending}
           onValueChange={(next) => void change(next)}
           trackColor={{ true: accent[500] }}
         />

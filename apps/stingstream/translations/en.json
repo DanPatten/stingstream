@@ -1386,6 +1386,8 @@
     "cast_unavailable_insecure_detail": "Open StingStream from its https address to cast from this browser.",
     "cast_unavailable_unsupported_title": "This browser cannot cast",
     "cast_unavailable_unsupported_detail": "Use Chrome to cast to a TV.",
+    "cast_unavailable_firefox_detail": "Install the fx_cast extension to cast from Firefox.",
+    "cast_get_fx_cast": "Get fx_cast",
     "cast_unavailable_blocked_title": "Casting could not start",
     "cast_unavailable_blocked_detail": "Check your connection, then try again.",
     "cast_try_again": "Try again",

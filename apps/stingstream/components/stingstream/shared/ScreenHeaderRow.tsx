@@ -15,7 +15,8 @@ export function ScreenHeaderRow({
   title,
   accessory,
 }: {
-  title: string;
+  /** Omitted when the page title above already names the section, so it is not said twice. */
+  title?: string;
   accessory?: ReactNode;
 }) {
   return (
@@ -23,13 +24,15 @@ export function ScreenHeaderRow({
       style={{
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-between",
+        justifyContent: title ? "space-between" : "flex-end",
         marginBottom: 12,
       }}
     >
-      <Text variant='heading' weight='semibold' style={{ flexShrink: 1 }}>
-        {title}
-      </Text>
+      {title ? (
+        <Text variant='heading' weight='semibold' style={{ flexShrink: 1 }}>
+          {title}
+        </Text>
+      ) : null}
       {accessory}
     </View>
   );

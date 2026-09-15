@@ -191,12 +191,61 @@ export function useSetUserDisabled() {
  */
 export function useSetUserPolicy() {
   const { api, invalidate } = useUsersApi();
-  return useMutation<void, Error, { userId: string; policy: UserPolicy }>({
+  const optimistic = useOptimisticPolicy();
+  return useMutation<
+    void,
+    Error,
+    { userId: string; policy: UserPolicy },
+    { previous: UserDto[] | undefined }
+  >({
     mutationFn: async ({ userId, policy }) => {
       await getUserApi(api!).updateUserPolicy({ userId, userPolicy: policy });
     },
-    onSuccess: invalidate,
+    onMutate: ({ userId, policy }) => optimistic.apply(userId, policy),
+    onError: (_error, _vars, context) => optimistic.restore(context),
+    onSettled: invalidate,
   });
+}
+
+/**
+ * The account list answers the moment a control is pressed, and the PUT follows.
+ *
+ * Dan: *"use optimistic change (update form and post in the background so the UX is much
+ * smoother)"*. A switch that went grey, waited for the round trip and then moved read as a slow
+ * form. The cache is patched first, restored if the server refuses, and refetched either way.
+ *
+ * Both policy mutations share a `scope` per account, so two quick presses send their whole-policy
+ * PUTs in order: out of order, the older policy would land last and undo the newer one.
+ */
+function useOptimisticPolicy() {
+  const queryClient = useQueryClient();
+  return {
+    apply: async (userId: string, policy: UserPolicy) => {
+      await queryClient.cancelQueries({ queryKey: SERVER_USERS_QUERY_KEY });
+      const previous = queryClient.getQueryData<UserDto[]>(
+        SERVER_USERS_QUERY_KEY,
+      );
+      queryClient.setQueryData<UserDto[]>(SERVER_USERS_QUERY_KEY, (users) =>
+        withUserPolicy(users, userId, policy),
+      );
+      return { previous };
+    },
+    restore: (context: { previous: UserDto[] | undefined } | undefined) => {
+      if (context?.previous)
+        queryClient.setQueryData(SERVER_USERS_QUERY_KEY, context.previous);
+    },
+  };
+}
+
+/** The account list with one account's policy replaced. Pure, for the optimistic patch above. */
+export function withUserPolicy(
+  users: UserDto[] | undefined,
+  userId: string,
+  policy: UserPolicy,
+): UserDto[] | undefined {
+  return users?.map((user) =>
+    user.Id === userId ? { ...user, Policy: policy } : user,
+  );
 }
 
 /**

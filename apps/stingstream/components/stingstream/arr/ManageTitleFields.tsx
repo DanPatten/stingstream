@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
@@ -53,7 +54,13 @@ export function ManageTitleFields({
   const update = useUpdateLibraryItem(kind);
   const remove = useDeleteLibraryItem(kind);
 
+  // The switch moves when it is pressed and the PATCH follows; a refusal puts it back. `monitored`
+  // comes from whichever surface opened this, so it is mirrored here rather than patched in a cache.
+  const [shownMonitored, setShownMonitored] = useState(monitored);
+  useEffect(() => setShownMonitored(monitored), [monitored]);
+
   const toggleMonitored = async (next: boolean) => {
+    setShownMonitored(next);
     try {
       await update.mutateAsync({ providerId, monitored: next });
       toast.success(
@@ -62,6 +69,7 @@ export function ManageTitleFields({
           : t("manage.monitor_stopped_toast", { title }),
       );
     } catch (err) {
+      setShownMonitored(!next);
       toast.error(
         err instanceof Error ? err.message : t("manage.monitor_error"),
       );
@@ -105,8 +113,7 @@ export function ManageTitleFields({
             : t("manage.monitor_series_label")}
         </Text>
         <SettingSwitch
-          value={monitored}
-          disabled={update.isPending}
+          value={shownMonitored}
           onValueChange={(next) => void toggleMonitored(next)}
           trackColor={{ true: accent[500] }}
         />

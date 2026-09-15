@@ -56,7 +56,6 @@ export const SharedLibrariesSection: React.FC<{ group: string }> = ({
         selected={shared}
         onToggle={toggle}
         loading={libraries.isPending}
-        disabled={save.isPending}
       />
     </View>
   );

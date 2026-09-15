@@ -83,6 +83,18 @@ export function useSaveDownloading() {
   return useMutation({
     mutationFn: (settings: DownloadingSettings) =>
       saveDownloading(base!, settings, token),
+    // The switch moves when it is pressed. A refusal puts it back and the caller toasts why.
+    onMutate: async (settings) => {
+      await queryClient.cancelQueries({ queryKey: KEY });
+      const previous = queryClient.getQueryData<DownloadingSettings>(KEY);
+      queryClient.setQueryData<DownloadingSettings>(KEY, (current) =>
+        current ? { ...current, ...settings } : current,
+      );
+      return { previous };
+    },
+    onError: (_error, _settings, context) => {
+      if (context?.previous) queryClient.setQueryData(KEY, context.previous);
+    },
     onSuccess: (saved) => {
       // The switch answers immediately from what the node confirmed it wrote; the *running* half
       // catches up on the healthz poll a few seconds later.

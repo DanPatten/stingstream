@@ -1,11 +1,18 @@
 import { useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, Pressable, View, type ViewStyle } from "react-native";
+import {
+  Linking,
+  Platform,
+  Pressable,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { Dialog, type DialogAction } from "@/components/common/Dialog";
 import { Image } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
 import { radius, space } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
+import { FX_CAST_URL, isFirefox } from "@/lib/cast/firefox";
 import {
   type CastUnavailableReason,
   webCastSession,
@@ -166,6 +173,8 @@ const WebCastControls: React.FC = () => {
  *
  * Only a script that never arrived offers Try again: an insecure address or a
  * browser that cannot cast gives the same answer however often it is asked.
+ * Firefox is the one unsupported browser with a way out, the fx_cast
+ * extension, so it gets its own line and a link there.
  */
 const UNAVAILABLE_COPY = {
   insecure: {
@@ -191,9 +200,27 @@ const CastUnavailableDialog: React.FC = () => {
   const reason = snapshot.unavailableReason ?? "unsupported";
   const copy = UNAVAILABLE_COPY[reason];
   const close = () => webCastSession.dismissUnavailable();
+  const firefox = reason === "unsupported" && isFirefox();
+  const detail = firefox
+    ? "shell.cast_unavailable_firefox_detail"
+    : copy.detail;
 
-  const actions: DialogAction[] =
-    reason === "blocked"
+  const actions: DialogAction[] = firefox
+    ? [
+        {
+          label: t("shell.cast_get_fx_cast"),
+          icon: "link",
+          onPress: () => void Linking.openURL(FX_CAST_URL),
+          testID: "cast-get-fx-cast",
+        },
+        {
+          label: t("common.close"),
+          variant: "secondary",
+          onPress: close,
+          testID: "cast-unavailable-close",
+        },
+      ]
+    : reason === "blocked"
       ? [
           {
             label: t("shell.cast_try_again"),
@@ -220,7 +247,7 @@ const CastUnavailableDialog: React.FC = () => {
       visible={snapshot.unavailableOpen}
       onClose={close}
       title={t(copy.title)}
-      description={t(copy.detail)}
+      description={t(detail)}
       actions={actions}
     />
   );

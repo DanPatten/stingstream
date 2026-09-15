@@ -1,5 +1,5 @@
 import { Platform, Switch as RNSwitch, type SwitchProps } from "react-native";
-import { fade, interaction } from "@/constants/theme";
+import { control } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 
 /**
@@ -32,13 +32,12 @@ export const Switch: React.FC<SwitchProps> = ({
   ...props
 }) => {
   const { color, accent } = useTheme();
-  const on = disabled
-    ? fade(accent[500], interaction.disabledFillAlpha)
-    : accent[500];
+  // Disabled keeps the real on and off colours and dims the whole control, the way `Checkbox`
+  // does. Fading only the fill left a locked "on" switch as a blank dark bar on a dark dialog, and
+  // Dan could not tell whether the owner's switches were on at all.
+  const on = accent[500];
   const off = color.bg["3"];
-  const thumb = disabled
-    ? fade(color.text.primary, interaction.disabledLabelAlpha)
-    : color.text.primary;
+  const thumb = color.text.primary;
   const webTrack =
     Platform.OS === "web"
       ? ({ activeTrackColor: on, activeThumbColor: thumb } as object)
@@ -58,6 +57,7 @@ export const Switch: React.FC<SwitchProps> = ({
         Platform.OS === "web"
           ? ({ cursor: disabled ? "not-allowed" : "pointer" } as object)
           : null,
+        disabled ? { opacity: control.disabledOpacity } : null,
         style,
       ]}
       {...props}
