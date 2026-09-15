@@ -178,7 +178,11 @@ function ServerListRow({
               : ""
           }
           leading={
-            <Icon name='servers' size={18} color={color.text.tertiary} />
+            <Icon
+              name='connectedServer'
+              size={18}
+              color={color.text.tertiary}
+            />
           }
           onPress={showLink}
           actions={
@@ -225,7 +229,9 @@ function ServerListRow({
             ? t("sharing.request_by", { name: request.requestedByName })
             : t("sharing.request_waiting")
         }
-        leading={<Icon name='servers' size={18} color={color.text.tertiary} />}
+        leading={
+          <Icon name='connectedServer' size={18} color={color.text.tertiary} />
+        }
         onPress={() => (isAdmin ? onApprove(request) : undefined)}
         actions={
           <>
@@ -276,7 +282,7 @@ function ServerListRow({
       subtitle={row.address ?? t("sharing.server_no_address")}
       leading={
         <Icon
-          name='servers'
+          name={row.isThisServer ? "servers" : "connectedServer"}
           size={18}
           color={row.online ? color.state.success : color.text.tertiary}
         />

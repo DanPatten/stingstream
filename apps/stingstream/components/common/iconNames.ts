@@ -150,6 +150,11 @@ export const ICONS = {
   warning: "warning",
   error: "alert-circle",
   success: "checkmark-circle",
+  /**
+   * Somebody else's server, on the Servers list. `servers` stays the glyph for this one, so the
+   * reader's own row is told apart by shape; colour is left to say whether it is online.
+   */
+  connectedServer: "earth",
 } satisfies Record<string, keyof typeof Ionicons.glyphMap>;
 
 export type IconName = keyof typeof ICONS;
