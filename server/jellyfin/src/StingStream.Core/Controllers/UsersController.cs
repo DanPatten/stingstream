@@ -60,16 +60,8 @@ public sealed class UsersController : StingStreamControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<ServerOwner>> GetOwner(CancellationToken cancellationToken)
     {
-        var state = FirstRunSetupState.Get(_settings);
-        var recorded = state.OwnerUserId;
-        var recordedExists = !string.IsNullOrWhiteSpace(recorded)
-            && Guid.TryParse(recorded, out var recordedId)
-            && _users.GetUserById(recordedId) is not null;
-
-        var owner = SetupGate.ChooseOwner(
-            recorded,
-            recordedExists,
-            _users.GetFirstUser()?.Id.ToString("N"));
+        var recorded = FirstRunSetupState.Get(_settings).OwnerUserId;
+        var owner = AccountDisableGuard.ResolveOwner(_settings, _users);
 
         // Written back only when it was missing, and never over an existing answer --
         // `SetOwnerAsync` enforces that rather than trusting this call site.

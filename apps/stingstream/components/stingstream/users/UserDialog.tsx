@@ -99,33 +99,31 @@ export const UserDialog: React.FC<{
   const isAdmin = Boolean(user?.Policy?.IsAdministrator);
   const disabled = Boolean(user?.Policy?.IsDisabled);
 
-  /**
-   * An administrator cannot be disabled and you cannot lock yourself out — the server answers 403
-   * to both, along with the last-administrator and last-enabled-user guards beside it. The button
-   * stays, greyed, with the reason in a banner above, because a control that vanishes reads as a
-   * fault.
-   */
-  const cannotDisable = isSelf || isAdmin;
-
   /** `null` when the switch is usable; otherwise which of the three rules is holding it. */
   const adminBlock = adminChangeBlocked(user, me, users.data, owner.data);
   const isOwner = adminBlock === "owner";
+
+  /**
+   * The owner cannot be disabled and you cannot lock yourself out — the server answers 403 to both
+   * (`AccountDisableGuard`). Any other administrator can be disabled like anybody else. The button
+   * stays, greyed, with the reason in a banner above, because a control that vanishes reads as a
+   * fault.
+   */
+  const cannotDisable = isSelf || isOwner;
 
   /** Set when this account signs in through another server. */
   const linked = useLinkedIdentityFor(user?.Name);
 
   // One line, at the top, for whichever rule is holding something. The owner and self cases
-  // explain both locked controls at once; an ordinary administrator only has the Disable button.
+  // explain both locked controls at once.
   const lockedKey =
     adminBlock === "owner"
       ? "users.locked_owner"
-      : adminBlock === "self" || (isSelf && cannotDisable)
+      : adminBlock === "self" || isSelf
         ? "users.locked_self"
         : adminBlock === "last-administrator"
           ? "users.locked_last"
-          : isAdmin
-            ? "users.locked_admin"
-            : null;
+          : null;
 
   // Read straight off the cached policy, which the mutation patches before the PUT returns, so a
   // tick lands at once and a refusal puts it back without this dialog keeping a copy. An

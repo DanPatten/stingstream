@@ -434,12 +434,6 @@ public class UserController : BaseJellyfinApiController
         }
 
         // If disabling
-        if (newPolicy.IsDisabled && user.HasPermission(PermissionKind.IsAdministrator))
-        {
-            return StatusCode(StatusCodes.Status403Forbidden, "Administrators cannot be disabled.");
-        }
-
-        // If disabling
         if (newPolicy.IsDisabled && !user.HasPermission(PermissionKind.IsDisabled))
         {
             if (_userManager.GetUsers().Count(i => !i.HasPermission(PermissionKind.IsDisabled)) == 1)

@@ -173,6 +173,12 @@ public static class StingStreamCoreExtensions
         services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(
             options => options.Filters.AddService<PlaybackInfoOrderFilter>());
 
+        // Upstream's "administrators cannot be disabled" is patched out (docs/PATCHES.md, patch 9);
+        // this puts back the two cases that rule was quietly covering: the owner, and yourself.
+        services.AddSingleton<StingStream.Core.FirstRun.AccountDisableGuard>();
+        services.Configure<Microsoft.AspNetCore.Mvc.MvcOptions>(
+            options => options.Filters.AddService<StingStream.Core.FirstRun.AccountDisableGuard>());
+
         // Pin and mirror.
         services.AddSingleton<LibraryStateStore>();
         services.AddSingleton<PinStore>();

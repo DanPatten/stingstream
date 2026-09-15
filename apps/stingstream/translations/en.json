@@ -2212,7 +2212,6 @@
     "administrator_off_hint": "Can watch the selected libraries.",
     "locked_owner": "The owner cannot be disabled or lose administrator access.",
     "locked_self": "You cannot disable your own account or remove your own administrator access.",
-    "locked_admin": "Remove administrator access before disabling this account.",
     "locked_last": "This is the only administrator. Make someone else an administrator first.",
     "trusted": "Trusted",
     "trusted_on_hint": "Their requests start straight away under the Trusted policy.",

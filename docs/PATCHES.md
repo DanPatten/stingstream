@@ -250,6 +250,26 @@ order in an MVC result filter (`PlaybackInfoOrderFilter`), which runs after the 
 vendored change at all. The order is therefore applied twice, deliberately: in the decorator for
 everything the server does with the sources, and in the filter for the list the client reads.
 
+### 9. `Jellyfin.Api/Controllers/UserController.cs` — administrators can be disabled
+
+One deletion in `UpdateUserPolicy`: upstream's
+
+```csharp
+if (newPolicy.IsDisabled && user.HasPermission(PermissionKind.IsAdministrator))
+{
+    return StatusCode(StatusCodes.Status403Forbidden, "Administrators cannot be disabled.");
+}
+```
+
+Dan, 2026-09-14: disabling is allowed for an administrator too, as long as it is not the owner and
+not yourself. Upstream's rule was incidentally the only server-side protection for those two, since
+both are always administrators, so `StingStream.Core`'s `AccountDisableGuard` — an MVC action filter
+on the same action, needing no further vendored change — refuses exactly those. The last-enabled-user
+guard below the deleted block is upstream's and stays.
+
+**Upstream-pull risk:** low. If the block reappears in a merge, delete it again; the app's Disable
+button would otherwise answer 403 for every administrator.
+
 ### Not a patch: the SyncPlay bridge needed none (M7)
 
 Watch-together across nodes looked like the most likely thing in this milestone to need a patch --
