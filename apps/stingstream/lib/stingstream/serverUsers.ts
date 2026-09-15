@@ -11,6 +11,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
+import { withUserPolicy } from "@/components/stingstream/users/userAccess";
 import { clearPasswordDerivation } from "@/lib/stingstream/identityApi";
 import { fetchServerOwner } from "@/lib/stingstream/serverOwner";
 import { apiAtom } from "@/providers/JellyfinProvider";
@@ -167,7 +168,13 @@ export function useChangeMyPassword() {
  */
 export function useSetUserDisabled() {
   const { api, invalidate } = useUsersApi();
-  return useMutation<void, Error, { user: UserDto; disabled: boolean }>({
+  const optimistic = useOptimisticPolicy();
+  return useMutation<
+    void,
+    Error,
+    { user: UserDto; disabled: boolean },
+    { previous: UserDto[] | undefined } | undefined
+  >({
     mutationFn: async ({ user, disabled }) => {
       if (!user.Id || !user.Policy)
         throw new Error("This account has no policy to update.");
@@ -176,7 +183,13 @@ export function useSetUserDisabled() {
         userPolicy: { ...user.Policy, IsDisabled: disabled },
       });
     },
-    onSuccess: invalidate,
+    scope: POLICY_SCOPE,
+    onMutate: ({ user, disabled }) =>
+      user.Id && user.Policy
+        ? optimistic.apply(user.Id, { ...user.Policy, IsDisabled: disabled })
+        : undefined,
+    onError: (_error, _vars, context) => optimistic.restore(context),
+    onSettled: invalidate,
   });
 }
 
@@ -201,6 +214,7 @@ export function useSetUserPolicy() {
     mutationFn: async ({ userId, policy }) => {
       await getUserApi(api!).updateUserPolicy({ userId, userPolicy: policy });
     },
+    scope: POLICY_SCOPE,
     onMutate: ({ userId, policy }) => optimistic.apply(userId, policy),
     onError: (_error, _vars, context) => optimistic.restore(context),
     onSettled: invalidate,
@@ -208,14 +222,17 @@ export function useSetUserPolicy() {
 }
 
 /**
+ * Policy writes run one at a time. Each PUT replaces the whole policy, so two quick presses that
+ * landed out of order would have the older policy undo the newer one.
+ */
+const POLICY_SCOPE = { id: "stingstream-user-policy" };
+
+/**
  * The account list answers the moment a control is pressed, and the PUT follows.
  *
  * Dan: *"use optimistic change (update form and post in the background so the UX is much
  * smoother)"*. A switch that went grey, waited for the round trip and then moved read as a slow
  * form. The cache is patched first, restored if the server refuses, and refetched either way.
- *
- * Both policy mutations share a `scope` per account, so two quick presses send their whole-policy
- * PUTs in order: out of order, the older policy would land last and undo the newer one.
  */
 function useOptimisticPolicy() {
   const queryClient = useQueryClient();
@@ -235,17 +252,6 @@ function useOptimisticPolicy() {
         queryClient.setQueryData(SERVER_USERS_QUERY_KEY, context.previous);
     },
   };
-}
-
-/** The account list with one account's policy replaced. Pure, for the optimistic patch above. */
-export function withUserPolicy(
-  users: UserDto[] | undefined,
-  userId: string,
-  policy: UserPolicy,
-): UserDto[] | undefined {
-  return users?.map((user) =>
-    user.Id === userId ? { ...user, Policy: policy } : user,
-  );
 }
 
 /**

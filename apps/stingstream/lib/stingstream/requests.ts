@@ -35,6 +35,8 @@ import {
   type RequestSearchResult,
   type RequestState,
   type RequestsMode,
+  type RequestUser,
+  sameUser,
   saveRequestPolicy,
   saveRequestUser,
   scoresKey,

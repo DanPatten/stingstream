@@ -8,7 +8,29 @@ import {
   policyForSelection,
   sameLibraryId,
   selectionForPolicy,
+  withUserPolicy,
 } from "./userAccess";
+
+describe("withUserPolicy", () => {
+  const users = [
+    { Id: "a", Name: "Ann", Policy: { IsAdministrator: true } as UserPolicy },
+    { Id: "b", Name: "Ben", Policy: { IsDisabled: false } as UserPolicy },
+  ];
+
+  test("replaces only the named account's policy", () => {
+    const next = withUserPolicy(users, "b", { IsDisabled: true } as UserPolicy);
+    expect(next?.[0]).toBe(users[0]);
+    expect(next?.[1]).toEqual({
+      Id: "b",
+      Name: "Ben",
+      Policy: { IsDisabled: true } as UserPolicy,
+    });
+  });
+
+  test("leaves an unloaded list unloaded", () => {
+    expect(withUserPolicy(undefined, "b", {} as UserPolicy)).toBeUndefined();
+  });
+});
 
 const MOVIES = "11111111-1111-1111-1111-111111111111";
 const TV = "22222222-2222-2222-2222-222222222222";

@@ -8,6 +8,7 @@ import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Icon } from "@/components/common/Icon";
+import { Pill } from "@/components/common/Pill";
 import { ListGroup } from "@/components/list/ListGroup";
 import { rgba, tokens } from "@/constants/theme";
 import { usePressableStates } from "@/hooks/usePressableStates";
@@ -147,8 +148,8 @@ export function UsersScreen() {
 
   return (
     <View testID='users-screen'>
+      {/* No heading of its own: the pane is already titled Users & access. */}
       <ScreenHeaderRow
-        title={t("users.title")}
         accessory={
           <Button
             testID='users-invite'
@@ -268,6 +269,9 @@ const AccountRow: React.FC<{
     <ActionRow
       testID='users-account'
       title={user.Name ?? t("users.unnamed")}
+      titleAccessory={
+        isSelf ? <Pill label={t("users.you")} size='sm' /> : undefined
+      }
       subtitle={subtitle}
       onPress={onPress}
       leading={<UserAvatar serverAddress={serverAddress} user={user} />}

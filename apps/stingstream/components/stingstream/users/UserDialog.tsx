@@ -23,6 +23,7 @@ import {
 } from "@/lib/stingstream/serverUsers";
 import { userAtom } from "@/providers/JellyfinProvider";
 import { LibraryPicker } from "../shared/LibraryPicker";
+import { Notice } from "../shared/Notice";
 import {
   adminChangeBlocked,
   policyForAdminChange,
@@ -79,16 +80,9 @@ export const UserDialog: React.FC<{
   );
 
   const available = useMemo(() => libraries.data ?? [], [libraries.data]);
-  const [selected, setSelected] = useState<string[]>([]);
   const [password, setPasswordValue] = useState("");
   /** Whether the password field is showing. Closed until somebody asks for it. */
   const [resetting, setResetting] = useState(false);
-
-  // Seeded from the truth, and re-seeded when the account or the library list changes.
-  // `useChosenLibraries` ticks everything, which is right for a new invite and a lie here.
-  useEffect(() => {
-    setSelected(user ? selectionForPolicy(user.Policy, available) : []);
-  }, [user, available]);
 
   // Closing, or switching to a different account, puts the password field away again — reopening
   // on somebody else with a half-typed password for the last one is the bug this avoids.
@@ -104,12 +98,38 @@ export const UserDialog: React.FC<{
   /**
    * An administrator cannot be disabled and you cannot lock yourself out — the server answers 403
    * to both, along with the last-administrator and last-enabled-user guards beside it. The button
-   * stays, greyed, with the reason under it, because a control that vanishes reads as a fault.
+   * stays, greyed, with the reason in a banner above, because a control that vanishes reads as a
+   * fault.
    */
   const cannotDisable = isSelf || isAdmin;
 
   /** `null` when the switch is usable; otherwise which of the three rules is holding it. */
   const adminBlock = adminChangeBlocked(user, me, users.data, owner.data);
+  const isOwner = adminBlock === "owner";
+
+  // One line, at the top, for whichever rule is holding something. The owner and self cases
+  // explain both locked controls at once; an ordinary administrator only has the Disable button.
+  const lockedKey =
+    adminBlock === "owner"
+      ? "users.locked_owner"
+      : adminBlock === "self" || (isSelf && cannotDisable)
+        ? "users.locked_self"
+        : adminBlock === "last-administrator"
+          ? "users.locked_last"
+          : isAdmin
+            ? "users.locked_admin"
+            : null;
+
+  // Read straight off the cached policy, which the mutation patches before the PUT returns, so a
+  // tick lands at once and a refusal puts it back without this dialog keeping a copy. An
+  // administrator sees every library whatever the list says, so every box is ticked and locked.
+  const selected = useMemo(
+    () =>
+      isAdmin
+        ? available.map((library) => library.id)
+        : selectionForPolicy(user?.Policy, available),
+    [isAdmin, user?.Policy, available],
+  );
 
   // Absent on a server with requests turned off, and absent for an account the request policy has
   // never heard of. Either way there is nothing to toggle, so the row does not appear.
@@ -123,24 +143,16 @@ export const UserDialog: React.FC<{
   );
 
   const toggleLibrary = (id: string) => {
-    if (!user?.Id || !user.Policy) return;
+    if (!user?.Id || !user.Policy || isAdmin) return;
     const next = selected.includes(id)
       ? selected.filter((existing) => existing !== id)
       : [...selected, id];
-    setSelected(next);
     savePolicy.mutate(
       {
         userId: user.Id,
         policy: policyForSelection(user.Policy, next, available),
       },
-      {
-        onError: (e) => {
-          // Put the tick back: the server is the truth, and a picker that keeps a change it failed
-          // to make is worse than one that flickers.
-          setSelected(selectionForPolicy(user.Policy, available));
-          toast.error(e.message);
-        },
-      },
+      { onError: (e) => toast.error(e.message) },
     );
   };
 
@@ -174,6 +186,20 @@ export const UserDialog: React.FC<{
       visible={!!userId}
       onClose={onClose}
       title={user?.Name ?? t("users.unnamed")}
+      description={
+        user
+          ? [
+              isOwner
+                ? t("users.owner")
+                : isAdmin
+                  ? t("users.administrator")
+                  : t("users.member"),
+              isSelf ? t("users.you") : null,
+            ]
+              .filter(Boolean)
+              .join(" • ")
+          : undefined
+      }
       /*
        * Dan: *"move disable as a button next to done. account role/password reset is too many
        * forms going on, make reset password another button."*
@@ -205,23 +231,23 @@ export const UserDialog: React.FC<{
             );
           },
           variant: disabled ? "secondary" : "danger",
-          disabled: cannotDisable || setDisabled.isPending,
-          loading: setDisabled.isPending,
+          disabled: cannotDisable,
           testID: "user-toggle-disabled",
         },
         { label: t("common.done"), onPress: onClose },
       ]}
     >
       <View style={{ gap: 20 }}>
+        {lockedKey ? (
+          <Notice testID='user-locked-notice' text={t(lockedKey)} />
+        ) : null}
+
         <Section title={t("users.libraries_title")}>
-          {isAdmin ? (
-            // Jellyfin checks `IsAdministrator` before it checks folders, so a picker here would be
-            // a set of boxes that change nothing.
-            <Text variant='caption' tone='secondary'>
-              {t("users.libraries_administrator")}
-            </Text>
-          ) : (
-            <View testID='user-libraries'>
+          <View testID='user-libraries'>
+            {/* An administrator gets the same boxes, all ticked and locked: Jellyfin checks
+                `IsAdministrator` before it checks folders, and a sentence saying so was harder to
+                read than the picker itself. */}
+            {isAdmin ? null : (
               <Text
                 variant='caption'
                 tone='tertiary'
@@ -229,15 +255,15 @@ export const UserDialog: React.FC<{
               >
                 {t("users.libraries_hint")}
               </Text>
-              <LibraryPicker
-                available={available}
-                selected={selected}
-                onToggle={toggleLibrary}
-                loading={libraries.isPending}
-                disabled={savePolicy.isPending}
-              />
-            </View>
-          )}
+            )}
+            <LibraryPicker
+              available={available}
+              selected={selected}
+              onToggle={toggleLibrary}
+              loading={libraries.isPending}
+              disabled={isAdmin}
+            />
+          </View>
         </Section>
 
         {/* Only once somebody has asked for it, from the button in the action row. */}
@@ -292,18 +318,12 @@ export const UserDialog: React.FC<{
             testID='user-toggle-administrator'
             label={t("users.administrator")}
             hint={
-              adminBlock === "owner"
-                ? t("users.administrator_locked_owner")
-                : adminBlock === "self"
-                  ? t("users.administrator_locked_self")
-                  : adminBlock === "last-administrator"
-                    ? t("users.administrator_locked_last")
-                    : isAdmin
-                      ? t("users.administrator_on_hint")
-                      : t("users.administrator_off_hint")
+              isAdmin
+                ? t("users.administrator_on_hint")
+                : t("users.administrator_off_hint")
             }
             value={isAdmin}
-            disabled={!!adminBlock || savePolicy.isPending}
+            disabled={!!adminBlock}
             onValueChange={toggleAdministrator}
           />
 
@@ -323,18 +343,10 @@ export const UserDialog: React.FC<{
                       : t("users.trusted_off_hint")
                 }
                 value={isAdmin || requestUser.trusted}
-                disabled={isAdmin || saveRequestUser.isPending}
+                disabled={isAdmin}
                 onValueChange={toggleTrusted}
               />
             </View>
-          ) : null}
-
-          {/* Only when the button in the action row cannot be used. A greyed button with no
-              reason reads as a fault; a working one says what it does on its face. */}
-          {cannotDisable ? (
-            <Text variant='caption' tone='tertiary' style={{ marginTop: 12 }}>
-              {t("users.disable_locked")}
-            </Text>
           ) : null}
         </Section>
       </View>

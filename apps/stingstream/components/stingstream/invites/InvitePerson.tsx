@@ -213,35 +213,30 @@ const MintInviteDialog: React.FC<{
           </Text>
         </View>
 
-        {/* No picker for an administrator. Jellyfin checks IsAdministrator before it checks
-            folders, so a set of ticks here would change nothing — the Users screen already says
-            exactly that rather than drawing boxes that do not apply. */}
-        {isAdministrator ? (
-          <View>
-            <Text variant='caption' tone='secondary' weight='medium'>
-              {t("invites.libraries")}
-            </Text>
-            <Text variant='caption' tone='tertiary' style={{ marginTop: 6 }}>
-              {t("users.libraries_administrator")}
-            </Text>
-          </View>
-        ) : (
-          <View>
-            <Text variant='caption' tone='secondary' weight='medium'>
-              {t("invites.libraries")}
-            </Text>
+        {/* An administrator gets every box ticked and locked, the same as the account dialog.
+            Jellyfin checks IsAdministrator before it checks folders, so the ticks cannot change
+            anything, and the picker says that more plainly than a sentence did. */}
+        <View>
+          <Text variant='caption' tone='secondary' weight='medium'>
+            {t("invites.libraries")}
+          </Text>
+          {isAdministrator ? null : (
             <Text variant='caption' tone='tertiary' style={{ marginBottom: 6 }}>
               {t("invites.libraries_hint")}
             </Text>
-            <LibraryPicker
-              available={available}
-              selected={chosen}
-              onToggle={toggle}
-              loading={libraries.isPending}
-              disabled={mint.isPending}
-            />
-          </View>
-        )}
+          )}
+          <LibraryPicker
+            available={available}
+            selected={
+              isAdministrator
+                ? available.map((library) => library.id)
+                : chosen
+            }
+            onToggle={toggle}
+            loading={libraries.isPending}
+            disabled={isAdministrator || mint.isPending}
+          />
+        </View>
 
         <FormError message={error} />
 

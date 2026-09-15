@@ -101,6 +101,21 @@ export function policyForSelection(
     : { ...policy, EnableAllFolders: false, EnabledFolders: selected };
 }
 
+/**
+ * The account list with one account's policy replaced.
+ *
+ * What `useSetUserPolicy` writes into the cache before the PUT returns, so a switch or a tick
+ * moves the moment it is pressed. Every other account, and every other field of this one, is left
+ * as it was.
+ */
+export function withUserPolicy<
+  T extends { Id?: string | null; Policy?: UserPolicy | null },
+>(users: T[] | undefined, userId: string, policy: UserPolicy): T[] | undefined {
+  return users?.map((user) =>
+    user.Id === userId ? { ...user, Policy: policy } : user,
+  );
+}
+
 /** Whether this account can see one library. */
 export function hasLibrary(
   policy: UserPolicy | null | undefined,
