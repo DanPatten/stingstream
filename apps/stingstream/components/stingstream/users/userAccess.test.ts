@@ -95,15 +95,19 @@ describe("describeAccess", () => {
     ).toEqual({ kind: "count", count: 2 });
   });
 
-  test("a library this list has never heard of falls back to a count", () => {
-    // Half a name list is worse than a number: it would silently drop a library the account really
-    // can see.
+  test("an id matching no library is a deleted one, and is left out", () => {
     expect(
       describeAccess(
-        policy({ EnabledFolders: [MOVIES, "unknown"] }),
+        policy({ EnabledFolders: [MOVIES, "deleted"] }),
         available,
       ),
-    ).toEqual({ kind: "count", count: 2 });
+    ).toEqual({ kind: "named", names: ["Movies"] });
+  });
+
+  test("only deleted libraries left reads as none", () => {
+    expect(
+      describeAccess(policy({ EnabledFolders: ["deleted"] }), available),
+    ).toEqual({ kind: "none" });
   });
 });
 

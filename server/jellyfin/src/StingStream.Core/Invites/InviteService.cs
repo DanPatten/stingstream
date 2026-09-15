@@ -78,6 +78,49 @@ public sealed class InviteService
             .OrderBy(l => l.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
 
+    /// <summary>Take a deleted library off every account and every invite.</summary>
+    /// <param name="libraryId">The deleted library's media-server id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    /// <remarks>
+    /// <para>
+    /// Dan: *"dont say a library that no longer exists - just remove that completely when a library
+    /// is deleted from all users"*. Jellyfin leaves a deleted folder's id in every
+    /// <c>EnabledFolders</c> list, so an account kept counting a library it could no longer see, and
+    /// an invite kept naming one.
+    /// </para>
+    /// <para>
+    /// An account on <c>EnableAllFolders</c> names no ids and is left alone. The rest of each
+    /// policy goes back untouched, because <c>UpdatePolicyAsync</c> replaces the whole thing.
+    /// </para>
+    /// </remarks>
+    public async Task ForgetLibraryAsync(Guid libraryId, CancellationToken cancellationToken)
+    {
+        foreach (var user in _users.GetUsers().ToArray())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var policy = _users.GetUserDto(user).Policy;
+            if (policy is null || policy.EnableAllFolders || !policy.EnabledFolders.Contains(libraryId))
+            {
+                continue;
+            }
+
+            policy.EnabledFolders = policy.EnabledFolders.Where(id => !id.Equals(libraryId)).ToArray();
+            await _users.UpdatePolicyAsync(user.Id, policy).ConfigureAwait(false);
+        }
+
+        foreach (var row in _store.All())
+        {
+            if (!row.Libraries.Contains(libraryId))
+            {
+                continue;
+            }
+
+            row.Libraries = row.Libraries.Where(id => !id.Equals(libraryId)).ToArray();
+            await _store.SaveAsync(row, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     /// <summary>Every invite this server has minted, newest first.</summary>
     /// <param name="now">The current time, for deciding which are still live.</param>
     /// <returns>The summaries.</returns>
@@ -621,12 +664,12 @@ public sealed class InviteService
     private static IReadOnlyList<InviteLibrary> Name(
         IReadOnlyList<Guid> ids,
         Dictionary<Guid, InviteLibrary> known)
+        // A library deleted since the invite was minted is left out. Dan: *"dont say a library that
+        // no longer exists - just remove that completely"*. Deleting a library also takes it off
+        // every invite (ForgetLibraryAsync), so this only matters for rows written before that.
         => ids
-            .Select(id => known.TryGetValue(id, out var library)
-                ? library
-                // A library that has been deleted since the invite was minted. Named rather than
-                // dropped, so the list still adds up to what the invite says it grants.
-                : new InviteLibrary { Id = id.ToString("N"), Name = "A library that no longer exists" })
+            .Where(known.ContainsKey)
+            .Select(id => known[id])
             .ToArray();
 
     private static InviteSummary Summarise(

@@ -14,6 +14,7 @@ using Microsoft.Extensions.Logging;
 using StingStream.Core.Arr;
 using StingStream.Core.Configuration;
 using StingStream.Core.Data;
+using StingStream.Core.Invites;
 using StingStream.Core.Library;
 
 namespace StingStream.Core.Controllers;
@@ -77,6 +78,7 @@ public sealed class LibrariesController : StingStreamControllerBase
     private readonly LibraryLayoutService _layout;
     private readonly INodeRuntimeProvider _runtime;
     private readonly IServerConfigurationManager _serverConfig;
+    private readonly InviteService _invites;
     private readonly ILogger<LibrariesController> _logger;
 
     public LibrariesController(
@@ -84,12 +86,14 @@ public sealed class LibrariesController : StingStreamControllerBase
         LibraryLayoutService layout,
         INodeRuntimeProvider runtime,
         IServerConfigurationManager serverConfig,
+        InviteService invites,
         ILogger<LibrariesController> logger)
     {
         _settings = settings;
         _layout = layout;
         _runtime = runtime;
         _serverConfig = serverConfig;
+        _invites = invites;
         _logger = logger;
     }
 
@@ -350,12 +354,30 @@ public sealed class LibrariesController : StingStreamControllerBase
                 "id"));
         }
 
+        // Read before RemoveAsync, which clears it along with the virtual folder it names.
+        Guid.TryParse(library.JellyfinItemId, out var mediaLibraryId);
+
         // Before the row goes: reconciliation only withdraws rows it can still see.
         await _layout.RemoveAsync(library).ConfigureAwait(false);
         settings.Libraries.Remove(library);
 
         await CommitAsync(settings, cancellationToken).ConfigureAwait(false);
         _logger.LogInformation("Removed the {Name} library; its files were left in place", library.Name);
+
+        if (!mediaLibraryId.Equals(Guid.Empty))
+        {
+            // The library is already gone, so a failure here only leaves a dead id in somebody's
+            // access list, which every screen now ignores. Not worth failing the delete over.
+            try
+            {
+                await _invites.ForgetLibraryAsync(mediaLibraryId, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not remove the {Name} library from user and invite access lists", library.Name);
+            }
+        }
+
         return NoContent();
     }
 

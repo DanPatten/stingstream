@@ -45,15 +45,17 @@ export function describeAccess(
   const enabled = policy?.EnabledFolders ?? [];
   if (enabled.length === 0) return { kind: "none" };
 
-  const names = (libraries ?? [])
+  // A count until the library list arrives: a guessed name is not honest.
+  if (!libraries) return { kind: "count", count: enabled.length };
+
+  // Once it has, only libraries that exist. An id matching nothing is a deleted library Jellyfin
+  // left behind in the policy, and Dan wants it gone rather than counted: *"dont say a library
+  // that no longer exists - just remove that completely"*. The server now prunes them on delete.
+  const names = libraries
     .filter((library) => enabled.some((id) => sameLibraryId(id, library.id)))
     .map((library) => library.name);
 
-  // A name for every id, or none of them. A partial list would quietly drop a
-  // library the account really can see, which is worse than a count.
-  return names.length === enabled.length
-    ? { kind: "named", names }
-    : { kind: "count", count: enabled.length };
+  return names.length > 0 ? { kind: "named", names } : { kind: "none" };
 }
 
 /** Which of `available` this account can see, as the picker wants them: its own ids. */

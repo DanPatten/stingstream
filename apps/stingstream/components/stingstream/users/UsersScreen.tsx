@@ -269,7 +269,7 @@ const AccountRow: React.FC<{
       }
       subtitle={subtitle}
       onPress={onPress}
-      leading={<UserAvatar serverAddress={serverAddress} user={user} />}
+      leading={<UserAvatar serverAddress={serverAddress} user={user} tinted />}
       actions={
         <DeleteAction
           label={t("users.delete")}
@@ -316,12 +316,13 @@ const PendingRow: React.FC<{
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: color.bg["3"],
+            // Amber for waiting on somebody, beside the accent and blue of the accounts above.
+            backgroundColor: rgba(color.state.warning, 0.16),
             alignItems: "center",
             justifyContent: "center",
           }}
         >
-          <Icon name='invite' size={18} tone='tertiary' />
+          <Icon name='invite' size={18} color={color.state.warning} />
         </View>
       }
       actions={

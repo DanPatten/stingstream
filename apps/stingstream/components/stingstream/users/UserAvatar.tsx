@@ -2,6 +2,7 @@ import type { UserDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { Image } from "expo-image";
 import { View } from "react-native";
 import { Icon } from "@/components/common/Icon";
+import { rgba } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import { getUserImageUrl } from "@/utils/jellyfin/image/getUserImageUrl";
 
@@ -14,12 +15,24 @@ export function UserAvatar({
   serverAddress,
   user,
   size = 36,
+  tinted = false,
 }: {
   serverAddress?: string;
   user: UserDto;
   size?: number;
+  /**
+   * Colour the fallback tile by role: the accent for an administrator, info blue for everyone
+   * else. Dan: *"add color to the icons for admin, user, pending"*. Off by default so the Grant
+   * access dialog keeps its plain tiles.
+   */
+  tinted?: boolean;
 }) {
-  const { color } = useTheme();
+  const { color, accent } = useTheme();
+  const tint = tinted
+    ? user.Policy?.IsAdministrator
+      ? accent[500]
+      : color.state.info
+    : null;
   const url =
     serverAddress && user.Id
       ? getUserImageUrl({
@@ -37,12 +50,16 @@ export function UserAvatar({
           width: size,
           height: size,
           borderRadius: size / 2,
-          backgroundColor: color.bg["3"],
+          backgroundColor: tint ? rgba(tint, 0.16) : color.bg["3"],
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <Icon name='user' size={size * 0.6} tone='tertiary' />
+        {tint ? (
+          <Icon name='user' size={size * 0.6} color={tint} />
+        ) : (
+          <Icon name='user' size={size * 0.6} tone='tertiary' />
+        )}
       </View>
     );
   }
