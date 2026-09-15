@@ -22,6 +22,10 @@ import {
   useSetUserPolicy,
 } from "@/lib/stingstream/serverUsers";
 import { userAtom } from "@/providers/JellyfinProvider";
+import {
+  LinkedSignIn,
+  useLinkedIdentityFor,
+} from "../identity/LinkedIdentities";
 import { LibraryPicker } from "../shared/LibraryPicker";
 import { Notice } from "../shared/Notice";
 import {
@@ -106,6 +110,9 @@ export const UserDialog: React.FC<{
   /** `null` when the switch is usable; otherwise which of the three rules is holding it. */
   const adminBlock = adminChangeBlocked(user, me, users.data, owner.data);
   const isOwner = adminBlock === "owner";
+
+  /** Set when this account signs in through another server. */
+  const linked = useLinkedIdentityFor(user?.Name);
 
   // One line, at the top, for whichever rule is holding something. The owner and self cases
   // explain both locked controls at once; an ordinary administrator only has the Disable button.
@@ -265,6 +272,12 @@ export const UserDialog: React.FC<{
             />
           </View>
         </Section>
+
+        {linked ? (
+          <Section title={t("users.linked_title")}>
+            <LinkedSignIn link={linked} />
+          </Section>
+        ) : null}
 
         {/* Only once somebody has asked for it, from the button in the action row. */}
         {resetting ? (

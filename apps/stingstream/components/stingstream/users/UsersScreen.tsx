@@ -26,7 +26,6 @@ import {
   useServerUsers,
 } from "@/lib/stingstream/serverUsers";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
-import { LinkedIdentities } from "../identity/LinkedIdentities";
 import { InvitePerson, MintedInviteDialog } from "../invites/InvitePerson";
 import { ActionRow } from "../shared/ActionRow";
 import { confirmDestructive } from "../shared/confirm";
@@ -208,10 +207,6 @@ export function UsersScreen() {
           </ListGroup>
         )}
       </QueryState>
-
-      {/* Below the accounts, not merged into them: these *are* accounts in the list above, and the
-          half that is not visible there is which server vouches for them. */}
-      <LinkedIdentities />
 
       <InvitePerson visible={inviting} onClose={() => setInviting(false)} />
       <MintedInviteDialog minted={showing} onClose={() => setShowing(null)} />
