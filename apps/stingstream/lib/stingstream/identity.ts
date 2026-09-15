@@ -1,17 +1,11 @@
 import { getNodeBaseUrl, getStingStreamApiBaseUrl } from "@stingstream/api-client";
-import {
-  type UseQueryResult,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { type UseQueryResult, useQuery } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import {
   fetchLinks,
   fetchSignInMethod,
   type LinkedIdentity,
-  removeLink,
   type SignInMethod,
 } from "./identityApi";
 
@@ -59,23 +53,6 @@ export function useLinkedIdentities(): UseQueryResult<LinkedIdentity[]> {
     meta: LIVE,
     queryFn: () => fetchLinks(base!, token),
     enabled: authed && isAdmin,
-  });
-}
-
-/** Stop one of them signing in. The account stays. */
-export function useRemoveLinkedIdentity() {
-  const { base, token } = useIdentityApi();
-  const queryClient = useQueryClient();
-  return useMutation<
-    void,
-    Error,
-    { issuerNodeId: string; remoteUserId: string }
-  >({
-    mutationFn: ({ issuerNodeId, remoteUserId }) =>
-      removeLink(base!, issuerNodeId, remoteUserId, token),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: IDENTITY_QUERY_KEY });
-    },
   });
 }
 

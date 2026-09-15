@@ -2243,10 +2243,7 @@
     "disable_account": "Disable account",
     "enable_account": "Enable account",
     "linked_title": "Sign-in",
-    "linked_from": "{{name}} on {{server}}",
-    "linked_remove": "Unlink",
-    "linked_remove_confirm_title": "Stop them signing in?",
-    "linked_remove_confirm_detail": "They sign in using {{server}}, so unlinking removes their only way in. Their account and history remain."
+    "linked_from": "{{name}} on {{server}}"
   },
   "identity": {
     "own_server_title": "Sign in with your server",

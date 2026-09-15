@@ -58,8 +58,8 @@ export function TextFieldRow({
   /** Field under the label, spanning the row, at every width. For long values such as a folder
    * path, which a 260 px box beside the label cuts to its first few directories. */
   fullWidth?: boolean;
-  /** Twice the usual box beside the label, for a value like an address that the usual width cuts
-   * off. Capped so it cannot crowd the label out on a narrower pane. */
+  /** The box beside the label runs to the end of the row, for a value like an address that the
+   * usual width cuts off. The label keeps its own width; the field takes the rest. */
   wide?: boolean;
 }) {
   const { color } = useTheme();
@@ -88,7 +88,7 @@ export function TextFieldRow({
         compact
           ? { marginTop: 8 }
           : wide
-            ? { width: FIELD_WIDTH * 2, maxWidth: "60%" }
+            ? { width: "100%" }
             : { width: FIELD_WIDTH }
       }
     />
@@ -135,6 +135,7 @@ export function TextFieldRow({
       title={title}
       subtitle={subtitle}
       disabledByAdmin={disabledByAdmin}
+      fillChildren={wide}
       style={style}
     >
       {field}

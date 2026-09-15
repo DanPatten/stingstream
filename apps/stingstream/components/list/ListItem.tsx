@@ -27,6 +27,8 @@ interface Props extends ViewProps {
   onPress?: () => void;
   disabled?: boolean;
   disabledByAdmin?: boolean;
+  /** The children take every pixel the label leaves, rather than sizing to their content. */
+  fillChildren?: boolean;
 }
 
 export const ListItem: React.FC<PropsWithChildren<Props>> = ({
@@ -41,6 +43,7 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
   onPress,
   disabled = false,
   disabledByAdmin = false,
+  fillChildren = false,
   style,
   ...viewProps
 }) => {
@@ -85,6 +88,7 @@ export const ListItem: React.FC<PropsWithChildren<Props>> = ({
       textColor={textColor}
       showArrow={showArrow}
       iconAfter={iconAfter}
+      fillChildren={fillChildren}
     >
       {children}
     </ListItemContent>
@@ -128,6 +132,7 @@ const ListItemContent = ({
   showArrow,
   iconAfter,
   children,
+  fillChildren,
 }: Props) => {
   const { color, accent } = useTheme();
 
@@ -189,7 +194,15 @@ const ListItemContent = ({
           </Text>
         </View>
       )}
-      {children && <View style={{ marginLeft: "auto" }}>{children}</View>}
+      {children && (
+        <View
+          style={
+            fillChildren ? { flex: 1, marginLeft: 24 } : { marginLeft: "auto" }
+          }
+        >
+          {children}
+        </View>
+      )}
       {showArrow && (
         <View style={{ marginLeft: children ? 4 : "auto" }}>
           <Icon name='chevronRight' size={18} tone='tertiary' />
