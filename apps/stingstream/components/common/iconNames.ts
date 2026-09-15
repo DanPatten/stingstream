@@ -46,11 +46,17 @@ export const ICONS = {
   cast: "tv",
   download: "download",
 
+  // Library types, as Add library offers them. The same glyphs the library cards use.
+  movies: "film",
+  tvShows: "tv",
+  otherVideos: "videocam",
+
   // Actions
   info: "information-circle",
   /** The sidebar's collapse control. Three lines, because that is what people reach for. */
   menu: "menu",
-  more: "ellipsis-horizontal",
+  /** The overflow menu. Vertical, everywhere: Dan, 2026-09-14. */
+  more: "ellipsis-vertical",
   check: "checkmark",
   /**
    * A radio, for a row that is one of a set.

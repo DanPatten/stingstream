@@ -39,11 +39,6 @@ export function LibrariesSection() {
   const libraries = useLibraries();
   const [adding, setAdding] = useState(false);
 
-  // Recordings is added rather than always there, and there is only ever one of it.
-  const offerRecordings = !(libraries.data ?? []).some(
-    (library) => isRecordings(library) && library.enabled,
-  );
-
   return (
     <View>
       <View
@@ -90,21 +85,20 @@ export function LibrariesSection() {
         </ListGroup>
       </QueryState>
 
-      <AddLibraryDialog
-        visible={adding}
-        offerRecordings={offerRecordings}
-        onClose={() => setAdding(false)}
-      />
+      <AddLibraryDialog visible={adding} onClose={() => setAdding(false)} />
     </View>
   );
 }
 
+/** The same glyph Add library shows for the type. Recordings, added before it left that list, keeps its own. */
 const iconFor = (library: Library): IconName =>
   isRecordings(library)
     ? "radioOn"
     : library.type === "tvshows"
-      ? "cast"
-      : "play";
+      ? "tvShows"
+      : library.type === "homevideos"
+        ? "otherVideos"
+        : "movies";
 
 function folderSummary(
   library: Library,

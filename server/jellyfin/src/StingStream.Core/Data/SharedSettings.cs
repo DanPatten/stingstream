@@ -320,11 +320,19 @@ public sealed class RootFolderSettings
 
 /// <summary>The collection types a StingStream library may be.</summary>
 /// <remarks>
-/// Two, and this is a floor rather than a starting point. <c>LibraryLayoutService.BuildOptions</c>
-/// is tuned for these two, <c>FederatedLayout</c> routes these two plus recordings,
+/// <para>
+/// A floor rather than a starting point. <c>LibraryLayoutService.BuildOptions</c> is tuned for
+/// these, <c>FederatedLayout</c> routes movies and TV plus recordings,
 /// <c>InventoryService.BuildItemKey</c> classifies on them, and neither arr understands anything
 /// else. A <c>music</c> library would be accepted here and then quietly do nothing: no federation,
 /// no imports, no requests. Refusing it is the honest answer.
+/// </para>
+/// <para>
+/// <see cref="HomeVideos"/> is the exception that says so up front. It is "Other videos" on Add
+/// library (Dan, 2026-09-14, in place of Recordings): somewhere to keep what is neither a movie nor
+/// an episode. No manager imports into it and no peer's pointer tree has a shape for it, so it is a
+/// plain local library and nothing more is promised.
+/// </para>
 /// </remarks>
 public static class LibraryTypes
 {
@@ -334,12 +342,16 @@ public static class LibraryTypes
     /// <summary>Series. Sonarr's root folders, Jellyfin's <c>tvshows</c> collection type.</summary>
     public const string TvShows = "tvshows";
 
+    /// <summary>Other videos. No manager and no federation; Jellyfin's <c>homevideos</c> collection type.</summary>
+    public const string HomeVideos = "homevideos";
+
     /// <summary>Whether a submitted type is one this node can actually run.</summary>
     /// <param name="type">The candidate.</param>
     /// <returns><c>true</c> when it is supported.</returns>
     public static bool IsSupported(string? type)
         => string.Equals(type, Movies, StringComparison.OrdinalIgnoreCase)
-           || string.Equals(type, TvShows, StringComparison.OrdinalIgnoreCase);
+           || string.Equals(type, TvShows, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(type, HomeVideos, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>One library: a name, a type, and the folders on this node that hold it.</summary>

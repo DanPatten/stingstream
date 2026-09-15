@@ -531,7 +531,7 @@ const PlayerView: React.FC<PlayerViewProps> = ({
             />
           </TouchableOpacity>
           <TouchableOpacity onPress={onOptionsPress} className='p-2'>
-            <Ionicons name='ellipsis-horizontal' size={24} color='white' />
+            <Ionicons name='ellipsis-vertical' size={24} color='white' />
           </TouchableOpacity>
         </View>
 

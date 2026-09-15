@@ -61,6 +61,7 @@ export const ActionRow: React.FC<Props> = ({
   const { accent } = useTheme();
   const { settings } = useSettings();
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreAnchor = useRef<View>(null);
 
   const { isFavorite, toggleFavorite } = useFavorite(item);
   const togglePlayed = useMarkAsPlayed(useMemo(() => [item], [item]));
@@ -151,12 +152,16 @@ export const ActionRow: React.FC<Props> = ({
           />
 
           {moreActions.length > 0 ? (
-            <IconAction
-              name='more'
-              label={t("item.more_actions")}
-              testID='details-more'
-              onPress={() => setMoreOpen(true)}
-            />
+            // A plain View to measure, because `Button` does not forward a ref and the menu opens
+            // from here.
+            <View ref={moreAnchor} collapsable={false}>
+              <IconAction
+                name='more'
+                label={t("item.more_actions")}
+                testID='details-more'
+                onPress={() => setMoreOpen(true)}
+              />
+            </View>
           ) : null}
         </View>
       </View>
@@ -167,6 +172,7 @@ export const ActionRow: React.FC<Props> = ({
           onClose={() => setMoreOpen(false)}
           title={t("item.more_actions")}
           actions={moreActions}
+          anchorRef={moreAnchor}
         />
       ) : null}
 

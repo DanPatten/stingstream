@@ -155,7 +155,7 @@ public sealed class LibrariesController : StingStreamControllerBase
                 settings.Libraries.Add(row);
             }
         }
-        else if (type == LibraryTypes.Movies || type == LibraryTypes.TvShows)
+        else if (LibraryTypes.IsSupported(type))
         {
             var name = (request.Name ?? string.Empty).Trim();
             if (name.Length == 0)
@@ -194,7 +194,7 @@ public sealed class LibrariesController : StingStreamControllerBase
         else
         {
             return BadRequest(new LibraryProblem(
-                "Choose Movies, TV shows or Recordings.", "type_invalid", "type"));
+                "Choose Movies, TV shows or Other videos.", "type_invalid", "type"));
         }
 
         await CommitAsync(settings, cancellationToken).ConfigureAwait(false);
@@ -542,9 +542,12 @@ public sealed class LibraryCreateRequest
     /// <summary>What readers call it. Ignored for Recordings, whose name is fixed.</summary>
     public string? Name { get; set; }
 
-    /// <summary><c>movies</c>, <c>tvshows</c> or <c>recordings</c>.</summary>
+    /// <summary>
+    /// <c>movies</c>, <c>tvshows</c>, <c>homevideos</c> or <c>recordings</c>. The app no longer
+    /// offers <c>recordings</c>; the end-to-end harness still posts it.
+    /// </summary>
     public string? Type { get; set; }
 
-    /// <summary>Its folders. At least one for movies and TV shows; at most one for Recordings.</summary>
+    /// <summary>Its folders. At least one for a named library; at most one for Recordings.</summary>
     public List<string>? Paths { get; set; }
 }

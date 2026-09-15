@@ -78,7 +78,8 @@ const HEADER_ICONS = {
     android: "bookmark_border",
     web: "bookmark_border",
   },
-  more: { ios: "ellipsis", android: "more_horiz", web: "more_horiz" },
+  // Vertical everywhere but iOS, whose SF Symbols (to iOS 16) only has the horizontal ellipsis.
+  more: { ios: "ellipsis", android: "more_vert", web: "more_vert" },
   add: { ios: "plus", android: "add", web: "add" },
   edit: { ios: "pencil", android: "edit", web: "edit" },
   delete: { ios: "trash", android: "delete", web: "delete" },

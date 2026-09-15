@@ -1,8 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import {
+  Platform,
+  Pressable,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { AnchoredMenu, MenuItem, MenuSection } from "@/components/common/Menu";
 import { SheetScrollView } from "@/components/common/Sheet";
 import { Text } from "@/components/common/Text";
 import { useTheme } from "@/hooks/useTheme";
@@ -215,6 +222,93 @@ const BottomSheetContent: React.FC<{
   );
 };
 
+/**
+ * The browser's version: a menu anchored under its trigger, like every desktop app's "...".
+ *
+ * Dan, 2026-09-14, pointing at Plex's library menu: a menu rather than a modal wherever a list of
+ * choices is all there is. It used to be `showModal`, a centred card with a title for what is often
+ * three lines. Android keeps the bottom sheet below, its own menu at thumb reach, and iOS keeps the
+ * native menu above.
+ */
+const WebDropdown: React.FC<PlatformDropdownProps> = ({
+  trigger,
+  title,
+  groups,
+  disabled: isDisabled,
+  open: controlledOpen,
+  onOpenChange,
+  onOptionSelect,
+}) => {
+  const { t } = useTranslation();
+  const anchor = useRef<View>(null);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = (controlledOpen ?? uncontrolledOpen) && !isDisabled;
+
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
+  const close = useCallback(() => setOpen(false), [setOpen]);
+
+  return (
+    <>
+      <Pressable
+        ref={anchor}
+        onPress={() => setOpen(true)}
+        disabled={isDisabled}
+        accessibilityState={{ expanded: open, disabled: isDisabled }}
+      >
+        {trigger || <Text>{t("common.open_menu")}</Text>}
+      </Pressable>
+      <AnchoredMenu
+        visible={open}
+        onClose={close}
+        anchorRef={anchor}
+        title={title}
+      >
+        {groups.map((group, groupIndex) => (
+          <MenuSection
+            key={groupIndex}
+            title={group.title}
+            divider={groupIndex > 0}
+          >
+            {group.options.map((option, optionIndex) => (
+              <MenuItem
+                key={optionIndex}
+                label={option.label}
+                disabled={option.disabled}
+                selected={
+                  option.type === "radio"
+                    ? option.selected
+                    : option.type === "toggle"
+                      ? option.value
+                      : undefined
+                }
+                onPress={() => {
+                  // A toggle stays open, so several can be flipped in one visit.
+                  if (option.type === "toggle") {
+                    option.onToggle();
+                    onOptionSelect?.(option.value);
+                    return;
+                  }
+                  // Closed first: an action that opens a dialog of its own must not open it
+                  // underneath this menu.
+                  close();
+                  option.onPress();
+                  if (option.type === "radio") onOptionSelect?.(option.value);
+                }}
+              />
+            ))}
+          </MenuSection>
+        ))}
+      </AnchoredMenu>
+    </>
+  );
+};
+
 const PlatformDropdownComponent = ({
   trigger,
   title,
@@ -378,6 +472,20 @@ const PlatformDropdownComponent = ({
           </Menu>
         </Host>
       </View>
+    );
+  }
+
+  if (Platform.OS === "web" && !Platform.isTV) {
+    return (
+      <WebDropdown
+        trigger={trigger}
+        title={title}
+        groups={groups}
+        disabled={isDisabled}
+        open={controlledOpen}
+        onOpenChange={controlledOnOpenChange}
+        onOptionSelect={onOptionSelect}
+      />
     );
   }
 

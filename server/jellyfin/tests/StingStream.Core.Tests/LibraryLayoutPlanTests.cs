@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using MediaBrowser.Model.Entities;
+using StingStream.Core.Arr;
 using StingStream.Core.Configuration;
 using StingStream.Core.Data;
 using StingStream.Core.Library;
@@ -107,6 +108,28 @@ public class LibraryLayoutPlanTests
         Assert.DoesNotContain(
             plan.Single(p => p.Name == "Archive").Paths,
             x => x.Contains("federated", System.StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void AnOtherVideosLibraryIsHomeVideosAndHoldsOnlyItsOwnFolders()
+    {
+        // No manager imports into it and no peer's pointers are shaped for it, so it is the media
+        // server's home videos type and never picks up a federated folder.
+        var settings = Migrated();
+        settings.Libraries.Add(new LibrarySettings
+        {
+            Name = "Family",
+            FolderName = "Family",
+            Type = LibraryTypes.HomeVideos,
+            Paths = { @"E:\family" },
+        });
+
+        var plan = LibraryLayoutPlan.Plan(settings, Runtime, FederatedRoot);
+
+        var family = plan.Single(p => p.Name == "Family");
+        Assert.Equal(CollectionTypeOptions.homevideos, family.Type);
+        Assert.Equal(new[] { @"E:\family" }, family.Paths);
+        Assert.Null(ArrEnablement.ChildFor(LibraryTypes.HomeVideos));
     }
 
     [Fact]

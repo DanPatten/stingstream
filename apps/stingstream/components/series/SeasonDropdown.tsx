@@ -1,14 +1,10 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Platform, Pressable, View } from "react-native";
+import { Platform, View } from "react-native";
 import { Button } from "@/components/Button";
-import { Dialog } from "@/components/common/Dialog";
 import { Icon } from "@/components/common/Icon";
-import { radius, tokens } from "@/constants/theme";
-import { usePressableStates } from "@/hooks/usePressableStates";
-import { useTheme } from "@/hooks/useTheme";
-import { Text } from "../common/Text";
+import { AnchoredMenu, MenuItem } from "@/components/common/Menu";
 
 type Props = {
   item: BaseItemDto;
@@ -31,12 +27,9 @@ export type SeasonIndexState = {
 /**
  * Which season the episode list is showing.
  *
- * A `Dialog` rather than `PlatformDropdown`: that component routes every
- * non-TV surface through the global `@gorhom/bottom-sheet`, and the sheet does
- * not present on web at all — measured at 390, 600 and 1440 on 2026-09-07, the
- * season picker put no node in the DOM when tapped, at any width. `Dialog` is
- * a centred card in a browser and the same bottom sheet on a phone, so this is
- * one control that works everywhere instead of two that work in one place each.
+ * An `AnchoredMenu`: a dropdown under the button in a browser, and the same `Dialog` bottom sheet it
+ * always was on a device. It was a centred card on the web too, until Dan asked for menus rather
+ * than modals wherever a list of choices is all there is (2026-09-14).
  */
 export const SeasonDropdown: React.FC<Props> = ({
   item,
@@ -48,6 +41,7 @@ export const SeasonDropdown: React.FC<Props> = ({
   const isTv = Platform.isTV;
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
+  const anchor = useRef<View>(null);
 
   const keys = useMemo<SeasonKeys>(
     () =>
@@ -139,81 +133,51 @@ export const SeasonDropdown: React.FC<Props> = ({
 
   return (
     <>
-      <Button
-        variant='secondary'
-        size='sm'
-        testID='details-season-picker'
-        onPress={() => setOpen(true)}
-        accessibilityLabel={t("item_card.select_season")}
-        iconRight={
-          <Icon
-            name='chevronDown'
-            size={16}
-            tone='secondary'
-            style={{ marginLeft: 8 }}
-          />
-        }
+      <View
+        ref={anchor}
+        collapsable={false}
+        style={{ alignSelf: "flex-start" }}
       >
-        {label}
-      </Button>
+        <Button
+          variant='secondary'
+          size='sm'
+          testID='details-season-picker'
+          onPress={() => setOpen(true)}
+          accessibilityLabel={t("item_card.select_season")}
+          iconRight={
+            <Icon
+              name='chevronDown'
+              size={16}
+              tone='secondary'
+              style={{ marginLeft: 8 }}
+            />
+          }
+        >
+          {label}
+        </Button>
+      </View>
 
-      <Dialog
+      <AnchoredMenu
         visible={open}
         onClose={() => setOpen(false)}
+        anchorRef={anchor}
         title={t("item_card.seasons")}
+        align='start'
       >
-        <View style={{ marginHorizontal: -8 }}>
-          {sorted.map((season) => (
-            <SeasonRow
-              key={season.Id ?? String(season.IndexNumber)}
-              label={
-                season.Name || `${t("item_card.season")} ${season.IndexNumber}`
-              }
-              selected={Number(season.IndexNumber) === Number(seasonIndex)}
-              onPress={() => {
-                setOpen(false);
-                onSelect(season);
-              }}
-            />
-          ))}
-        </View>
-      </Dialog>
+        {sorted.map((season) => (
+          <MenuItem
+            key={season.Id ?? String(season.IndexNumber)}
+            label={
+              season.Name || `${t("item_card.season")} ${season.IndexNumber}`
+            }
+            selected={Number(season.IndexNumber) === Number(seasonIndex)}
+            onPress={() => {
+              setOpen(false);
+              onSelect(season);
+            }}
+          />
+        ))}
+      </AnchoredMenu>
     </>
-  );
-};
-
-const SeasonRow: React.FC<{
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}> = ({ label, selected, onPress }) => {
-  const states = usePressableStates({});
-  const { accent } = useTheme();
-
-  return (
-    <Pressable
-      accessibilityRole='button'
-      accessibilityLabel={label}
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      {...states.handlers}
-      style={[
-        {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-          minHeight: tokens.control.minTouchTarget,
-          paddingHorizontal: 8,
-          borderRadius: radius.sm,
-          backgroundColor: states.overlay ?? "transparent",
-        },
-        states.webStyle,
-      ]}
-    >
-      <Text variant='body' weight={selected ? "semibold" : "regular"}>
-        {label}
-      </Text>
-      {selected ? <Icon name='check' size={18} color={accent[500]} /> : null}
-    </Pressable>
   );
 };

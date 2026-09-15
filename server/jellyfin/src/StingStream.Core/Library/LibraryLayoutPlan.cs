@@ -192,5 +192,7 @@ public static class LibraryLayoutPlan
     private static CollectionTypeOptions CollectionTypeOf(string? type)
         => string.Equals(type, LibraryTypes.TvShows, StringComparison.OrdinalIgnoreCase)
             ? CollectionTypeOptions.tvshows
-            : CollectionTypeOptions.movies;
+            : string.Equals(type, LibraryTypes.HomeVideos, StringComparison.OrdinalIgnoreCase)
+                ? CollectionTypeOptions.homevideos
+                : CollectionTypeOptions.movies;
 }

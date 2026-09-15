@@ -27,8 +27,13 @@ import {
 
 const PATH = "/Libraries";
 
-/** What a library type means to the server. Matches `LibraryTypes` on the node. */
-export const LIBRARY_TYPES = ["movies", "tvshows"] as const;
+/**
+ * What a library type means to the server. Matches `LibraryTypes` on the node.
+ *
+ * `homevideos` is Other videos: a plain local library, with no manager behind it and nothing from
+ * other servers merged into it.
+ */
+export const LIBRARY_TYPES = ["movies", "tvshows", "homevideos"] as const;
 export type LibraryType = (typeof LIBRARY_TYPES)[number];
 
 /** One library: what it is called, where it lives, and whether this server runs it. */
@@ -64,10 +69,15 @@ export interface LibraryUpdate {
   hidden?: boolean;
 }
 
-/** What Add library sends. Recordings takes no name and at most one folder. */
+/**
+ * What Add library sends.
+ *
+ * The screen no longer offers Recordings. The node still accepts `recordings` (no name, at most one
+ * folder), which `tools/e2e-m7.ps1` posts directly.
+ */
 export interface LibraryCreate {
   name: string;
-  type: LibraryType | "recordings";
+  type: LibraryType;
   paths: string[];
 }
 

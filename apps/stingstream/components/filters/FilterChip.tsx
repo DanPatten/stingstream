@@ -14,6 +14,11 @@ export interface FilterChipProps {
   label: string;
   icon?: IconName;
   /**
+   * Which side of the label the icon sits. `end` is a sort or filter chip's
+   * chevron; `start` is an icon that names what the chip is.
+   */
+  iconPosition?: "start" | "end";
+  /**
    * This filter is narrowing the list. An active chip is *filled*, not tinted:
    * a bar of six tinted chips reads as decoration, and "which of these am I
    * actually using" is the one question the bar has to answer at a glance.
@@ -26,6 +31,7 @@ export interface FilterChipProps {
   style?: StyleProp<ViewStyle>;
   /** For the screens whose own bar still spaces its chips with a utility class. */
   className?: string;
+  testID?: string;
 }
 
 const isWeb = Platform.OS === "web";
@@ -44,12 +50,14 @@ const isWeb = Platform.OS === "web";
 export const FilterChip: React.FC<FilterChipProps> = ({
   label,
   icon,
+  iconPosition = "end",
   active = false,
   disabled = false,
   onPress,
   accessibilityLabel,
   style,
   className,
+  testID,
 }) => {
   const { color, accent } = useTheme();
   const [hovered, setHovered] = useState(false);
@@ -61,8 +69,17 @@ export const FilterChip: React.FC<FilterChipProps> = ({
       ? color.bg["3"]
       : color.bg["2"];
 
+  const glyph = icon ? (
+    <Icon
+      name={icon}
+      size={iconPosition === "start" ? 16 : 14}
+      tone={active ? "onAccent" : "secondary"}
+    />
+  ) : null;
+
   return (
     <Pressable
+      testID={testID}
       onPress={onPress}
       disabled={disabled}
       accessibilityRole='button'
@@ -101,6 +118,7 @@ export const FilterChip: React.FC<FilterChipProps> = ({
         style,
       ]}
     >
+      {iconPosition === "start" ? glyph : null}
       <Text
         variant='caption'
         weight='semibold'
@@ -109,9 +127,7 @@ export const FilterChip: React.FC<FilterChipProps> = ({
       >
         {label}
       </Text>
-      {icon ? (
-        <Icon name={icon} size={14} tone={active ? "onAccent" : "secondary"} />
-      ) : null}
+      {iconPosition === "end" ? glyph : null}
     </Pressable>
   );
 };

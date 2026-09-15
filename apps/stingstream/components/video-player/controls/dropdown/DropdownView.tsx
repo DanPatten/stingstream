@@ -432,7 +432,7 @@ const DropdownView = ({
         accessibilityRole='button'
         accessibilityLabel={t("player.menu.playback_options")}
       >
-        <Ionicons name='ellipsis-horizontal' size={24} color={"white"} />
+        <Ionicons name='ellipsis-vertical' size={24} color={"white"} />
       </View>
     ),
     [t],
