@@ -57,10 +57,11 @@ impl WebBundle {
         }
     }
 
-    /// Resolve a URL path to a file inside the bundle.
+    /// The syntactic half of [`resolve`]: everything that can be decided without touching the disk.
     ///
-    /// Returns `None` for anything that escapes the root, names a parent, or is not a file.
-    pub fn resolve(&self, url_path: &str) -> Option<PathBuf> {
+    /// Split out so it stays a plain function with plain tests. Every segment is checked here; the
+    /// filesystem is only asked afterwards, and only to resolve symlinks and confirm a file.
+    fn candidate_path(&self, url_path: &str) -> Option<PathBuf> {
         let mut path = self.root.clone();
         for segment in url_path.split('/') {
             if segment.is_empty() || segment == "." {
@@ -80,16 +81,30 @@ impl WebBundle {
             }
             path.push(decoded);
         }
+        Some(path)
+    }
+
+    /// Resolve a URL path to a file inside the bundle.
+    ///
+    /// Returns `None` for anything that escapes the root, names a parent, or is not a file.
+    ///
+    /// Async because the two filesystem questions below are real syscalls, and this runs on the
+    /// router's **fallback** — so every unrouted path on a listener bound to `0.0.0.0`, which is
+    /// every page load and every asset, used to block a runtime worker twice. `file_response`
+    /// three functions down has always used `tokio::fs`; this is the same reasoning applied to the
+    /// step before it.
+    pub async fn resolve(&self, url_path: &str) -> Option<PathBuf> {
+        let path = self.candidate_path(url_path)?;
 
         // Resolving follows symlinks, so this is also what stops a link inside the bundle from
         // pointing at the node's data directory.
-        let resolved = std::fs::canonicalize(&path).ok()?;
+        let resolved = tokio::fs::canonicalize(&path).await.ok()?;
         if !resolved.starts_with(&self.root) {
             return None;
         }
         // Reject anything that is not a plain file: a directory would otherwise be "found" and
         // then fail to open, which reads as a server error rather than a 404.
-        if !resolved.is_file() {
+        if !tokio::fs::metadata(&resolved).await.ok()?.is_file() {
             return None;
         }
         // Belt and braces: no component of the *relative* path may be a parent reference.
@@ -373,7 +388,7 @@ fn is_index_document(path: &Path) -> bool {
 /// `marker` is spliced into `index.html` responses — the file itself, and the SPA fallback — and
 /// into nothing else.
 pub async fn serve(bundle: &WebBundle, url_path: &str, marker: Option<&Marker<'_>>) -> Response {
-    if let Some(path) = bundle.resolve(url_path) {
+    if let Some(path) = bundle.resolve(url_path).await {
         let cache = cache_control(url_path, &path);
         let marker = marker.filter(|_| is_index_document(&path));
         return file_response(&path, cache, marker).await;
@@ -639,16 +654,16 @@ mod tests {
         assert!(WebBundle::open(&td.path().join("nope")).is_none());
     }
 
-    #[test]
-    fn real_files_resolve() {
+    #[tokio::test]
+    async fn real_files_resolve() {
         let (_td, b) = bundle();
-        assert!(b.resolve("/index.html").is_some());
-        assert!(b.resolve("/_expo/static/js/web/entry-4f1c2a9b0e.js").is_some());
-        assert!(b.resolve("/favicon.ico").is_some());
+        assert!(b.resolve("/index.html").await.is_some());
+        assert!(b.resolve("/_expo/static/js/web/entry-4f1c2a9b0e.js").await.is_some());
+        assert!(b.resolve("/favicon.ico").await.is_some());
     }
 
-    #[test]
-    fn traversal_is_refused_in_every_spelling() {
+    #[tokio::test]
+    async fn traversal_is_refused_in_every_spelling() {
         let (_td, b) = bundle();
         for path in [
             "/../config.toml",
@@ -658,15 +673,35 @@ mod tests {
             "/%2e%2e%2fconfig.toml",
             "/a/%5c..%5cconfig.toml",
         ] {
-            assert!(b.resolve(path).is_none(), "{path} should not resolve");
+            assert!(b.resolve(path).await.is_none(), "{path} should not resolve");
         }
     }
 
+    /// The traversal checks are syntactic, so they hold before the disk is touched at all.
+    ///
+    /// Pinned separately from the test above because `candidate_path` is what keeps those rules
+    /// testable without a runtime, and it is the half that must never be skipped.
     #[test]
-    fn a_directory_does_not_resolve_to_a_file() {
+    fn traversal_is_refused_before_the_filesystem_is_asked() {
         let (_td, b) = bundle();
-        assert!(b.resolve("/_expo").is_none());
-        assert!(b.resolve("/_expo/static").is_none());
+        for path in [
+            "/../config.toml",
+            "/..%2fconfig.toml",
+            "/%2e%2e/config.toml",
+            "/_expo/../../config.toml",
+            "/%2e%2e%2fconfig.toml",
+            "/a/%5c..%5cconfig.toml",
+        ] {
+            assert!(b.candidate_path(path).is_none(), "{path} should not survive parsing");
+        }
+        assert!(b.candidate_path("/index.html").is_some());
+    }
+
+    #[tokio::test]
+    async fn a_directory_does_not_resolve_to_a_file() {
+        let (_td, b) = bundle();
+        assert!(b.resolve("/_expo").await.is_none());
+        assert!(b.resolve("/_expo/static").await.is_none());
     }
 
     #[test]

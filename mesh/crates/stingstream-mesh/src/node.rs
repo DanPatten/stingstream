@@ -3703,8 +3703,18 @@ fn span_of(parts: &http::response::Parts) -> (u64, Option<u64>, Option<u64>) {
 }
 
 /// The first twelve characters of a node id: enough to tell peers apart in a log line.
+///
+/// Characters, not bytes. This used to be `&node[..node.len().min(12)]`, which panics whenever
+/// byte 12 lands inside a multi-byte character — and not every string that reaches here is a node
+/// id this node minted. Two of the call sites take one straight from a peer: the `{node}` segment
+/// of a `/stream/...` URL, which `open_order` deliberately passes through untouched, and the
+/// `peers` table, which gossip writes to. One of them is inside `impl Drop`, where a panic aborts
+/// the process rather than unwinding.
 fn short(node: &str) -> &str {
-    &node[..node.len().min(12)]
+    match node.char_indices().nth(12) {
+        Some((end, _)) => &node[..end],
+        None => node,
+    }
 }
 
 /// How a join found its first peer.
@@ -4029,6 +4039,32 @@ pub fn status_for(e: &anyhow::Error) -> StatusCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `short` must survive any string, because not every string it gets is a node id.
+    ///
+    /// It used to be a **byte** slice under a doc comment promising characters, so any id whose
+    /// byte 12 fell inside a multi-byte character panicked. Two call paths take one straight from
+    /// a peer — the `{node}` segment of a `/stream/...` URL, which `open_order` passes through on
+    /// purpose, and the `peers` table that gossip writes — and one of the call sites is inside
+    /// `impl Drop`, where a panic aborts instead of unwinding.
+    #[test]
+    fn short_never_splits_a_character() {
+        // Twelve bytes of ASCII then a three-byte character: byte 12 is mid-character.
+        assert_eq!(short("aaaaaaaaaaaa€"), "aaaaaaaaaaaa");
+        // Multi-byte from the start, so twelve *characters* is well past twelve bytes.
+        assert_eq!(short("€€€€€€€€€€€€€€"), "€€€€€€€€€€€€");
+        // A real node id is 64 ASCII characters and is cut where it always was.
+        let id = "94bcbe2abc9c6ddbeb28d47ae705d6c4";
+        assert_eq!(short(id), "94bcbe2abc9c");
+        // Shorter than the limit, empty, and exactly at it.
+        assert_eq!(short("abc"), "abc");
+        assert_eq!(short(""), "");
+        assert_eq!(short("123456789012"), "123456789012");
+        // The shape that used to abort the process.
+        for s in ["é", "aé", "aaaaaaaaaaaé", "🎬🎬🎬🎬"] {
+            let _ = short(s);
+        }
+    }
 
     #[test]
     fn segments_are_encoded_but_stay_readable() {

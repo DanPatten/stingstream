@@ -111,6 +111,15 @@ pub const MAX_GOSSIP_MESSAGE: usize = 256 * 1024;
 /// the budget is measured against the records alone.
 pub const RECORD_BUDGET: usize = 192 * 1024;
 
+/// How many members one `Body::Membership` may add.
+///
+/// The crate bounds bytes in several places and cardinality in none, which is a gap when a message
+/// inserts a database row per entry and the enum is a union that never subtracts: whatever is
+/// written stays. A frame holds `MAX_GOSSIP_MESSAGE` bytes and a `Member` is small, so without a
+/// cap one message inserts thousands of rows and the next one inserts thousands more.
+///
+/// A thousand is far above any real group and far below a problem.
+pub const MAX_MEMBERS_PER_MESSAGE: usize = 1024;
 
 /// Domain separator for the per-message signature.
 const SIGN_DOMAIN: &[u8] = b"stingstream-gossip-v1";
@@ -883,7 +892,23 @@ async fn handle(
             }
         }
         Body::Membership { members } => {
-            for m in members {
+            // `Member.node` is a free `String` a peer chose, and this is the only path that writes
+            // one into `peers` without it being the authenticated author. Everything downstream
+            // then treats those rows as node ids: `connect_node` parses them, `short` slices them
+            // for a log line. Parse first and drop what does not parse -- the same discipline
+            // `RekeyRecord::verify` and the gossip envelope already apply, and the reason `short`
+            // was one multi-byte character away from panicking the node during a re-key.
+            //
+            // Capped, too. `Membership` is a union and never a subtraction (see the enum), so a
+            // row written here is never removed; one 256 KiB frame otherwise inserts thousands.
+            for m in members.iter().take(MAX_MEMBERS_PER_MESSAGE) {
+                if m.node.parse::<EndpointId>().is_err() {
+                    tracing::debug!(
+                        %group, peer = %author.fmt_short(),
+                        "ignoring a gossiped member whose node id is not one"
+                    );
+                    continue;
+                }
                 let _ = db.note_member(group, &m.node, &m.server_name);
             }
         }

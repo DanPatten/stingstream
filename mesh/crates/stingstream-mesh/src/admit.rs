@@ -151,8 +151,47 @@ async fn request_inner(
 #[derive(Debug, Clone)]
 pub struct AdmitProtocol(pub Arc<Db>);
 
+/// How long one admission exchange may take, start to finish.
+///
+/// This is the only surface on a node that talks to somebody holding neither a secret nor a
+/// membership, so unlike [`crate::peer::HEADER_TIMEOUT`] — whose own comment says it "is not a
+/// defence against strangers" — this one is. Every await in `accept` was unbounded: a stranger who
+/// knows the node id could dial, open no stream (or three bytes of a four-byte length prefix) and
+/// pin an accept task indefinitely, as many times as it liked.
+///
+/// Ten seconds is generous for one round trip that reads a few hundred bytes, and it is deliberately
+/// tighter than the peer surface's thirty for the same reason [`MAX_ADMIT_FRAME`] is tighter than
+/// `auth::MAX_FRAME`. The dialling half of this protocol has had a deadline all along
+/// ([`request`]); this is the other half of that contract.
+const ADMIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How long to wait for the joiner to close after it has been answered.
+///
+/// The same bounded wait `crate::peer` uses for the identical "let the refusal frame land" pause.
+/// Normally the peer closes as soon as it reads the answer, so this returns at once.
+const ADMIT_CLOSE_LINGER: std::time::Duration = std::time::Duration::from_secs(3);
+
 impl iroh::protocol::ProtocolHandler for AdmitProtocol {
     async fn accept(&self, conn: Connection) -> Result<(), iroh::protocol::AcceptError> {
+        let peer = conn.remote_id();
+        // One deadline around the whole exchange, mirroring `request` on the dialling side.
+        match tokio::time::timeout(ADMIT_TIMEOUT, self.exchange(&conn)).await {
+            Ok(result) => result,
+            Err(_) => {
+                tracing::warn!(
+                    peer = %peer.fmt_short(),
+                    seconds = ADMIT_TIMEOUT.as_secs(),
+                    "an admit request did not finish in time; dropping it"
+                );
+                Ok(())
+            }
+        }
+    }
+}
+
+impl AdmitProtocol {
+    /// One admission exchange. Split out so [`ADMIT_TIMEOUT`] can wrap the whole of it.
+    async fn exchange(&self, conn: &Connection) -> Result<(), iroh::protocol::AcceptError> {
         let db = self.0.clone();
         let peer = conn.remote_id();
 
@@ -185,9 +224,10 @@ impl iroh::protocol::ProtocolHandler for AdmitProtocol {
         }
         // Let the answer land before the connection goes away: a QUIC application close can
         // otherwise race the last frame out of the buffer, and the joiner would see a dropped
-        // connection where it should see a sentence.
+        // connection where it should see a sentence. Bounded, because a joiner that reads its
+        // answer and never closes would otherwise hold this task for good.
         let _ = send.finish();
-        let _ = conn.closed().await;
+        let _ = tokio::time::timeout(ADMIT_CLOSE_LINGER, conn.closed()).await;
         Ok(())
     }
 }

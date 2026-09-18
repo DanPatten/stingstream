@@ -33,7 +33,7 @@ use anyhow::{Context, Result};
 use bytes::Bytes;
 use http::{header, HeaderValue, Method, Request, Response, StatusCode};
 use http_body_util::combinators::BoxBody;
-use http_body_util::{BodyExt, Full, StreamBody};
+use http_body_util::{BodyExt, Full, Limited, StreamBody};
 use hyper::body::{Frame, Incoming};
 use hyper_util::rt::TokioIo;
 use iroh::endpoint::Connection;
@@ -208,6 +208,20 @@ pub fn if_range_allows(if_range: Option<&str>, etag: &str) -> bool {
 /// member, so this is not a defence against strangers; it is a defence against a member whose
 /// build is wedged pinning one task per stream on every other node in the group.
 const HEADER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The largest request body this surface will read into memory.
+///
+/// `HEADER_TIMEOUT` above bounds the request *line and headers*; nothing bounded the body, so
+/// `into_body().collect()` on `/group/rekey` and `/watch/*` would buffer whatever a peer sent —
+/// a member writing `Transfer-Encoding: chunked` and never stopping had the node buffer until it
+/// died, once per stream, and a member may open several.
+///
+/// Both bodies are a handful of fields: a `RekeyRecord` and a `Report` are a few hundred bytes. Its
+/// own constant rather than a shared one for the reason `admit.rs` gives for not sharing its frame
+/// cap with `auth.rs` — the surfaces have different budgets, and a parameter threaded through to
+/// save twenty lines is not an improvement. `api.rs` bounds the local API the same way with
+/// axum's `DefaultBodyLimit`; this server is raw hyper, so it has to say it here.
+const MAX_PEER_BODY: usize = 64 * 1024;
 
 /// Shared state for the peer protocol handler.
 #[derive(Debug)]
@@ -666,11 +680,14 @@ async fn serve_rekey(
             "this node cannot apply a rotation",
         );
     };
-    let bytes = match req.into_body().collect().await {
+    let bytes = match Limited::new(req.into_body(), MAX_PEER_BODY).collect().await {
         Ok(b) => b.to_bytes(),
         Err(e) => {
-            tracing::warn!(error = %e, "reading a rekey request body");
-            return status(StatusCode::BAD_REQUEST, "could not read the request body");
+            tracing::warn!(error = %e, limit = MAX_PEER_BODY, "reading a rekey request body");
+            return status(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "that request body could not be read, or was larger than this surface accepts",
+            );
         }
     };
     let record: crate::group::RekeyRecord = match serde_json::from_slice(&bytes) {
@@ -708,11 +725,14 @@ async fn serve_watch(
             "this node is not running the watch bridge",
         );
     };
-    let bytes = match req.into_body().collect().await {
+    let bytes = match Limited::new(req.into_body(), MAX_PEER_BODY).collect().await {
         Ok(b) => b.to_bytes(),
         Err(e) => {
-            tracing::warn!(error = %e, "reading a watch request body");
-            return status(StatusCode::BAD_REQUEST, "could not read the request body");
+            tracing::warn!(error = %e, limit = MAX_PEER_BODY, "reading a watch request body");
+            return status(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "that request body could not be read, or was larger than this surface accepts",
+            );
         }
     };
     let author = peer.to_string();

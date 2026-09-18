@@ -327,17 +327,54 @@ pub const PARTICIPANT_TIMEOUT_MS: Millis = 30_000;
 /// record disappears and a member re-learns it from a peer that has not heard yet.
 pub const CLOSED_LINGER_MS: Millis = 60_000;
 
+/// How long an **open** session may go without being updated before it is swept.
+///
+/// `sweep` used to evict only sessions somebody had closed, which meant an open one lived for the
+/// life of the process. Its leader announces it over gossip, and every other node in every group
+/// this node is in stores it in the one shared `Registry` — so a member announcing a stream of
+/// sessions it never closes grows that map without bound, and every entry is re-serialised on each
+/// publish.
+///
+/// Ten minutes is far longer than the few seconds between a live session's updates, so a session
+/// anybody is actually watching is never swept; what goes is one whose leader stopped talking —
+/// which is also what a crashed leader leaves behind, and that used to linger forever too.
+pub const OPEN_IDLE_MS: Millis = 10 * 60 * 1000;
+
+/// The most sessions one node will hold across every group.
+///
+/// The backstop for a burst that arrives faster than [`OPEN_IDLE_MS`] can clear it. The crate caps
+/// bytes in six places and cardinality in none; this is the first, and it is deliberately far above
+/// any real number of simultaneous watch-together sessions.
+pub const MAX_SESSIONS: usize = 512;
+
 impl Registry {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Insert or replace, keeping whichever record is newer. Returns true when something changed.
+    ///
+    /// Refuses a *new* session once the registry is full ([`MAX_SESSIONS`]) — an update to one it
+    /// already holds always goes through, so a full registry cannot freeze the sessions in it.
+    /// Refusing rather than evicting is what `max_concurrent_streams` already does on the peer
+    /// surface: the node says no honestly instead of quietly dropping somebody else's state.
     pub fn merge(&self, incoming: WatchSession) -> bool {
         let mut guard = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         match guard.get(&incoming.id) {
             Some(existing) if !incoming.supersedes(existing) => false,
-            _ => {
+            Some(_) => {
+                guard.insert(incoming.id.clone(), incoming);
+                true
+            }
+            None => {
+                if guard.len() >= MAX_SESSIONS {
+                    tracing::warn!(
+                        session = %incoming.id,
+                        held = guard.len(),
+                        "refusing a new watch session; the registry is full"
+                    );
+                    return false;
+                }
                 guard.insert(incoming.id.clone(), incoming);
                 true
             }
@@ -451,6 +488,13 @@ impl Registry {
         let mut removed = Vec::new();
         guard.retain(|id, s| {
             if s.closed && now.saturating_sub(s.updated_at_ms) > CLOSED_LINGER_MS {
+                removed.push(id.clone());
+                return false;
+            }
+            // An open session whose leader has stopped talking. Nothing used to remove one, so a
+            // crashed leader's session — or a stream of sessions a member announced and never
+            // closed — stayed in this map for the life of the process. See `OPEN_IDLE_MS`.
+            if now.saturating_sub(s.updated_at_ms) > OPEN_IDLE_MS {
                 removed.push(id.clone());
                 return false;
             }
@@ -624,6 +668,45 @@ mod tests {
         let closed_at = reg.get("a").unwrap().updated_at_ms;
         assert!(reg.sweep(closed_at + 1).is_empty());
         assert_eq!(reg.sweep(closed_at + CLOSED_LINGER_MS + 1), vec!["a"]);
+    }
+
+    /// An open session whose leader stopped talking is swept too.
+    ///
+    /// `sweep` only ever removed *closed* sessions, so an open one lived for the life of the
+    /// process: a crashed leader left its session behind forever, and a member announcing sessions
+    /// it never closes grew the map -- one registry, shared across every group -- without bound.
+    #[test]
+    fn an_open_session_nobody_has_touched_is_swept() {
+        let reg = Registry::new();
+        reg.put(session("a", 1));
+        let at = reg.get("a").unwrap().updated_at_ms;
+
+        // A live session is updated every few seconds, so it is never close to the deadline.
+        assert!(reg.sweep(at + OPEN_IDLE_MS - 1).is_empty());
+        assert!(reg.get("a").is_some());
+
+        assert_eq!(reg.sweep(at + OPEN_IDLE_MS + 1), vec!["a"]);
+        assert!(reg.get("a").is_none());
+    }
+
+    /// And a burst arriving faster than the sweep can clear it is refused, not absorbed.
+    ///
+    /// `merge` takes whatever a peer gossips, and `WatchSession.id` is an attacker-chosen string.
+    /// Refusing rather than evicting matches what the peer surface already does when it is at
+    /// capacity: say no, rather than silently drop somebody else's state.
+    #[test]
+    fn a_full_registry_refuses_new_sessions_but_still_updates_the_ones_it_holds() {
+        let reg = Registry::new();
+        for i in 0..MAX_SESSIONS {
+            assert!(reg.merge(session(&format!("s{i}"), 1)), "session {i} should be accepted");
+        }
+        assert!(!reg.merge(session("one-too-many", 1)));
+        assert!(reg.get("one-too-many").is_none());
+
+        // The sessions already held must keep working, or a full registry would freeze a real
+        // watch-together party rather than just refusing a new one.
+        assert!(reg.merge(session("s0", 2)));
+        assert_eq!(reg.get("s0").unwrap().seq, 2);
     }
 
     fn command(session: &str, seq: u64, kind: CommandKind) -> Command {
