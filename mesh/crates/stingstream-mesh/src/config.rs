@@ -152,6 +152,18 @@ pub struct PeerConfig {
     pub swarm_min_span_bytes: u64,
 }
 
+/// The smallest `swarm_chunk_bytes` worth honouring. See [`MeshConfig::sanitise`].
+///
+/// 64 KiB is already far below the default and below anything sensible; the point of a floor is
+/// that zero does not become one-byte chunks.
+const MIN_SWARM_CHUNK_BYTES: u64 = 64 * 1024;
+
+/// The smallest `swarm_min_span_bytes` worth honouring. See [`MeshConfig::sanitise`].
+///
+/// One mebibyte, which is still two orders of magnitude below the default. What this really rules
+/// out is zero, which made "is this span worth splitting" always true.
+const MIN_SWARM_SPAN_BYTES: u64 = 1024 * 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GossipConfig {
@@ -290,7 +302,43 @@ impl MeshConfig {
             cfg.api.port = port;
         }
         cfg.apply_env();
+        cfg.sanitise();
         Ok(cfg)
+    }
+
+    /// Pull the swarm numbers back into a range that cannot hurt the node.
+    ///
+    /// `deny_unknown_fields` rejects a key nobody recognises; nothing rejected a *value*. Zero was
+    /// the interesting one in all three cases, and none of them failed loudly:
+    ///
+    /// * `swarm_min_span_bytes = 0` made every span "worth swarming", including one whose end the
+    ///   holder never sent — which used to reach an `expect` and panic the node on any stream from
+    ///   a holder that answered without `Content-Range` or `Content-Length`.
+    /// * `swarm_chunk_bytes = 0` was quietly turned into *one-byte chunks* by `chunks`' own
+    ///   `.max(1)`, so a 4 GB film asked for four billion of them.
+    /// * `swarm_max_holders = 0` is simply "off", which is already what the code means by 1, so it
+    ///   is left alone — it is the one value where zero is not a foot-gun.
+    ///
+    /// Corrected rather than refused, and said out loud, because that is what this file already
+    /// does with a malformed `runtime.json` and a blank server name: a node that will not start
+    /// because of one number in a config file is worse than a node that starts with the default.
+    fn sanitise(&mut self) {
+        if self.peer.swarm_chunk_bytes < MIN_SWARM_CHUNK_BYTES {
+            tracing::warn!(
+                was = self.peer.swarm_chunk_bytes,
+                now = MIN_SWARM_CHUNK_BYTES,
+                "swarm_chunk_bytes is too small to be useful; using the floor"
+            );
+            self.peer.swarm_chunk_bytes = MIN_SWARM_CHUNK_BYTES;
+        }
+        if self.peer.swarm_min_span_bytes < MIN_SWARM_SPAN_BYTES {
+            tracing::warn!(
+                was = self.peer.swarm_min_span_bytes,
+                now = MIN_SWARM_SPAN_BYTES,
+                "swarm_min_span_bytes is too small to be useful; using the floor"
+            );
+            self.peer.swarm_min_span_bytes = MIN_SWARM_SPAN_BYTES;
+        }
     }
 
     /// Apply the `STINGSTREAM_MESH_*` overrides. Exposed so tests can build a config without a file.
@@ -380,5 +428,43 @@ mod tests {
         assert_eq!(MeshConfig::load(td.path()).unwrap().api.port, DEFAULT_API_PORT);
     }
 
+    /// A zero in the swarm section is corrected rather than obeyed or fatal.
+    ///
+    /// `deny_unknown_fields` catches a key nobody knows; nothing caught a value. Both of these
+    /// were reachable by editing one line of `mesh.toml`: a zero minimum span made every span
+    /// "worth swarming" including one whose end the holder never sent, which reached an `expect`
+    /// and panicked the node; a zero chunk size was turned into *one-byte* chunks by `chunks`'
+    /// own `.max(1)`.
+    #[test]
+    fn a_zero_in_the_swarm_settings_is_pulled_back_to_a_floor() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(
+            td.path().join(CONFIG_FILE),
+            "[peer]\nswarm_chunk_bytes = 0\nswarm_min_span_bytes = 0\n",
+        )
+        .unwrap();
 
+        let cfg = MeshConfig::load(td.path()).unwrap();
+        assert_eq!(cfg.peer.swarm_chunk_bytes, MIN_SWARM_CHUNK_BYTES);
+        assert_eq!(cfg.peer.swarm_min_span_bytes, MIN_SWARM_SPAN_BYTES);
+        // Started, not refused: a node that will not boot over one number in a config file is
+        // worse than one that boots on the default and says so.
+        assert_eq!(cfg.api.port, DEFAULT_API_PORT);
+    }
+
+    #[test]
+    fn a_deliberate_swarm_setting_is_left_alone() {
+        let td = tempfile::tempdir().unwrap();
+        std::fs::write(
+            td.path().join(CONFIG_FILE),
+            "[peer]\nswarm_chunk_bytes = 8388608\nswarm_min_span_bytes = 67108864\nswarm_max_holders = 0\n",
+        )
+        .unwrap();
+
+        let cfg = MeshConfig::load(td.path()).unwrap();
+        assert_eq!(cfg.peer.swarm_chunk_bytes, 8 * 1024 * 1024);
+        assert_eq!(cfg.peer.swarm_min_span_bytes, 64 * 1024 * 1024);
+        // `max_holders = 0` is the one zero that means something -- "off" -- and stays.
+        assert_eq!(cfg.peer.swarm_max_holders, 0);
+    }
 }

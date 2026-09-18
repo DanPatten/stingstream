@@ -127,12 +127,19 @@ impl WatchSession {
     /// Where the film should be at `now`, on the same clock `at_ms` is on.
     ///
     /// A paused or idle session is simply at `position_ms`; a playing one has moved on by the
-    /// elapsed time. Saturating, because a command scheduled slightly in the future — which is
-    /// exactly what [`play_at`] produces, deliberately — must read as "not started yet"
-    /// rather than wrapping into an enormous position.
+    /// elapsed time. Saturating on **both** operations, because a command scheduled slightly in
+    /// the future — which is exactly what [`play_at`] produces, deliberately — must read as "not
+    /// started yet" rather than wrapping into an enormous position.
+    ///
+    /// The addition used to be plain `+`, which this doc comment already claimed it was not. A
+    /// session's `position_ms` reaches a node over gossip, so a member announcing
+    /// `position_ms: u64::MAX` panicked a debug build and silently wrapped a release one — release
+    /// builds have no `overflow-checks` in `mesh/Cargo.toml`.
     pub fn position_at(&self, now: Millis) -> u64 {
         match self.state {
-            WatchState::Playing => self.position_ms + now.saturating_sub(self.at_ms),
+            WatchState::Playing => self
+                .position_ms
+                .saturating_add(now.saturating_sub(self.at_ms)),
             _ => self.position_ms,
         }
     }

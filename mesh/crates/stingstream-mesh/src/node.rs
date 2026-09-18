@@ -1999,21 +1999,47 @@ impl MeshNode {
         // divide, an end to divide it to, a span worth dividing, and somebody to divide it with.
         // See `crate::swarm` for each of those.
         let span_end = end.or_else(|| total.and_then(|t| t.checked_sub(1)));
+        // The end came out of the holder's own `Content-Range`, and a holder does not get to be
+        // the authority on how big its answer is: everything below is *sized* from this number.
+        // The index row for this file carries a size the group agreed on, so clamp to it when we
+        // have one. Without this a holder answering
+        // `Content-Range: bytes 0-18446744073709551614/…` had the reader build a chunk vector with
+        // ~9×10¹² entries, synchronously, on a runtime worker. `swarm::MAX_CHUNKS` is the backstop
+        // for the files the index has no size for.
+        let known_size = candidates
+            .iter()
+            .find(|c| c.node == chosen)
+            .and_then(|c| c.size)
+            .filter(|s| *s > 0);
+        let span_end = match (span_end, known_size) {
+            (Some(e), Some(size)) => Some(e.min(size - 1)),
+            (e, _) => e,
+        };
+        // `None` when the holder gave no end at all — see `swarm::worth_swarming`, which refuses
+        // that case rather than letting a zero slip past a `min_span` of zero.
         let span = span_end
             .filter(|_| parts.status.is_success())
-            .map_or(0, |e| e.saturating_sub(start) + 1);
+            .map(|e| e.saturating_sub(start) + 1);
         let peer = &self.cfg.peer;
-        let body = if crate::swarm::worth_swarming(
+        // Cut the span up first and let the pieces decide. `swarm::chunks` refuses a span that
+        // would need more than `swarm::MAX_CHUNKS`, and an empty result has to mean "one holder"
+        // rather than reaching `swarm_body`, which indexes `chunks[0]`.
+        let pieces = crate::swarm::worth_swarming(
             span,
             queue.len(),
             peer.swarm_max_holders,
             peer.swarm_min_span_bytes,
-        ) {
-            let pieces = crate::swarm::chunks(
+        )
+        .then(|| {
+            crate::swarm::chunks(
                 start,
-                span_end.expect("a swarmable span has an end"),
+                span_end.expect("worth_swarming refuses a span with no end"),
                 peer.swarm_chunk_bytes,
-            );
+            )
+        })
+        .filter(|pieces| !pieces.is_empty());
+
+        let body = if let Some(pieces) = pieces {
             let count = crate::swarm::workers(pieces.len(), queue.len(), peer.swarm_max_holders);
             let mut holders = Vec::with_capacity(count);
             holders.push(chosen.clone());
@@ -2418,13 +2444,22 @@ impl MeshNode {
         // playing -- the same arithmetic the session itself does, applied to their number.
         let their_at = (report.at_ms as i64 - offset_ms).max(0) as u64;
         let theirs = match report.state {
+            // Saturating: `position_ms` is a free `u64` off the wire (`peer.rs` sanitises the
+            // reporter's *identity* and checks leadership, but never its numbers), so a member
+            // posting `position_ms: u64::MAX` panicked a debug build here and wrapped a release
+            // one into a garbage drift that was then gossiped to every follower.
             crate::watch::WatchState::Playing => {
-                report.position_ms + now.saturating_sub(their_at)
+                report.position_ms.saturating_add(now.saturating_sub(their_at))
             }
             _ => report.position_ms,
         };
         let ours = session.position_at(now);
-        let drift = theirs as i64 - ours as i64;
+        // Both sides are milliseconds since the epoch at worst, so `i64` holds them -- but a
+        // hostile `position_ms` is not, and `as i64` on a saturated `u64::MAX` is -1 rather than a
+        // panic. Difference in `i128` and clamp, so the drift a follower reports can be wrong but
+        // never nonsense.
+        let drift = (i128::from(theirs) - i128::from(ours))
+            .clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64;
         let rtt = self
             .watch_clocks
             .try_lock()

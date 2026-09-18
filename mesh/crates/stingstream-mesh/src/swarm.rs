@@ -67,16 +67,42 @@ impl Chunk {
     }
 }
 
+/// The most chunks one span may be cut into.
+///
+/// The span comes from a **holder's own response headers**, and a holder is not a source of truth
+/// about how big its answer is. [`crate::node`] clamps the span against the size the index carries
+/// before it gets here, but the index does not always have one, so this is the backstop that makes
+/// the allocation bounded whatever a peer says.
+///
+/// A million chunks is 24 MB of `Vec` and covers just under two tebibytes at the default chunk
+/// size — orders of magnitude past any real file, and still small enough to be a refusal rather
+/// than a death.
+/// Without it, `Content-Range: bytes 0-18446744073709551614` asks for roughly 9×10¹² entries, and
+/// the loop building them is synchronous, so the node spends a worker thread allocating until it
+/// is killed.
+pub const MAX_CHUNKS: usize = 1 << 20;
+
 /// Cut a span into chunks.
 ///
 /// The last chunk is short rather than the first, so chunk zero — the one the reader is waiting
 /// for and the one already on an open connection — is always a full-sized read.
+///
+/// Returns an empty vector for an inverted span, and for one that would need more than
+/// [`MAX_CHUNKS`] pieces. Both mean "do not swarm this"; the caller falls back to a single holder,
+/// which is the behaviour for every span too small to be worth splitting anyway.
 pub fn chunks(start: u64, end: u64, chunk_bytes: u64) -> Vec<Chunk> {
     if end < start {
         return Vec::new();
     }
 
     let size = chunk_bytes.max(1);
+    // Counted before anything is allocated, rather than discovered part-way through the loop: the
+    // whole point is not to build the vector at all.
+    let span = end - start;
+    if span / size >= MAX_CHUNKS as u64 {
+        return Vec::new();
+    }
+
     let mut out = Vec::new();
     let mut at = start;
     while at <= end {
@@ -106,7 +132,21 @@ pub fn chunks(start: u64, end: u64, chunk_bytes: u64) -> Vec<Chunk> {
 ///   has nowhere to stop. Callers get this from `Content-Range` or `Content-Length`; when a holder
 ///   sends neither there is nothing to divide.
 /// * **It is switched off**, with `max_holders` at one or zero.
-pub fn worth_swarming(span_bytes: u64, helpers: usize, max_holders: usize, min_span: u64) -> bool {
+///
+/// `span_bytes` is `None` for the third case, and that is why it is an `Option` rather than a
+/// zero: the caller used to collapse "no end" to `0` before calling, so with `min_span` at `0`
+/// — a legal value in `mesh.toml`, which validated nothing — `0 >= 0` passed and the caller went on
+/// to `.expect("a swarmable span has an end")` on the `None`. The condition this function
+/// documents is now one it can actually enforce.
+pub fn worth_swarming(
+    span_bytes: Option<u64>,
+    helpers: usize,
+    max_holders: usize,
+    min_span: u64,
+) -> bool {
+    let Some(span_bytes) = span_bytes else {
+        return false;
+    };
     helpers > 0 && max_holders > 1 && span_bytes >= min_span
 }
 
@@ -272,19 +312,58 @@ mod tests {
         // The case this guard exists for. A player seeks constantly and most of what it asks for is
         // small; three dials to save nothing turns one read into three round trips on the critical
         // path of a seek.
-        assert!(!worth_swarming(300 * 1024, 2, 3, DEFAULT_MIN_SPAN_BYTES));
-        assert!(worth_swarming(64 * 1024 * 1024, 2, 3, DEFAULT_MIN_SPAN_BYTES));
+        assert!(!worth_swarming(Some(300 * 1024), 2, 3, DEFAULT_MIN_SPAN_BYTES));
+        assert!(worth_swarming(Some(64 * 1024 * 1024), 2, 3, DEFAULT_MIN_SPAN_BYTES));
+    }
+
+    /// A holder cannot make us allocate an unbounded vector.
+    ///
+    /// `span_of` reads the end out of the holder's own `Content-Range`, so this is the size of a
+    /// number a peer chose. At the default chunk size `u64::MAX` asks for ~9×10¹² `Chunk`s, built
+    /// synchronously on a runtime worker — the node dies allocating rather than refusing.
+    #[test]
+    fn a_span_no_file_could_have_is_refused_rather_than_allocated() {
+        assert!(chunks(0, u64::MAX, DEFAULT_CHUNK_BYTES).is_empty());
+        assert!(chunks(0, u64::MAX, 1).is_empty());
+
+        // The boundary, from both sides, so the ceiling cannot drift silently.
+        let last_ok = MAX_CHUNKS as u64 * DEFAULT_CHUNK_BYTES - 1;
+        assert_eq!(chunks(0, last_ok, DEFAULT_CHUNK_BYTES).len(), MAX_CHUNKS);
+        assert!(chunks(0, last_ok + DEFAULT_CHUNK_BYTES, DEFAULT_CHUNK_BYTES).is_empty());
+
+        // A 100 GB file -- far past any real one -- is nowhere near the ceiling, so nothing a node
+        // actually serves is refused by it.
+        let hundred_gb = 100 * 1024 * 1024 * 1024;
+        assert_eq!(
+            chunks(0, hundred_gb - 1, DEFAULT_CHUNK_BYTES).len(),
+            51_200,
+            "a realistic large file is well inside the ceiling"
+        );
+    }
+
+    /// A span with no end is refused, whatever `min_span` says.
+    ///
+    /// The caller used to collapse "the holder sent no end" into `0` before asking, so a
+    /// `swarm_min_span_bytes` of `0` in `mesh.toml` — which nothing validated — made `0 >= 0` true
+    /// and the caller then unwrapped the `None`. `worth_swarming` documents this condition as one
+    /// of its four; now it can see it.
+    #[test]
+    fn a_span_with_no_end_is_never_swarmed_even_with_no_minimum() {
+        assert!(!worth_swarming(None, 2, 3, 0));
+        assert!(!worth_swarming(None, 2, 3, DEFAULT_MIN_SPAN_BYTES));
+        // And a real span still is, so the guard has not simply closed the door.
+        assert!(worth_swarming(Some(64 * 1024 * 1024), 2, 3, 0));
     }
 
     #[test]
     fn nobody_else_holding_the_bytes_means_no_swarm() {
-        assert!(!worth_swarming(1 << 30, 0, 3, DEFAULT_MIN_SPAN_BYTES));
+        assert!(!worth_swarming(Some(1 << 30), 0, 3, DEFAULT_MIN_SPAN_BYTES));
     }
 
     #[test]
     fn one_holder_configured_switches_it_off() {
-        assert!(!worth_swarming(1 << 30, 5, 1, DEFAULT_MIN_SPAN_BYTES));
-        assert!(!worth_swarming(1 << 30, 5, 0, DEFAULT_MIN_SPAN_BYTES));
+        assert!(!worth_swarming(Some(1 << 30), 5, 1, DEFAULT_MIN_SPAN_BYTES));
+        assert!(!worth_swarming(Some(1 << 30), 5, 0, DEFAULT_MIN_SPAN_BYTES));
     }
 
     #[test]
