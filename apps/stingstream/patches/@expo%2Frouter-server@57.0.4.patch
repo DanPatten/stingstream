@@ -1,0 +1,28 @@
+diff --git a/build/typed-routes/index.js b/build/typed-routes/index.js
+index 52289a1..1f237b3 100644
+--- a/build/typed-routes/index.js
++++ b/build/typed-routes/index.js
+@@ -28,7 +28,22 @@ function getWatchHandler(outputDir, { ctx = defaultCtx, regenerateFn = exports.r
+         if (!process.env.EXPO_ROUTER_APP_ROOT)
+             return;
+         let shouldRegenerate = false;
+-        let relativePath = node_path_1.default.relative(process.env.EXPO_ROUTER_APP_ROOT, filePath);
++        // StingStream patch: normalise to posix separators before the guard below.
++        //
++        // `path.relative` returns `..\components\Foo.tsx` on Windows, and the `startsWith('../')`
++        // test on the next line therefore never matches -- so the "is this file inside app/?"
++        // guard fails OPEN and every .ts/.tsx the dev server's watcher sees anywhere in the
++        // project is added to the route context as a route. It accretes: the startup crawl is
++        // correct, and the file grows a phantom route for each file you edit outside app/ while
++        // Metro runs. Ours reached 511 route literals, 320 of them things like
++        // `/../components/cards/posterSize.test`, which made `Href` a ~1,800 member union and
++        // failed `tsc` with TS2590.
++        //
++        // Still present in 57.0.10 and in 58.0.2, so this is not waiting on a version bump.
++        let relativePath = node_path_1.default
++            .relative(process.env.EXPO_ROUTER_APP_ROOT, filePath)
++            .split(node_path_1.default.sep)
++            .join('/');
+         const isInsideAppRoot = !relativePath.startsWith('../');
+         const basename = node_path_1.default.basename(relativePath);
+         if (!isInsideAppRoot)

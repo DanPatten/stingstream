@@ -185,6 +185,7 @@
     "unrs-resolver"
   ],
   "patchedDependencies": {
-    "react-native-udp@4.1.7": "patches/react-native-udp@4.1.7.patch"
+    "react-native-udp@4.1.7": "patches/react-native-udp@4.1.7.patch",
+    "@expo/router-server@57.0.4": "patches/@expo%2Frouter-server@57.0.4.patch"
   }
 }

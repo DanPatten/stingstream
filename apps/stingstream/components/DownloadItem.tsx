@@ -192,19 +192,26 @@ export const DownloadItems: React.FC<DownloadProps> = ({
   const navigateToDownloads = () => router.push("/downloads");
 
   const onDownloadedPress = () => {
+    // `items` really can be empty — `allItemsDownloaded` above returns false in that case, so this
+    // handler is not reachable with an empty list today, but the optional read here and the
+    // unguarded `.Type` that used to follow it contradicted each other. Downloads is the honest
+    // destination when there is no episode to open.
     const firstItem = items?.[0];
-    router.push(
-      firstItem.Type !== "Episode"
-        ? "/downloads"
-        : ({
-            pathname: "/series/[id]",
-            params: {
-              id: firstItem.SeriesId!,
-              seasonIndex: firstItem.ParentIndexNumber?.toString(),
-              offline: "true",
-            },
-          } as Href),
-    );
+    if (firstItem?.Type !== "Episode" || !firstItem.SeriesId) {
+      router.push("/downloads");
+      return;
+    }
+    // Pushed on its own rather than as the far side of a ternary. Unioning a route literal with an
+    // object form in one expression makes TypeScript materialise the whole generated `Href` union,
+    // and with typed routes on that is large enough to fail with TS2590.
+    router.push({
+      pathname: "/series/[id]",
+      params: {
+        id: firstItem.SeriesId,
+        seasonIndex: firstItem.ParentIndexNumber?.toString(),
+        offline: "true",
+      },
+    } as Href);
   };
 
   const initiateDownload = useCallback(
