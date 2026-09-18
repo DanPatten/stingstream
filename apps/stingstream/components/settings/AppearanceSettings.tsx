@@ -159,6 +159,9 @@ export const AppearanceSettings: React.FC = () => {
         </ListItem>
         <ListItem
           title={t("home.settings.appearance.use_episode_images_next_up")}
+          subtitle={t(
+            "home.settings.appearance.use_episode_images_next_up_hint",
+          )}
         >
           <SettingSwitch
             value={settings.useEpisodeImagesForNextUp}

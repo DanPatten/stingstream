@@ -166,7 +166,11 @@ export default function IndexLayout() {
       <Stack.Screen
         name='settings/appearance'
         options={{
-          title: t("home.settings.appearance.title"),
+          // The name this category is called everywhere else -- the settings nav row and the
+          // wide-screen page title both use it. `appearance.title` is "Appearance", which is the
+          // heading of one section *inside* this page, so using it here gave the same page two
+          // names depending on how wide the window was.
+          title: t("home.settings.nav.appearance"),
           headerBlurEffect: "none",
           headerTransparent: Platform.OS === "ios",
           headerShadowVisible: false,
