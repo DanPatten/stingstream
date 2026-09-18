@@ -218,8 +218,12 @@ pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle)
 ///
 /// The 503-when-degraded behaviour is unchanged for both audiences, so `curl --fail` and every CI
 /// health gate still work from anywhere.
+///
+/// **Who counts as local is [`is_local_request`].** Reading the socket alone meant a tunnelled
+/// caller was handed the full document — data directory, every child's port and pid, the LAN
+/// address, the side door — because `cloudflared` connects over loopback. See [`is_relayed`].
 async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
-    let local = is_local(peer_addr(&req));
+    let local = is_local_request(&req);
     // Ask Core before answering, at most once every five seconds and only while the answer can
     // still change. Without this the tooling that polls `/healthz` right after somebody finished
     // the setup screen is told the node still needs setting up, for a whole poll interval.
@@ -378,13 +382,13 @@ fn marker_for<'a>(
     req: &Request,
     addresses: &'a [String],
 ) -> web::Marker<'a> {
-    let peer = peer_addr(req);
     web::Marker {
         server_name: &state.node.runtime.server_name,
-        // The real socket peer, per request. `index.html` is already `no-cache`, so the answer
-        // cannot be cached from one client and handed to another.
-        loopback: is_local(peer),
-        trusted_peer: is_private_or_local(peer),
+        // The real socket peer, per request, minus anything a tunnel or reverse proxy relayed in
+        // (see `is_relayed`). `index.html` is already `no-cache`, so the answer cannot be cached
+        // from one client and handed to another.
+        loopback: is_local_request(req),
+        trusted_peer: is_private_or_local_request(req),
         setup_pending: state.setup.pending(),
         addresses,
     }
@@ -657,12 +661,12 @@ async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Respo
     let path = req.uri().path();
     let peer = peer_addr(&req);
     let refuse = if is_under(path, LOOPBACK_ONLY_PREFIXES) {
-        (!is_local(peer)).then_some("this machine only")
+        (!is_local_request(&req)).then_some("this machine only")
     } else if is_under(path, TRUSTED_NETWORK_PREFIXES) {
         let claimed = state.setup.pending() == Some(false);
-        if is_local(peer) {
+        if is_local_request(&req) {
             None
-        } else if !is_private_or_local(peer) {
+        } else if !is_private_or_local_request(&req) {
             Some("this network only")
         } else if claimed {
             // Nothing to claim any more, so the wider door closes again.
@@ -677,6 +681,9 @@ async fn proxy_to_core(State(state): State<GatewayState>, req: Request) -> Respo
         tracing::warn!(
             path,
             from = ?peer,
+            // Without this, a refusal caused by a reverse proxy in front of the node reads as
+            // "the gate is broken" rather than "the gate worked".
+            relayed = is_relayed(&req),
             why,
             "refusing a route that is not open to this caller"
         );
@@ -729,8 +736,20 @@ async fn proxy_to_jellyfin(State(state): State<GatewayState>, req: Request) -> R
 ///
 /// A request with no connection info at all is refused too: that only happens if the server was
 /// built without `into_make_service_with_connect_info`, and failing closed is the right way round.
+///
+/// **"From this machine" is [`is_local_request`], not [`is_local`], and the difference is the whole
+/// gate.** A Cloudflare tunnel terminates on loopback, so for as long as this asked the socket
+/// alone, every word above was false on any node with a side door: the group id was one unauthenticated
+/// `GET /stingstream/mesh/v1/groups` away from anybody on the internet. Found and measured
+/// 2026-09-17; see [`is_relayed`].
 async fn proxy_to_mesh(State(state): State<GatewayState>, req: Request) -> Response {
-    if !is_local(peer_addr(&req)) {
+    if !is_local_request(&req) {
+        tracing::warn!(
+            path = req.uri().path(),
+            from = ?peer_addr(&req),
+            relayed = is_relayed(&req),
+            "refusing the mesh API to a caller that is not on this machine"
+        );
         return (
             StatusCode::FORBIDDEN,
             "the mesh API is reachable from this machine only; use /stingstream/api/v1/mesh/              with a Jellyfin token from anywhere else",
@@ -755,12 +774,70 @@ fn unmapped(ip: std::net::IpAddr) -> std::net::IpAddr {
     }
 }
 
-/// Whether a request came from this machine.
+/// Whether a request's **socket** came from this machine.
+///
+/// On its own this is not the same question as "is the caller at this keyboard", and every gate
+/// wants the latter — use [`is_local_request`]. See [`is_relayed`] for what the difference cost.
 pub fn is_local(addr: Option<SocketAddr>) -> bool {
     match addr.map(|a| unmapped(a.ip())) {
         Some(ip) => ip.is_loopback(),
         None => false,
     }
+}
+
+/// Headers that mean "somebody else asked me to ask you".
+///
+/// `cf-connecting-ip` is Cloudflare's; the rest are the conventional ones every reverse proxy
+/// sets. The list is deliberately generous — see [`is_relayed`] for why a false positive here is
+/// cheap and a false negative is not.
+const RELAY_HEADERS: &[&str] = &[
+    "forwarded",
+    "x-forwarded-for",
+    "x-forwarded-host",
+    "x-forwarded-proto",
+    "x-real-ip",
+    "cf-connecting-ip",
+];
+
+/// Whether something on this machine relayed this request from somewhere else.
+///
+/// [`is_local`] answers "what address did the socket come from". That was taken to mean "the caller
+/// is at this machine" for as long as nothing else on the machine forwarded traffic — and a
+/// Cloudflare tunnel does exactly that. `cloudflared` runs as one of this node's own supervised
+/// children ([`crate::sidedoor::tunnel`]) and connects to the gateway over loopback, so
+/// `peer_addr` reports `127.0.0.1` for a caller who is on the internet. A reverse proxy in front of
+/// the node does the same.
+///
+/// **Measured on a real tunnel, 2026-09-17, and it was not theoretical.** `/sidedoor/v1/hello`
+/// answered `client_ip: 127.0.0.1` to a request made from outside the network; `/healthz` handed a
+/// stranger the data directory, every child's port and pid, the LAN address and the whole side-door
+/// state; and `/stingstream/mesh/v1/groups` — the unauthenticated API this file's own comments call
+/// "this machine only" — handed out the group id, which is a credential.
+///
+/// A relay announces itself, so this reads the headers it sets. They are trusted in **one direction
+/// only: presence can demote a request from local to remote, never promote one.** A client that
+/// forges `X-Forwarded-For` refuses itself access it would otherwise have had, which costs nobody
+/// anything and is not an attack; a client that strips every header still has to arrive from
+/// loopback before it is considered local at all. That asymmetry is what makes reading an
+/// attacker-controlled header safe here, where trusting one to *grant* locality would not be.
+fn is_relayed(req: &Request) -> bool {
+    RELAY_HEADERS.iter().any(|h| req.headers().contains_key(*h))
+}
+
+/// Whether somebody sitting at this machine made this request.
+///
+/// [`is_local`] composed with [`is_relayed`], and **the one every gate should use**: a bare socket
+/// address cannot answer this on its own.
+pub fn is_local_request(req: &Request) -> bool {
+    is_local(peer_addr(req)) && !is_relayed(req)
+}
+
+/// [`is_private_or_local`] for a whole request, discounting anything a relay carried in.
+///
+/// Same reasoning as [`is_local_request`]: a tunnelled caller arrives from loopback, which is
+/// inside every private range there is.
+pub fn is_private_or_local_request(req: &Request) -> bool {
+    is_private_or_local(peer_addr(req)) && !is_relayed(req)
 }
 
 /// Whether a request came from this machine **or from the network this machine is on**.
@@ -1398,6 +1475,128 @@ mod tests {
         let m = marker_for(&state, &bare, &addrs);
         assert!(!m.loopback);
         assert!(!m.trusted_peer);
+
+        // Through a tunnel: the socket is loopback and the caller is not. See `is_relayed`.
+        let mut tunnelled = Request::builder()
+            .uri("/")
+            .header("cf-connecting-ip", "203.0.113.7")
+            .body(Body::empty())
+            .unwrap();
+        tunnelled
+            .extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
+        let m = marker_for(&state, &tunnelled, &addrs);
+        assert!(!m.loopback, "a relayed request is not at this keyboard");
+        assert!(!m.trusted_peer, "nor on this network");
+    }
+
+    /// A loopback socket is not on its own proof the caller is local.
+    ///
+    /// This is the regression test for the tunnel hole found on 2026-09-17: `cloudflared` runs as
+    /// one of this node's own children and connects over loopback, so before this every gate in
+    /// this file — the unauthenticated mesh API included — was open to the whole internet on any
+    /// node with a tunnel. Measured, not inferred: `/sidedoor/v1/hello` answered
+    /// `client_ip: 127.0.0.1` to a request made from outside.
+    #[test]
+    fn a_request_a_proxy_relayed_is_not_a_local_one() {
+        let loopback = "127.0.0.1:51234".parse::<SocketAddr>().unwrap();
+
+        let mut direct = Request::builder().uri("/").body(Body::empty()).unwrap();
+        direct.extensions_mut().insert(ConnectInfo(loopback));
+        assert!(is_local_request(&direct));
+        assert!(is_private_or_local_request(&direct));
+        assert!(!is_relayed(&direct));
+
+        // Every header a relay might set, one at a time, so adding one to RELAY_HEADERS without a
+        // test cannot happen quietly and removing one fails here.
+        for header in RELAY_HEADERS {
+            let mut relayed = Request::builder()
+                .uri("/")
+                .header(*header, "203.0.113.7")
+                .body(Body::empty())
+                .unwrap();
+            relayed.extensions_mut().insert(ConnectInfo(loopback));
+            assert!(is_relayed(&relayed), "{header} should mark a request as relayed");
+            assert!(!is_local_request(&relayed), "{header} should demote a loopback request");
+            assert!(!is_private_or_local_request(&relayed), "{header} demotes the wider gate too");
+        }
+    }
+
+    /// The header may demote a caller and must never promote one.
+    ///
+    /// This is what makes reading an attacker-controlled header safe here: forging one only costs
+    /// the forger access it already had, and stripping one cannot buy locality, because the socket
+    /// still has to be loopback.
+    #[test]
+    fn a_forwarded_header_cannot_promote_a_stranger() {
+        let mut public = Request::builder()
+            .uri("/")
+            .header("x-forwarded-for", "127.0.0.1")
+            .body(Body::empty())
+            .unwrap();
+        public
+            .extensions_mut()
+            .insert(ConnectInfo("203.0.113.7:51234".parse::<SocketAddr>().unwrap()));
+        assert!(!is_local_request(&public));
+        assert!(!is_private_or_local_request(&public));
+    }
+
+    /// The mesh API is the worst thing behind this gate, so it gets its own end-to-end test.
+    ///
+    /// It is unauthenticated by design and can create groups and mint invite codes; before the
+    /// relay check, `GET /stingstream/mesh/v1/groups` through a tunnel answered 200 with the group
+    /// id, which is a credential.
+    #[tokio::test]
+    async fn the_mesh_api_refuses_a_tunnelled_caller() {
+        use tower::ServiceExt;
+
+        let node = Arc::new(NodeState::new(
+            crate::config::Config::default(),
+            sample_runtime(),
+            false,
+        ));
+        let app = router_with_web(node, WebSource::None, SetupHandle::default());
+
+        let mut req = Request::builder()
+            .uri("/stingstream/mesh/v1/groups")
+            .header("x-forwarded-for", "203.0.113.7")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// And the health document a tunnelled caller gets is the redacted one.
+    #[tokio::test]
+    async fn healthz_redacts_for_a_tunnelled_caller() {
+        use tower::ServiceExt;
+
+        let node = Arc::new(NodeState::new(
+            crate::config::Config::default(),
+            sample_runtime(),
+            false,
+        ));
+        let app = router_with_web(node, WebSource::None, SetupHandle::default());
+
+        let mut req = Request::builder()
+            .uri("/healthz")
+            .header("x-forwarded-for", "203.0.113.7")
+            .body(Body::empty())
+            .unwrap();
+        req.extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
+
+        let resp = app.oneshot(req).await.unwrap();
+        let bytes = axum::body::to_bytes(resp.into_body(), 256 * 1024).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        // The two that matter: the data directory, and the children as a count rather than a list.
+        assert!(body["node"]["data_dir"].is_null(), "the data directory must not travel");
+        assert!(body["addresses"].is_null(), "nor the LAN address");
+        assert!(body["children"].is_number(), "children is a count for a stranger");
     }
 
     #[test]
