@@ -170,14 +170,21 @@ export function NodeStatusScreen() {
                   : t("server_status.mode_installed")
               }
             />
-            <ListItem
-              title={t("server_status.data_dir_field")}
-              value={healthz.data.node.data_dir}
-            />
-            <ListItem
-              title={t("server_status.gateway_port_field")}
-              value={String(healthz.data.gateway.port)}
-            />
+            {/* Both are held back from a reader who is not on the node's own machine, so the row
+                goes rather than showing an empty one. A missing row reads as "not shown here";
+                a row reading `undefined` reads as a bug. */}
+            {healthz.data.node.data_dir && (
+              <ListItem
+                title={t("server_status.data_dir_field")}
+                value={healthz.data.node.data_dir}
+              />
+            )}
+            {healthz.data.gateway && (
+              <ListItem
+                title={t("server_status.gateway_port_field")}
+                value={String(healthz.data.gateway.port)}
+              />
+            )}
           </ListGroup>
 
           <View style={{ height: 16 }} />

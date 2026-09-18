@@ -57,19 +57,35 @@ export const isAbortLikeError = (error: unknown): boolean =>
 // origin-down blip otherwise fans out into one issue per in-flight route.
 const GATEWAY_STATUSES = new Set([502, 503, 504, 521, 522, 523]);
 
+// What a failed `fetch` calls itself, per engine. There is no common wording and no error code to
+// key on, so the message is all there is:
+//
+//   Chrome, Edge   TypeError: Failed to fetch
+//   Firefox        TypeError: NetworkError when attempting to fetch resource.
+//   Safari         TypeError: Load failed
+//   React Native   TypeError: Network request failed
+//
+// Only the last was matched until 2026-09-17, so on the web a CORS-blocked or unreachable request
+// was classified as a real error: it reached `ErrorState` ("Something went wrong" plus the raw
+// browser string) instead of `UnavailableState`, and it was reported to Sentry on every poll. The
+// repo's own fixtures already used the browser spelling (`lib/stingstream/setup.test.ts`), which is
+// the gap this closes.
+const FETCH_FAILURE_PATTERN =
+  /network request failed|failed to fetch|networkerror when attempting to fetch|load failed/i;
+
 /**
  * True for requests that never got a usable HTTP response — the server is
- * unreachable (LAN-only server while roaming, DNS failure, timeout) or its
- * proxy could not reach it. That is the user's environment, not an app bug,
- * so it must never become a Sentry event. Covers both axios errors and React
- * Native's fetch TypeError.
+ * unreachable (LAN-only server while roaming, DNS failure, timeout, a browser
+ * refusing the response for CORS) or its proxy could not reach it. That is the
+ * user's environment, not an app bug, so it must never become a Sentry event.
+ * Covers axios errors and a failed `fetch` on every engine this app runs on.
  */
 export const isConnectivityError = (error: unknown): boolean => {
   if (isAxiosError(error)) {
     return !error.response || GATEWAY_STATUSES.has(error.response.status);
   }
   return (
-    error instanceof TypeError && /network request failed/i.test(error.message)
+    error instanceof TypeError && FETCH_FAILURE_PATTERN.test(error.message)
   );
 };
 

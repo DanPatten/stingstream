@@ -53,6 +53,50 @@ describe("queryPhase", () => {
     ).toBe("error");
   });
 
+  test("a request that never reached the node is unavailable, not an error", () => {
+    // Settings -> Logs & status showed "Something went wrong / Failed to fetch" indefinitely for a
+    // node that was healthy: the `/healthz` poll went cross-origin after the side door switched
+    // the session, the browser refused the response, and every error landed in ErrorState. A
+    // browser internal is not something to put on a screen, and the node was not broken.
+    for (const message of [
+      "Failed to fetch", // Chrome, Edge
+      "NetworkError when attempting to fetch resource.", // Firefox
+      "Load failed", // Safari
+      "Network request failed", // React Native
+    ]) {
+      expect(
+        queryPhase({
+          isLoading: false,
+          error: new TypeError(message),
+          isPending: false,
+          fetchStatus: "idle",
+        }),
+      ).toBe("unavailable");
+    }
+  });
+
+  test("a real failure from the server is still an error", () => {
+    // The branch above must not swallow everything: a 500 with a message the reader can act on
+    // belongs in ErrorState, where that message is shown.
+    expect(
+      queryPhase({
+        isLoading: false,
+        error: new Error("GET /settings -> 500"),
+        isPending: false,
+        fetchStatus: "idle",
+      }),
+    ).toBe("error");
+    // A TypeError that is not a fetch failure is a bug in the app, and must not be disguised.
+    expect(
+      queryPhase({
+        isLoading: false,
+        error: new TypeError("x.map is not a function"),
+        isPending: false,
+        fetchStatus: "idle",
+      }),
+    ).toBe("error");
+  });
+
   test("data in hand is ready", () => {
     expect(
       queryPhase({

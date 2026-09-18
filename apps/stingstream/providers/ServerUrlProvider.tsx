@@ -126,6 +126,23 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
     if (Platform.OS !== "web") return;
     const node = meshStatus?.node;
     if (!node || !switchServerUrl) return;
+    // The node's own address, when its owner has set one. Nothing else can be raced now: the
+    // three coordinator-issued hostnames went with the coordinator, so a node with no domain is
+    // simply not reachable from a browser away from home, and racing would say so slowly.
+    const record: SideDoorRecord | null = ownAddressRecord(
+      node,
+      sharing?.publicAddress,
+    );
+    // Read the address BEFORE latching, and latch only when there was something to race.
+    //
+    // `useNodeMeshStatus` and `useMeshSharingSettings` are independent queries with no ordering
+    // between them. Latching first meant that whenever mesh status resolved first — which is
+    // often, it polls every fifteen seconds while sharing has a sixty-second staleTime — the
+    // effect burned the latch on a run where `sharing` was still undefined, `ownAddressRecord`
+    // returned null, and it bailed. The re-run once `sharing` arrived then returned at the latch,
+    // so the side door was never raced again for the whole session.
+    if (!record) return;
+
     // Once per node per session. Re-racing on every render of a query that polls every fifteen
     // seconds would open three connections a minute for no benefit.
     if (racedNodeRef.current === node) return;
@@ -134,14 +151,7 @@ export function ServerUrlProvider({ children }: Props): React.ReactElement {
     let cancelled = false;
     const controller = new AbortController();
     (async () => {
-      // The node's own address, when its owner has set one. Nothing else can be raced now: the
-      // three coordinator-issued hostnames went with the coordinator, so a node with no domain is
-      // simply not reachable from a browser away from home, and racing would say so slowly.
-      const record: SideDoorRecord | null = ownAddressRecord(
-        node,
-        sharing?.publicAddress,
-      );
-      if (!record || cancelled) return;
+      if (cancelled) return;
 
       const choice = await raceSideDoor(record, { signal: controller.signal });
       if (!choice || cancelled) return;

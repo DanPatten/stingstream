@@ -24,6 +24,8 @@
  * `QueryState` at all — `DownloadClientsSection`, `NamingSection`, `NotificationsSection`. They
  * have the same failure and cannot be fixed from here.
  */
+import { isConnectivityError } from "@/utils/errors";
+
 export type QueryPhase = "loading" | "error" | "unavailable" | "ready";
 
 export interface QueryPhaseInput {
@@ -40,6 +42,13 @@ export function queryPhase({
   isPending,
   fetchStatus,
 }: QueryPhaseInput): QueryPhase {
+  // A request that never reached the node is the "unavailable" case wearing an exception, and it
+  // has to be caught before the branch below or it renders as a fault in the app. Settings ->
+  // Logs & status spent a while saying "Something went wrong / Failed to fetch" about a node that
+  // was healthy, because a cross-origin `/healthz` poll threw a browser TypeError and every error
+  // went to `ErrorState`. `UnavailableState` is what that screen should have been showing, and it
+  // says "This server is not answering" instead of handing the reader a browser internal.
+  if (error && isConnectivityError(error)) return "unavailable";
   // An error we have is worth more than an explanation we inferred: a query that failed and was
   // then disabled still knows why it failed, and that message is the useful one.
   if (error) return "error";

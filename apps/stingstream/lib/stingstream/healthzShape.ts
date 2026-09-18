@@ -38,9 +38,16 @@ export interface HealthzResponse {
     name: string;
     dev: boolean;
     first_run: boolean;
-    data_dir: string;
+    /**
+     * Absent in the redacted document — the node does not tell a caller that is not on its machine
+     * where it keeps its files. Typed as required until 2026-09-17, which is how
+     * `NodeStatusScreen` came to render `undefined` into a row the moment a reader opened it
+     * through a domain.
+     */
+    data_dir?: string;
   };
-  gateway: { port: number };
+  /** Absent in the redacted document, for the same reason as `data_dir`. */
+  gateway?: { port: number };
   children: HealthzChild[];
   /**
    * Whether the node answered with the redacted document it gives a caller that is not on its

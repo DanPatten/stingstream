@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import {
   Platform,
   Pressable,
+  type TextStyle,
   View,
   type ViewProps,
   type ViewStyle,
@@ -188,8 +189,33 @@ const ListItemContent = ({
         // Values here are diagnostics — build string, token, server URL —
         // that are only useful in full, so wrap rather than truncate. The row
         // has a min height, not a fixed one, so it grows to fit.
-        <View style={{ flex: 1, alignItems: "flex-end", paddingLeft: 12 }}>
-          <Text selectable tone='secondary' align='right'>
+        //
+        // `minWidth: 0` and the web break rule are both load-bearing, and a node id is what
+        // proves it: 64 hex characters are one unbreakable "word", so the column's min-content
+        // width is the whole string. A flex item defaults to `min-width: auto`, which refuses to
+        // shrink below that — so the value stopped shrinking, overran its own box and drew on top
+        // of the label. Settings → Logs & status rendered "Server ID" with the id printed through
+        // it. Native wraps long words at character boundaries already; only the web needs telling.
+        <View
+          style={{
+            flex: 1,
+            minWidth: 0,
+            alignItems: "flex-end",
+            paddingLeft: 12,
+          }}
+        >
+          <Text
+            selectable
+            tone='secondary'
+            align='right'
+            style={
+              Platform.OS === "web"
+                ? // Not in React Native's TextStyle because it is a CSS property react-native-web
+                  // passes straight through; the cast is the only way to reach it.
+                  ({ overflowWrap: "anywhere" } as TextStyle)
+                : undefined
+            }
+          >
             {value}
           </Text>
         </View>

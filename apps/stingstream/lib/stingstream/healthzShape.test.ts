@@ -64,6 +64,22 @@ describe("normalizeHealthz", () => {
 
     expect(doc.status).toBe("degraded");
     expect(doc.node.name).toBe("Loft");
-    expect(doc.gateway.port).toBe(8801);
+    expect(doc.gateway?.port).toBe(8801);
+  });
+
+  test("the fields a stranger is not told are optional, not assumed", () => {
+    // The redacted document has no `gateway` block and no `node.data_dir` at all. They were typed
+    // as required, so `NodeStatusScreen` rendered `undefined` into two rows the moment somebody
+    // opened it through a domain rather than on the machine.
+    const redacted = normalizeHealthz({
+      status: "ok",
+      node: { id: "n1", name: "Loft", dev: false, first_run: false },
+      children: 6,
+    });
+
+    expect(redacted.redacted).toBe(true);
+    expect(redacted.childCount).toBe(6);
+    expect(redacted.gateway).toBeUndefined();
+    expect(redacted.node.data_dir).toBeUndefined();
   });
 });

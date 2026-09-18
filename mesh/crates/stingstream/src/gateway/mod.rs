@@ -236,7 +236,28 @@ async fn healthz(State(state): State<GatewayState>, req: Request) -> Response {
         } else {
             StatusCode::SERVICE_UNAVAILABLE
         };
-        return (code, Json(public_health(&state, ok, children.len()))).into_response();
+        // CORS on this branch and only this branch.
+        //
+        // The app polls `/healthz` on every screen that reports a child's state, and after the
+        // side door switches a web session to the owner's public address that poll is
+        // cross-origin — so without a header it failed forever, and Settings -> Logs & status
+        // showed an error for a node that was perfectly healthy.
+        //
+        // What makes it safe is that this is the *redacted* document: `public_health` is built by
+        // hand, field by field, and holds back the data directory, the per-child ports, pids and
+        // versions, the addresses and the group id. A page on the internet learns exactly what
+        // `curl` already learned — which this file has conceded since the redaction landed: the
+        // absent header "only ever stopped a browser page reading it, never a curl".
+        //
+        // The loopback branch below gets no header, so the full document stays unreadable by a
+        // browser page. No preflight to answer either: a bare GET with no custom headers is a
+        // simple request.
+        return (
+            code,
+            [(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")],
+            Json(public_health(&state, ok, children.len())),
+        )
+            .into_response();
     }
     let body = json!({
         "status": if ok { "ok" } else { "degraded" },
@@ -335,10 +356,15 @@ fn public_health(state: &GatewayState, ok: bool, children: usize) -> serde_json:
 /// The web bundle opens every side-door candidate at once and keeps the first that answers
 /// ([`apps/stingstream/lib/stingstream/sidedoor.ts`](../../../../apps/stingstream/lib/stingstream/sidedoor.ts)).
 /// Those requests are **cross-origin** — the page was loaded from one of the candidates and is
-/// probing the others — so they need `Access-Control-Allow-Origin`, and `/healthz` is not the
-/// place to put it: that document carries child ports, the data directory and the whole side-door
-/// state, and any page on the internet could then read it out of a browser that can reach this
-/// node.
+/// probing the others — so they need `Access-Control-Allow-Origin`, and the *full* `/healthz` is
+/// not the place to put it: that document carries child ports, the data directory and the whole
+/// side-door state, and any page on the internet could then read it out of a browser that can
+/// reach this node.
+///
+/// `/healthz` does now send the header on its **redacted** branch, which is a different document
+/// and a different question — "is this node well", answered to a stranger. This endpoint is still
+/// the right one for the race: it says which node answered and whether the hop was TLS, neither of
+/// which `/healthz` reports, and it stays five fields wide on purpose.
 ///
 /// So this is a separate, deliberately tiny document:
 ///
@@ -1590,6 +1616,15 @@ mod tests {
             .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
 
         let resp = app.oneshot(req).await.unwrap();
+        // The redacted document is the one a browser page may read cross-origin, and the app needs
+        // to: after the side door switches a web session to the public address, this poll is
+        // cross-origin and without the header it fails forever.
+        assert_eq!(
+            resp.headers()
+                .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|v| v.to_str().ok()),
+            Some("*"),
+        );
         let bytes = axum::body::to_bytes(resp.into_body(), 256 * 1024).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
 
@@ -1597,6 +1632,38 @@ mod tests {
         assert!(body["node"]["data_dir"].is_null(), "the data directory must not travel");
         assert!(body["addresses"].is_null(), "nor the LAN address");
         assert!(body["children"].is_number(), "children is a count for a stranger");
+    }
+
+    /// And the full document is still not readable by a browser page.
+    ///
+    /// The header belongs to the redacted branch alone. If this ever fails, the data directory,
+    /// every child's port and pid and the group id became readable by any page on the internet
+    /// that can reach the node.
+    #[tokio::test]
+    async fn healthz_sends_no_cors_header_on_the_full_document() {
+        use tower::ServiceExt;
+
+        let node = Arc::new(NodeState::new(
+            crate::config::Config::default(),
+            sample_runtime(),
+            false,
+        ));
+        let app = router_with_web(node, WebSource::None, SetupHandle::default());
+
+        let mut req = Request::builder().uri("/healthz").body(Body::empty()).unwrap();
+        req.extensions_mut()
+            .insert(ConnectInfo("127.0.0.1:51234".parse::<SocketAddr>().unwrap()));
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert!(
+            resp.headers()
+                .get(axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .is_none(),
+            "the loopback document must stay unreadable cross-origin",
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 256 * 1024).await.unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(body["children"].is_array(), "and it is still the full document");
     }
 
     #[test]
