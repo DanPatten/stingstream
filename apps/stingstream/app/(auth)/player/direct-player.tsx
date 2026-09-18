@@ -353,6 +353,11 @@ export default function DirectPlayerPage() {
   }, [tracksReady]);
 
   useEffect(() => {
+    // The component is reused across an in-place item switch — Next episode, a bitrate change and
+    // a source switch all `router.replace` to this same route — so two of these can be in flight
+    // at once and resolve out of order. Without this flag the first one's `setItem` landed after
+    // the second had already cleared and restarted, and MPV was handed the previous episode.
+    let cancelled = false;
     const fetchItemData = async () => {
       setItemStatus({ isLoading: true, isError: false });
       try {
@@ -401,9 +406,11 @@ export default function DirectPlayerPage() {
             }
           }
         }
+        if (cancelled) return;
         setItem(fetchedItem);
         setItemStatus({ isLoading: false, isError: false });
       } catch (error) {
+        if (cancelled) return;
         logAndCaptureError("Failed to fetch item for player", error, {
           offline,
         });
@@ -426,6 +433,10 @@ export default function DirectPlayerPage() {
       progress.set(0);
       fetchItemData();
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [itemId, offline, api, user?.Id, progress]);
 
   // Lock orientation based on user settings
@@ -504,6 +515,12 @@ export default function DirectPlayerPage() {
   }, [stream?.mediaSource?.LiveStreamId, releaseLiveStream]);
 
   useEffect(() => {
+    // Same race as the item effect above, one step later. The `item.Id !== itemId` check below
+    // runs *before* the `await getStreamUrl`, so it cannot see a switch that happened while the
+    // request was outstanding — two quick Next episode presses handed MPV the older episode's URL.
+    // Scoped per effect run, which is safe for `refetchStreamRef` too: the ref is reassigned to the
+    // new closure on every run, and cleanup of the old run fires before the new body.
+    let cancelled = false;
     const fetchStreamData = async (): Promise<Stream | null> => {
       setStreamStatus({ isLoading: true, isError: false });
       try {
@@ -572,6 +589,8 @@ export default function DirectPlayerPage() {
           }
           const { mediaSource, sessionId, url, requiredHttpHeaders } = res;
 
+          // The await is behind us, so the item may have moved on since.
+          if (cancelled) return null;
           if (!sessionId || !mediaSource || !url) {
             logAndCaptureError("Stream response incomplete", null, {
               itemType: item.Type,
@@ -586,11 +605,13 @@ export default function DirectPlayerPage() {
           }
           result = { mediaSource, sessionId, url, requiredHttpHeaders };
         }
+        if (cancelled) return null;
         setTracksReady(false);
         setStream(result);
         setStreamStatus({ isLoading: false, isError: false });
         return result;
       } catch (error) {
+        if (cancelled) return null;
         logAndCaptureError("Failed to fetch stream", error, {
           itemType: item?.Type,
           player: getActivePlayerType(settings),
@@ -609,6 +630,10 @@ export default function DirectPlayerPage() {
     // Store the fetch function in ref for use by refresh handler
     refetchStreamRef.current = fetchStreamData;
     fetchStreamData();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     itemId,
     mediaSourceId,

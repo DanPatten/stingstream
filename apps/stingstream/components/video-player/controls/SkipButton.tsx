@@ -2,7 +2,6 @@ import type React from "react";
 import { TouchableOpacity, View, type ViewProps } from "react-native";
 import { Text } from "@/components/common/Text";
 import { rgba } from "@/constants/theme";
-import { useTheme } from "@/hooks/useTheme";
 import { PLAYER_PALETTE } from "./constants";
 
 interface SkipButtonProps extends ViewProps {
@@ -17,7 +16,9 @@ const SkipButton: React.FC<SkipButtonProps> = ({
   buttonText,
   ...props
 }) => {
-  const { color } = useTheme();
+  // No `useTheme` here on purpose: this chip sits over video, so it takes the fixed
+  // `PLAYER_PALETTE` rather than the reader's theme. The unused `color` read left behind by the
+  // theme migration is what Biome was flagging.
   return (
     <View className={showButton ? "flex" : "hidden"} {...props}>
       <TouchableOpacity

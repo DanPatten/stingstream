@@ -79,13 +79,15 @@ export const SettingsShell: React.FC<
   const back = parent ? <BackToCategory category={parent} /> : null;
 
   if (!settingsTwoPane(width, isWebWide)) {
-    return back ? (
+    // Narrow: the page is the whole screen. With no back link there is nothing to add, so the
+    // children are returned as they are rather than wrapped in a fragment that only exists to
+    // make the two branches of a ternary match.
+    if (!back) return children;
+    return (
       <View style={{ flex: 1, backgroundColor: color.bg["0"] }}>
         {back}
         {children}
       </View>
-    ) : (
-      <>{children}</>
     );
   }
 

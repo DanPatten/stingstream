@@ -397,6 +397,10 @@ const MobileMusicPlayerProvider: React.FC<MusicPlayerProviderProps> = ({
   const isOffline = !isConnected || serverConnected === false;
   const initializedRef = useRef(false);
   const playerSetupRef = useRef(false);
+  // The same fact as `playerSetupRef`, as state, because a ref cannot wake an effect.
+  // `syncRepeatMode` below depends on setup having finished and on nothing else changing
+  // afterwards, so with only the ref it ran once, too early, and returned — see its comment.
+  const [playerReady, setPlayerReady] = useState(false);
 
   // Identifies the account the player currently belongs to, and lets async work
   // notice that the session moved on while it was awaiting.
@@ -459,9 +463,11 @@ const MobileMusicPlayerProvider: React.FC<MusicPlayerProviderProps> = ({
           ],
         });
         playerSetupRef.current = true;
+        setPlayerReady(true);
       } catch (_error) {
         // Player might already be set up
         playerSetupRef.current = true;
+        setPlayerReady(true);
       }
     };
 
@@ -475,7 +481,12 @@ const MobileMusicPlayerProvider: React.FC<MusicPlayerProviderProps> = ({
     }
   }, [settings?.audioMaxCacheSizeMB]);
 
-  // Sync repeat mode to TrackPlayer
+  // Sync repeat mode to TrackPlayer.
+  //
+  // `playerReady` is in the dependency list, and has to be: the repeat mode is seeded from storage
+  // at init, so for a reader who set "Repeat one" and came back it never changes again. This effect
+  // ran once, before `setupPlayer` had finished its awaits, returned at the guard, and was never
+  // woken — the UI showed Repeat one while TrackPlayer was still at Off, and the track advanced.
   useEffect(() => {
     if (!TrackPlayer) return;
 
@@ -497,7 +508,7 @@ const MobileMusicPlayerProvider: React.FC<MusicPlayerProviderProps> = ({
     };
 
     syncRepeatMode();
-  }, [state.repeatMode]);
+  }, [state.repeatMode, playerReady]);
 
   // Restore queue on mount (when api is available)
   useEffect(() => {

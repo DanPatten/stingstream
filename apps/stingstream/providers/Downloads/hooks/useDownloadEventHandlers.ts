@@ -77,6 +77,31 @@ export function useDownloadEventHandlers({
   // Track last logged progress per process to avoid spam
   const lastLoggedProgress = useRef<Map<string, number>>(new Map());
 
+  // The deferred `removeProcess` timers a completion or an error schedules.
+  //
+  // Held in a ref and cleared on **unmount**, not on effect cleanup. The effects below list
+  // `processes` in their dependencies, so they are torn down and rebuilt on every progress tick —
+  // clearing there would cancel a removal scheduled moments earlier by a download that had just
+  // finished, and the row would sit on the Transfers screen for good. Untracked, though, they fired
+  // `removeProcess` against a torn-down provider after sign-out.
+  const pendingRemovals = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  useEffect(() => {
+    const timers = pendingRemovals.current;
+    return () => {
+      for (const handle of timers) clearTimeout(handle);
+      timers.clear();
+    };
+  }, []);
+
+  /** Remove a finished process after a beat, cancellably. */
+  const scheduleRemoval = (itemId: string, afterMs: number) => {
+    const handle = setTimeout(() => {
+      pendingRemovals.current.delete(handle);
+      removeProcess(itemId);
+    }, afterMs);
+    pendingRemovals.current.add(handle);
+  };
+
   // Handle download progress events
   useEffect(() => {
     const progressSub = BackgroundDownloader.addProgressListener(
@@ -227,9 +252,7 @@ export function useDownloadEventHandlers({
           clearSpeedData(itemId);
 
           // Remove process after short delay
-          setTimeout(() => {
-            removeProcess(itemId);
-          }, 2000);
+          scheduleRemoval(itemId, 2000);
         } catch (error) {
           // A download that finished on disk gets discarded here — one of
           // the worst silent failures the app has, so always report it.
@@ -293,9 +316,7 @@ export function useDownloadEventHandlers({
         );
 
         // Remove process after short delay
-        setTimeout(() => {
-          removeProcess(itemId);
-        }, 3000);
+        scheduleRemoval(itemId, 3000);
       },
     );
 
