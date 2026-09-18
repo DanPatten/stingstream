@@ -1,5 +1,42 @@
 # StingStream — wide scan and browser pass, 2026-09-17
 
+> ## Status: all fixed, 2026-09-18
+>
+> Everything below has been fixed and pushed, in six commits (`828a93d`…`687e637`). **Two findings
+> in this report turned out to be wrong, and one thing it missed is worse than anything in it.**
+> Read this box before trusting the detail further down.
+>
+> **What the report got wrong**
+>
+> * **F1's root cause is not ours.** It is a Windows-only path-separator bug in
+>   `@expo/router-server`: the guard that rejects files outside `app/` tests
+>   `relativePath.startsWith("../")`, and `path.relative` returns `..\` on Windows, so it fails
+>   open and the dev server's watcher accretes phantom routes. Still present in 57.0.10 and 58.0.2.
+>   Fixed by `patches/@expo%2Frouter-server@57.0.4.patch`.
+>   **F1's suggested fix (§"Make CI generate `.expo/types`") was wrong and was not done** — it would
+>   enforce the bloated union in CI while doing nothing for the local failure.
+> * **F2 was narrower than described.** The gateway has no CORS layer at all, but the
+>   Jellyfin-proxied routes do answer cross-origin, so `/healthz` was the only thing the app polled
+>   that broke. And the redacted `/healthz` document already existed and was already safe to expose,
+>   so the fix was a header on one branch rather than anything structural.
+>
+> **What the report missed — and it outranks every item in it**
+>
+> `is_local()` decided on the raw socket peer. A Cloudflare tunnel runs `cloudflared` as one of the
+> node's own children, so **every tunnelled request arrived from 127.0.0.1 and passed every loopback
+> gate.** Measured against the live tunnel before the fix: `/sidedoor/v1/hello` answered
+> `client_ip: 127.0.0.1` to a request from outside; `/healthz` handed a stranger the data directory,
+> every child's port and pid, the LAN address and the side-door state; and
+> `GET /stingstream/mesh/v1/groups` — the unauthenticated API this codebase calls "this machine
+> only", which can create groups and mint invite codes — answered 200 with the group id, which is a
+> credential. Fixed in `828a93d` and re-verified against the tunnel: redacted document, 403 on the
+> mesh API, loopback unchanged.
+>
+> **Also found while fixing:** a 64-character node id overran its label on Settings → Logs & status
+> (`ListItem`'s value column had `min-width: auto`, so one unbreakable word refused to shrink);
+> `bun patch --commit` is broken on this machine because git 2.9.2 predates `--ignore-cr-at-eol`;
+> and a `expo start` already running does not pick up the patch until it is restarted.
+
 Scope: full build/lint/test sweep of the monorepo at `master` = `884f8ab` (clean tree), plus a
 Playwright pass over the web UI on pinned node 1 (`http://127.0.0.1:5173`), running the tree as of
 this scan (`tools\dev.ps1` re-exported the web bundle and restarted both nodes first).
@@ -351,6 +388,25 @@ Not everything is a defect, and the pass covered more than it found:
   `docs/UI.md` describes.
 
 ---
+
+## What was done
+
+| Commit | Covers |
+|---|---|
+| `828a93d` | The tunnel/loopback gate (not in the original report; see the status box) |
+| `a7ae0b3` | F1 — the `@expo/router-server` patch, plus the `DownloadItem` expression and its latent null read (F10) |
+| `3daf021` | F2, F3, F8a, and the `ListItem` overlap found while verifying |
+| `fa2a40e` | F4 — all four copy defects |
+| `1edb5c5` | F5, F7a, F7b — bounding what a peer can make the node allocate |
+| `99ab74c` | F6, F7c–f — the peer, admit and gossip surfaces |
+| `687e637` | F8b–d and the two Biome items (F10) |
+
+Every phase was gated on `cargo clippy -D warnings`, `cargo test --workspace`,
+`bun run typecheck`, `bun test`, `bun run check`, `bun run i18n:check` and `tools\dev.ps1`, then
+verified in the browser. `bun run check` is clean for the first time in a while, and a six-page DOM
+sweep at 1280px and 400px reports no horizontal overflow, no overlapping text, no unnamed controls
+and no broken images. The only console error left across six page loads is a pre-existing 404 for an
+optional Jellyfin plugin's config (`/jellyfin/Streamyfin/config`), which is unrelated to any of this.
 
 ## Suggested priority
 
