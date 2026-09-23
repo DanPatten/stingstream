@@ -284,6 +284,14 @@ public sealed class CoreDatabase : IDisposable
             CREATE INDEX IF NOT EXISTS ix_pins_state ON pins (state);
             """);
 
+        // `node_name` became `server_name` (5533689) in the CREATE statements above, which only run
+        // on a table that does not exist yet. A database made before that kept the old column, and
+        // every federated and pin pass then failed on "no such column: server_name", about every
+        // five seconds. Renamed rather than added, so no row forgets which server it came from;
+        // the requests table carries its own rename in RequestStore.
+        RenameColumnIfPresent(connection, "federated", "node_name", "server_name");
+        RenameColumnIfPresent(connection, "pins", "node_name", "server_name");
+
         var existing = ScalarLong(connection, "SELECT version FROM schema_version LIMIT 1;");
         if (existing is null)
         {
@@ -300,6 +308,23 @@ public sealed class CoreDatabase : IDisposable
                 existing.Value,
                 SchemaVersion);
             Execute(connection, "UPDATE schema_version SET version = $v;", ("$v", SchemaVersion));
+        }
+    }
+
+    /// <summary>Rename a column when the table still has it under its old name, and only then.</summary>
+    /// <param name="connection">The open connection.</param>
+    /// <param name="table">A table this class creates; never user input.</param>
+    /// <param name="from">The old column name.</param>
+    /// <param name="to">The new column name.</param>
+    public static void RenameColumnIfPresent(SqliteConnection connection, string table, string from, string to)
+    {
+        var has = ScalarLong(
+            connection,
+            $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = $c;",
+            ("$c", from));
+        if (has is > 0)
+        {
+            Execute(connection, $"ALTER TABLE {table} RENAME COLUMN {from} TO {to};");
         }
     }
 
