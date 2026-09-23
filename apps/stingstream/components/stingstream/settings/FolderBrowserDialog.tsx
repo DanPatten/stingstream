@@ -64,8 +64,9 @@ const CONFLICT_KEY = {
  * Dan, 2026-09-22, on the one this replaced: *"100% trash"*, and then on the first rebuild, that the
  * up button and its icon were confusing. The path field is at the top, a sidebar on the left holds
  * the node's media folder (the house) and one entry per drive, and the list on the right holds the
- * subfolders of wherever the field points. Beside the field is a back arrow, which Dan asked for
- * next: one level up per press, stopping at the sidebar entry the path is under (`backTarget`).
+ * subfolders of wherever the field points. The first row of that list is Back, shown only when
+ * there is somewhere to go back to: one level up per press, stopping at the sidebar entry the path
+ * is under (`backTarget`).
  *
  * The field is the one source of truth. The list follows it as you type (debounced), a row or a
  * sidebar entry puts its path into it, and Add adds what it says. The first version's Select added
@@ -273,7 +274,7 @@ function FolderBrowserBody({
   const listingDrives = here.isSuccess
     ? target === DRIVES
     : source.parent === DRIVES;
-  const rows: Place[] = entries.map((entry) => ({
+  const folderRows: Place[] = entries.map((entry) => ({
     key: entry.Path!,
     label: listingDrives ? rootLabel(entry.Path!) : folderName(entry.Path!),
     path: entry.Path!,
@@ -310,6 +311,22 @@ function FolderBrowserBody({
     target,
     places.map((place) => place.path),
   );
+  // Back is the first row of the list, in line with the folders, not a control beside the field:
+  // Dan found an up button beside the field confusing, and then asked for back "in line with the
+  // other folders". It goes one level up per press and is absent at the sidebar entry's own top.
+  const rows: Place[] = [
+    ...(back !== null
+      ? [
+          {
+            key: "back",
+            label: t("common.back"),
+            path: back,
+            icon: "chevronLeft" as IconName,
+          },
+        ]
+      : []),
+    ...folderRows,
+  ];
 
   // The folder is not listable but its parent says it is there: it exists and cannot be opened,
   // which is a different thing to say from "it will be created".
@@ -368,7 +385,7 @@ function FolderBrowserBody({
   };
 
   const loading =
-    rows.length === 0 &&
+    folderRows.length === 0 &&
     (lookup === "loading" || (suggesting && parent.isLoading));
   const wide = width >= TWO_COLUMN_MIN_WIDTH;
 
@@ -388,14 +405,18 @@ function FolderBrowserBody({
           {rows.map((row, index) => (
             <FolderRow
               key={row.key}
-              testID='folder-browser-entry'
+              testID={
+                row.key === "back"
+                  ? "folder-browser-back"
+                  : "folder-browser-entry"
+              }
               label={row.label}
               icon={row.icon}
               highlighted={index === highlight}
               onPress={() => go(row.path)}
             />
           ))}
-          {rows.length === 0 &&
+          {folderRows.length === 0 &&
           (here.isSuccess || (suggesting && parent.isSuccess)) ? (
             <Text
               variant='body'
@@ -437,25 +458,8 @@ function FolderBrowserBody({
         />
       </View>
 
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "flex-start",
-          gap: space["2"],
-        }}
-      >
-        <View style={{ paddingTop: 4 }}>
-          <IconButton
-            testID='folder-browser-back'
-            icon='chevronLeft'
-            label={t("common.back")}
-            disabled={back === null || adding}
-            onPress={() => {
-              if (back !== null) go(back);
-            }}
-          />
-        </View>
-        <View style={{ flex: 1 }}>
+      <View>
+        <View>
           <Input
             testID='folder-browser-path'
             accessibilityLabel={t("libraries.browse_path")}
