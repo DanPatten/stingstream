@@ -202,4 +202,105 @@ public class LibraryPathValidatorTests
         Assert.Equal("path_duplicate", problem.Code);
         Assert.Equal(LibraryLayoutService.MoviesLibrary, problem.ConflictsWith);
     }
+
+    // --- v0.2.0 Windows report: "couldn't add a 2nd folder, and it said it overlapped when it 100%
+    // did not". The refusal named a library but not a folder, so there was no way to check it.
+
+    [Fact]
+    public void AnOverlapNamesTheFolderItCollidesWith()
+    {
+        var problem = Check(Rooted("media"))!;
+
+        Assert.Equal("path_overlaps", problem.Code);
+        Assert.Equal(Rooted("media/Movies"), problem.ConflictingPath);
+        Assert.Contains(Rooted("media/Movies"), problem.Error, StringComparison.Ordinal);
+        Assert.Contains(LibraryLayoutService.MoviesLibrary, problem.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void AFolderInsideAnotherLibrarysFolderSaysSo()
+    {
+        var problem = Check(Rooted("media/Movies/4k"))!;
+
+        Assert.Equal(Rooted("media/Movies"), problem.ConflictingPath);
+        Assert.Contains("inside", problem.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TheSameFolderSpelledWithADotIsADuplicateNotAnOverlap()
+    {
+        var problem = Check(Rooted("media/Movies/."))!;
+
+        Assert.Equal("path_duplicate", problem.Code);
+        Assert.Equal(Rooted("media/Movies"), problem.ConflictingPath);
+    }
+
+    [Fact]
+    public void AnInLibraryOverlapNamesTheFolderItCollidesWith()
+    {
+        var all = new[] { Elsewhere("kids"), Elsewhere("kids/two") };
+
+        var problem = LibraryPathValidator.ValidateSet(
+            new[] { Elsewhere("kids/two") }, all, "Kids TV", Settings(), Runtime, FederatedRoot)!;
+
+        Assert.Equal("path_overlaps", problem.Code);
+        Assert.Equal(Elsewhere("kids"), problem.ConflictingPath);
+        Assert.Contains(Elsewhere("kids"), problem.Error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TwoOldFoldersThatOverlapDoNotBlockANewUnrelatedOne()
+    {
+        // The library already held a pair an older build let through. Adding a third folder that
+        // touches neither used to be refused as "overlapping", about a folder the reader never
+        // chose, which is exactly what "it said it overlapped when it did not" looks like.
+        var all = new[] { Elsewhere("kids"), Elsewhere("kids/two"), Elsewhere("cartoons") };
+
+        Assert.Null(LibraryPathValidator.ValidateSet(
+            new[] { Elsewhere("cartoons") }, all, "Kids TV", Settings(), Runtime, FederatedRoot));
+    }
+
+    [Fact]
+    public void ASecondFolderOnALibraryFollowingTheDefaultIsAccepted()
+    {
+        // A fresh install: Movies has no folder of its own, so the screen shows (and sends back)
+        // the data directory's default beside the new one.
+        var settings = new SharedSettings();
+        LibraryMigration.Apply(settings);
+        var movies = settings.Libraries[0];
+        var all = new[] { Runtime.MediaMovies, Elsewhere("films") };
+
+        Assert.Null(LibraryPathValidator.ValidateSet(
+            new[] { Elsewhere("films") }, all, movies.Name, settings, Runtime, FederatedRoot, movies.Id));
+    }
+
+    [Fact]
+    public void AFolderInAnotherLibraryBesideAnExistingOneIsAccepted()
+    {
+        // Movies holds media/Movies; a new library next to it, not inside it.
+        Assert.Null(LibraryPathValidator.ValidateSet(
+            new[] { Rooted("media/Movies 4K") }, new[] { Rooted("media/Movies 4K") }, "4K", Settings(), Runtime, FederatedRoot));
+    }
+
+    [Theory]
+    [InlineData(@"d:\MEDIA\movies", "path_duplicate")]
+    [InlineData(@"D:\media\Movies\", "path_duplicate")]
+    [InlineData("D:/media/Movies", "path_duplicate")]
+    [InlineData(@"D:\media\Movies2", null)]
+    [InlineData(@"D:\media\Movies 4K", null)]
+    [InlineData(@"D:\Media2", null)]
+    [InlineData(@"E:\media\Movies", null)]
+    [InlineData(@"\\nas\media\Movies", null)]
+    [InlineData(@"D:\", "path_is_federated")]
+    [InlineData(@"d:/media/movies/Action", "path_overlaps")]
+    public void WindowsSpellingsCompareAsWindowsDoes(string path, string? code)
+    {
+        // Only meaningful where these are absolute paths at all.
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        Assert.Equal(code, Check(path)?.Code);
+    }
 }

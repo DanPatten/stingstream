@@ -118,6 +118,8 @@ export interface LibraryProblem {
   code: string;
   field: string;
   conflictsWith?: string | null;
+  /** The folder it collides with, as the other library holds it. */
+  conflictingPath?: string | null;
 }
 
 /** A refusal that belongs under an input rather than in a toast. */
@@ -178,6 +180,7 @@ const toProblem = (body: unknown): LibraryProblem | null => {
     code,
     field: field<string>(raw, "field") ?? "path",
     conflictsWith: field<string>(raw, "conflictsWith") ?? null,
+    conflictingPath: field<string>(raw, "conflictingPath") ?? null,
   };
 };
 

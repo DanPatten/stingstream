@@ -85,14 +85,11 @@ function AddLibraryBody({ onClose }: { onClose: () => void }) {
     );
   };
 
+  // The dialog has already refused a folder that collides with one in `paths`, and says so, so
+  // this only has to take it. The node checks the whole set again when the library is created.
   const addPath = (path: string) => {
-    setBrowsing(false);
     setProblem(null);
-    setPaths((current) =>
-      current.some((p) => p.toLowerCase() === path.toLowerCase())
-        ? current
-        : [...current, path],
-    );
+    setPaths((current) => [...current, path]);
   };
 
   return (
@@ -174,9 +171,9 @@ function AddLibraryBody({ onClose }: { onClose: () => void }) {
 
       <FolderBrowserDialog
         visible={browsing}
-        initialPath={paths[paths.length - 1]}
+        existing={paths}
         onClose={() => setBrowsing(false)}
-        onSelect={addPath}
+        onAdd={addPath}
       />
     </View>
   );

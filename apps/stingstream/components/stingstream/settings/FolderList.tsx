@@ -59,7 +59,7 @@ export function FolderList({
             testID='library-add-folder'
             variant='secondary'
             size='sm'
-            icon='add'
+            icon='storage'
             disabled={disabled}
             onPress={onAdd}
           >

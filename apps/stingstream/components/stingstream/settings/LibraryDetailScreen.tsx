@@ -90,15 +90,14 @@ function LibraryDetail({ library }: { library: Library }) {
     }
   };
 
-  const addFolder = (path: string) => {
-    setBrowsing(false);
-    if (recordings) {
-      void send({ paths: [path] });
-      return;
-    }
-    if (library.paths.some((p) => p.toLowerCase() === path.toLowerCase()))
-      return;
-    void send({ paths: [...library.paths, path] });
+  // Awaited by the dialog, which stays open and shows the node's refusal under its field. This used
+  // to close the dialog first and toast afterwards, and to return without a word when the folder
+  // was already in the list, which read as "it just didn't add it".
+  const addFolder = async (path: string) => {
+    await save.mutateAsync({
+      id: library.id,
+      update: { paths: recordings ? [path] : [...library.paths, path] },
+    });
   };
 
   return (
@@ -160,11 +159,13 @@ function LibraryDetail({ library }: { library: Library }) {
         ) : null}
       </View>
 
+      {/* Opens on the drive list, as Plex's does. Opening inside the last folder made its parent
+          one "Up" away, and the parent is the one folder guaranteed to be refused. */}
       <FolderBrowserDialog
         visible={browsing}
-        initialPath={library.paths[library.paths.length - 1]}
+        existing={recordings ? [] : library.paths}
         onClose={() => setBrowsing(false)}
-        onSelect={addFolder}
+        onAdd={addFolder}
       />
     </SettingsPane>
   );

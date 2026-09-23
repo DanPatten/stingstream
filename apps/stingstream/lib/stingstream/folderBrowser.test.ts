@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { DRIVES, folderName, parentPath } from "./folderBrowser";
+import {
+  addableFolder,
+  DRIVES,
+  folderConflict,
+  folderName,
+  isAbsoluteFolder,
+  matchSuggestions,
+  normalizeFolder,
+  parentPath,
+  relateFolders,
+  suggestionSource,
+} from "./folderBrowser";
 
 describe("parentPath", () => {
   test("a Windows folder goes up one level, and a drive goes up to the drive list", () => {
@@ -37,5 +48,139 @@ describe("folderName", () => {
     expect(folderName("/srv/media/")).toBe("media");
     expect(folderName("D:\\")).toBe("D:");
     expect(folderName("/")).toBe("/");
+  });
+});
+
+describe("isAbsoluteFolder", () => {
+  test("drive, UNC and POSIX paths are full paths", () => {
+    expect(isAbsoluteFolder("D:\\Media")).toBe(true);
+    expect(isAbsoluteFolder("d:/media")).toBe(true);
+    expect(isAbsoluteFolder("D:")).toBe(true);
+    expect(isAbsoluteFolder("\\\\nas\\media")).toBe(true);
+    expect(isAbsoluteFolder("/srv/media")).toBe(true);
+  });
+
+  test("relative and drive-relative paths are not", () => {
+    expect(isAbsoluteFolder("media\\Movies")).toBe(false);
+    expect(isAbsoluteFolder("D:media")).toBe(false);
+    expect(isAbsoluteFolder("")).toBe(false);
+  });
+});
+
+describe("normalizeFolder", () => {
+  test("drops a trailing separator but keeps a root whole", () => {
+    expect(normalizeFolder(" D:\\Media\\ ")).toBe("D:\\Media");
+    expect(normalizeFolder("D:")).toBe("D:\\");
+    expect(normalizeFolder("d:/")).toBe("d:\\");
+    expect(normalizeFolder("/srv/media/")).toBe("/srv/media");
+    expect(normalizeFolder("/")).toBe("/");
+    expect(normalizeFolder("  ")).toBe(DRIVES);
+  });
+});
+
+describe("suggestionSource", () => {
+  test("a half-typed name looks in its parent", () => {
+    expect(suggestionSource("D:\\Media\\Mo")).toEqual({
+      parent: "D:\\Media",
+      prefix: "Mo",
+    });
+    expect(suggestionSource("/srv/me")).toEqual({
+      parent: "/srv",
+      prefix: "me",
+    });
+    expect(suggestionSource("/sr")).toEqual({ parent: "/", prefix: "sr" });
+  });
+
+  test("a trailing separator lists everything in that folder", () => {
+    expect(suggestionSource("D:\\Media\\")).toEqual({
+      parent: "D:\\Media",
+      prefix: "",
+    });
+  });
+
+  test("a bare drive letter looks at the drive list", () => {
+    expect(suggestionSource("D")).toEqual({ parent: DRIVES, prefix: "D" });
+  });
+});
+
+describe("matchSuggestions", () => {
+  const entries = [
+    { Name: "Movies", Path: "D:\\Media\\Movies" },
+    { Name: "Movies 4K", Path: "D:\\Media\\Movies 4K" },
+    { Name: "TV", Path: "D:\\Media\\TV" },
+  ];
+
+  test("matches the start of the name, whatever the case", () => {
+    expect(matchSuggestions(entries, "mov").map((e) => e.Name)).toEqual([
+      "Movies",
+      "Movies 4K",
+    ]);
+    expect(matchSuggestions(entries, "").length).toBe(3);
+    expect(matchSuggestions(entries, "x")).toEqual([]);
+  });
+});
+
+describe("relateFolders", () => {
+  test("a sibling that shares a prefix is not an overlap", () => {
+    expect(relateFolders("D:\\Movies2", "D:\\Movies")).toBe("none");
+    expect(relateFolders("D:\\Media\\Movies 4K", "D:\\Media\\Movies")).toBe(
+      "none",
+    );
+  });
+
+  test("case, separators and a trailing separator do not matter", () => {
+    expect(relateFolders("d:/media/movies/", "D:\\Media\\Movies")).toBe("same");
+  });
+
+  test("inside and containing are told apart", () => {
+    expect(relateFolders("D:\\Media\\Movies\\4K", "D:\\Media\\Movies")).toBe(
+      "inside",
+    );
+    expect(relateFolders("D:\\Media", "D:\\Media\\Movies")).toBe("contains");
+    expect(relateFolders("D:\\", "D:\\Media")).toBe("contains");
+  });
+
+  test("different drives never overlap", () => {
+    expect(relateFolders("E:\\Media\\Movies", "D:\\Media\\Movies")).toBe(
+      "none",
+    );
+  });
+});
+
+describe("folderConflict", () => {
+  test("names the folder it collides with", () => {
+    expect(
+      folderConflict(["C:\\Data\\Movies", "D:\\Media"], "d:\\media\\TV"),
+    ).toEqual({ relation: "inside", path: "D:\\Media" });
+  });
+
+  test("a second folder elsewhere is fine", () => {
+    expect(folderConflict(["C:\\Data\\Movies"], "D:\\Media\\TV")).toBeNull();
+  });
+});
+
+describe("addableFolder", () => {
+  test("adds the folder in the field, tidied", () => {
+    expect(addableFolder("D:\\Media\\TV\\", "listed")).toEqual({
+      path: "D:\\Media\\TV",
+      reason: null,
+    });
+  });
+
+  test("a folder that is not there yet can still be added", () => {
+    expect(addableFolder("D:\\Media\\New", "missing").path).toBe(
+      "D:\\Media\\New",
+    );
+    expect(addableFolder("D:\\Media\\New", "loading").path).toBe(
+      "D:\\Media\\New",
+    );
+  });
+
+  test("says why when there is nothing to add", () => {
+    expect(addableFolder("", "listed").reason).toBe("choose");
+    expect(addableFolder("media\\TV", "missing").reason).toBe("not_absolute");
+    expect(addableFolder("Q:\\nope\\deeper", "missing_parent").reason).toBe(
+      "not_found",
+    );
   });
 });
