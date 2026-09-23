@@ -526,10 +526,12 @@ type BuildOptions = {
    * the helpers' own defaults.
    */
   cardWidth?: number;
+  /**
+   * The screen's pixel ratio, `PixelRatio.get()`, so a 1x monitor is not sent
+   * twice the pixels it can draw. Capped at 2; 2 when omitted.
+   */
+  pixelRatio?: number;
 };
-
-/** The server-side width for a card this wide. See `serverPosterWidth`. */
-const imageRequestWidth = serverPosterWidth;
 
 /**
  * `BaseItemDto` → card. The one place the labels, image selection and badge
@@ -537,11 +539,18 @@ const imageRequestWidth = serverPosterWidth;
  */
 export function buildItemCards(
   items: BaseItemDto[],
-  { api, kind, useEpisodePoster = false, selectedId, cardWidth }: BuildOptions,
+  {
+    api,
+    kind,
+    useEpisodePoster = false,
+    selectedId,
+    cardWidth,
+    pixelRatio,
+  }: BuildOptions,
 ): CardData[] {
   if (!api) return [];
 
-  const width = imageRequestWidth(cardWidth);
+  const width = serverPosterWidth(cardWidth, pixelRatio);
 
   return items.flatMap((item) => {
     if (!item.Id) return [];

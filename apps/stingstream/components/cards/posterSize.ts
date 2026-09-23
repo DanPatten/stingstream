@@ -20,21 +20,29 @@
 import { POSTER_REQUEST_WIDTHS } from "@/constants/Library";
 
 /**
- * The width to ask the media server for, for a card `cardWidth` points wide:
- * twice that, rounded up to the next step of `POSTER_REQUEST_WIDTHS`.
+ * The width to ask the media server for, for a card `cardWidth` points wide on a
+ * screen of `pixelRatio`: the pixels it covers, rounded up to the next step of
+ * `POSTER_REQUEST_WIDTHS`.
  *
- * Twice, for pixel density, and never more. Rounded up so that every screen
- * shares a handful of sizes: the server resizes once per distinct size, and a
- * grid's cards change width with every pixel the window does. See the ladder's
- * own comment for the numbers.
+ * The ratio is capped at 2, as it always was: past that nobody can tell. It is
+ * not assumed to be 2 any more, because on a 1x desktop monitor that asked for
+ * twice the pixels anybody would see, and the server's cold resize costs grow
+ * with the size of what it writes (measured on node 1: about 120 ms at 330
+ * wide, 350 ms at 630, 500 ms at 1100). Rounded up so that every screen shares
+ * a handful of sizes: the server resizes once per distinct size, and a grid's
+ * cards change width with every pixel the window does.
  */
 export function serverPosterWidth(
   cardWidth: number | undefined,
+  pixelRatio = 2,
 ): number | undefined {
   if (!cardWidth || !Number.isFinite(cardWidth) || cardWidth <= 0) {
     return undefined;
   }
-  const wanted = Math.round(cardWidth * 2);
+  const ratio = Number.isFinite(pixelRatio)
+    ? Math.min(Math.max(pixelRatio, 1), 2)
+    : 2;
+  const wanted = Math.round(cardWidth * ratio);
   return (
     POSTER_REQUEST_WIDTHS.find((width) => width >= wanted) ??
     POSTER_REQUEST_WIDTHS[POSTER_REQUEST_WIDTHS.length - 1]

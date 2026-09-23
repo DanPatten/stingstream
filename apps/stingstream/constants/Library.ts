@@ -38,11 +38,14 @@ export const SCAN_REFRESH_ITEMS_MS = 6_000;
  * The widths a server poster is requested at, ascending.
  *
  * The media server resizes each poster once per distinct size and caches the
- * result: a cold resize measured 0.3 to 0.7 s on node 1, a warm one about 15 ms.
- * Asking for exactly twice the card's width meant a library grid, whose cards
- * are the window width divided by the column count, asked for a new size at
- * nearly every window width, and never for the size the home rows had already
- * warmed. Rounding up to a short ladder makes every screen share a few sizes.
+ * result. Measured on node 1 through the gateway: a cold resize took about
+ * 85 ms at 240 wide, 120 ms at 330, 350 ms at 630 and 500 ms at 1100, and
+ * slower with the CPU busy (570 ms at 650 with builds running beside it); a
+ * warm one about 10 ms. Asking
+ * for exactly twice the card's width meant a library grid, whose cards are the
+ * window width divided by the column count, asked for a new size at nearly
+ * every window width, and never for the size the home rows had already warmed.
+ * Rounding up to a short ladder makes every screen share a few sizes.
  */
 export const POSTER_REQUEST_WIDTHS = [
   240, 320, 400, 480, 640, 800, 1000, 1280, 1600, 1920,

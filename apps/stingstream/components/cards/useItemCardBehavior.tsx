@@ -2,6 +2,7 @@ import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useMemo, useState } from "react";
+import { PixelRatio } from "react-native";
 import { ItemActionSheetHost } from "@/components/common/ItemActionSheetHost";
 import {
   getItemNavigation,
@@ -72,6 +73,7 @@ export function useItemCardBehavior({
         useEpisodePoster,
         selectedId,
         cardWidth,
+        pixelRatio: PixelRatio.get(),
       }),
     [providedCards, items, api, kind, useEpisodePoster, selectedId, cardWidth],
   );

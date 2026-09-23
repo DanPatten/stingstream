@@ -89,12 +89,12 @@ public static class MetadataDefaults
     /// <remarks>
     /// <para>
     /// Upstream leaves <c>PosterSize</c> unset, which <c>TmdbClientManager.GetUrl</c> turns into
-    /// <c>original</c>: 1000x1500 to 2000x3000, commonly 0.4 to 3 MB, for a card drawn about 170
-    /// points wide. Every poster on a first scan is fetched at that size, and every card the app
-    /// draws is then resized down from it on the first request. Measured on node 1: a cold
-    /// resize from a 1400x2100 original took 0.70 s, from a 691x1024 one 0.33 s; warm, both
-    /// are about 15 ms. Three sample TMDb posters were 674, 534 and 397 KB at <c>original</c> and
-    /// 318, 319 and 161 KB at <c>w780</c>.
+    /// <c>original</c>: 1000x1500 to 2000x3000, for a card drawn about 170 points wide. Every
+    /// poster on a first scan is downloaded at that size while the scan is also probing files
+    /// and fetching metadata. Three sample TMDb posters were 674, 534 and 397 KB at
+    /// <c>original</c> and 318, 319 and 161 KB at <c>w780</c>: about half the bytes per poster
+    /// on a first scan, and on disk. (The server's resize of a poster for a card costs about the
+    /// same from either, on node 1: it grows with the size written, not the size read.)
     /// </para>
     /// <para>
     /// <c>w780</c> is still larger than anything the app asks for: the widest poster it draws is

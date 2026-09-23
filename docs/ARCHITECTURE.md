@@ -358,9 +358,14 @@ works unchanged. Proven pattern for remote-backed libraries; implemented in `Sti
    `-trailer` suffixes as extras.
 
    **TMDb posters are downloaded at `w780`, not `original`** (`MetadataDefaults.ApplyTmdbImageSizes`,
-   every start, only when no size is set). The originals are 1000x1500 to 2000x3000 and the server
-   resizes every card from them on first request; measured on node 1, a cold resize from a
-   1400x2100 original took 0.70 s and from a 691x1024 one 0.33 s. Backdrops stay at `original`.
+   every start, only when no size is set). The originals are 1000x1500 to 2000x3000; three sample
+   posters were 674, 534 and 397 KB at `original` and 318, 319 and 161 KB at `w780`, so a first
+   scan downloads about half the bytes per poster. Backdrops stay at `original`. What a poster
+   costs the *reader* is the server's resize for the card, once per poster per size, which grows
+   with the size written (node 1: about 85 ms at 240 wide, 350 ms at 630, 500 ms at 1100, 570 ms
+   at 650 with the CPU busy; about 10 ms once cached, and the gateway adds about 1 ms). So the app
+   asks for the pixels the card covers at the screen's own ratio, capped at 2x, rounded up to a
+   short ladder (`serverPosterWidth`) that every screen shares.
    Chapter image extraction and trickplay were already off in every library the node creates
    (`LibraryLayoutService.BuildOptions`), so neither holds up a first scan.
 

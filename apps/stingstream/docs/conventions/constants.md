@@ -36,6 +36,7 @@ cadence meant knowing both existed, and nothing would have failed if only one ha
 | `constants/Playback.ts` | Playback policy every layer reads: the progress report cadence shared by the JS and native players, and the `BITRATES` ladder |
 | `constants/Cast.ts` | Casting from a browser: where the Cast Web Sender is loaded from, and how long to wait for it |
 | `constants/Networking.ts` | How the app addresses a node: the gateway's default port, shared by the probe candidates and the setup instructions that name it |
+| `constants/Library.ts` | Following a library scan (how often scan state and the item lists are refetched while one runs) and the `POSTER_REQUEST_WIDTHS` ladder server posters are requested at |
 
 Add a new domain file when a group grows its own identity (playback, downloads,
 networking). Do not let `Values.ts` become the place where everything lands.

@@ -184,4 +184,13 @@ describe("serverPosterWidth", () => {
     expect(serverPosterWidth(undefined)).toBeUndefined();
     expect(serverPosterWidth(Number.NaN)).toBeUndefined();
   });
+
+  test("a 1x screen is sent the pixels it draws, and the ratio never goes past 2", () => {
+    expect(serverPosterWidth(150, 1)).toBe(240);
+    expect(serverPosterWidth(170, 1)).toBe(240);
+    expect(serverPosterWidth(170, 1.5)).toBe(320);
+    expect(serverPosterWidth(170, 3)).toBe(400);
+    // Below 1 is not a real screen; treat it as 1 rather than shrinking the poster.
+    expect(serverPosterWidth(170, 0.5)).toBe(240);
+  });
 });
