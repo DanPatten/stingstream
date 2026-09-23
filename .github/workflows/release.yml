@@ -251,6 +251,41 @@ jobs:
       - name: Build the installer
         run: pwsh deploy/windows/build-installer.ps1 -SkipPackage
 
+      # The Linux job has always installed its .deb and polled /healthz; this job only ever built
+      # the .exe, which is how v0.2.0 shipped an installer whose service never came up.
+      - name: Install it and check the service answers
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist/installers/StingStream-Setup-*-win-x64.exe | Select-Object -First 1
+          Write-Host "Installing $($exe.FullName)"
+          $p = Start-Process $exe.FullName -ArgumentList '/VERYSILENT','/NORESTART','/SUPPRESSMSGBOXES','/LOG=install.log' -Wait -PassThru
+          Write-Host "installer exit code: $($p.ExitCode)"
+          Get-Service StingStream -ErrorAction SilentlyContinue | Format-List Name,Status,StartType
+          $ok = $false
+          foreach ($i in 1..90) {
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 http://127.0.0.1:8790/healthz -SkipHttpErrorCheck
+              if ($r.StatusCode -in 200, 503) { $ok = $true; Write-Host $r.Content; break }
+            } catch {}
+            Start-Sleep -Seconds 2
+          }
+          Write-Host '-- service --'
+          Get-Service StingStream -ErrorAction SilentlyContinue | Format-List Name,Status
+          & sc.exe qc StingStream
+          & sc.exe query StingStream
+          Write-Host '-- System event log --'
+          Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'; StartTime=(Get-Date).AddMinutes(-15)} -ErrorAction SilentlyContinue |
+            Select-Object -First 20 | Format-List TimeCreated,Message
+          Write-Host '-- install.log (tail) --'
+          Get-Content install.log -Tail 60 -ErrorAction SilentlyContinue
+          Write-Host '-- node logs --'
+          Get-ChildItem "$env:ProgramData\StingStream\logs" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "== $($_.Name)"; Get-Content $_.FullName -Tail 40
+          }
+          if (-not $ok) { Write-Host '::error::the StingStream service never answered on :8790 after install'; exit 1 }
+          $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs"
+          Get-ChildItem $menu -Recurse -Filter 'StingStream*' | ForEach-Object { Write-Host "start menu: $($_.FullName)" }
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-installer
