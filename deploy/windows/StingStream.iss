@@ -95,7 +95,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{win}\explorer.exe"; Parameters: 
 Filename: "{code:GetPowerShellExe}"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataDir ""{code:GetDataDir}"""; \
     Flags: runhidden waituntilterminated; \
-    StatusMsg: "Registering and starting the StingStream service..."
+    StatusMsg: "Starting StingStream..."
 ; Ticked by default on the last page. skipifsilent keeps winget and CI from opening a browser.
 Filename: "{#MyAppLocalURL}"; Description: "Open StingStream"; \
     Flags: postinstall shellexec nowait skipifsilent

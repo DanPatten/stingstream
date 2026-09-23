@@ -68,4 +68,32 @@ try {
 
 Write-Host "Starting $ServiceName..."
 Start-Service -Name $ServiceName
-Write-Host "StingStream is running as a Windows service. http://localhost:8790"
+
+# Wait for the gateway to answer before handing back to the installer. The service reports Running
+# to the SCM before the gateway has bound its port, and the installer's last page opens the browser
+# as soon as this script returns: in v0.2.1-beta.1 that page loaded onto "connection refused".
+# Any HTTP answer will do, 503 included. Once the gateway answers, the page shows its own
+# "Starting your server" screen while the media server behind it comes up. Bounded, and never
+# fatal: a slow first start is not a failed install.
+$deadline = (Get-Date).AddSeconds(120)
+$up = $false
+while ((Get-Date) -lt $deadline) {
+    try {
+        $r = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Uri 'http://127.0.0.1:8790/healthz'
+        $up = $true
+    } catch [System.Net.WebException] {
+        # A 503 from a node still starting throws here in Windows PowerShell 5.1; it still answered.
+        if ($_.Exception.Response) { $up = $true }
+    } catch {}
+    if ($up) { break }
+    if ((Get-Service -Name $ServiceName).Status -eq 'Stopped') {
+        Write-Warning "$ServiceName stopped while starting. See %ProgramData%\StingStream\logs\service-error.txt."
+        break
+    }
+    Start-Sleep -Milliseconds 500
+}
+if ($up) {
+    Write-Host "StingStream is running as a Windows service. http://localhost:8790"
+} else {
+    Write-Warning "StingStream did not answer on port 8790 within two minutes; it may still be starting."
+}
