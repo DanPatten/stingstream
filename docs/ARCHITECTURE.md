@@ -342,6 +342,15 @@ works unchanged. Proven pattern for remote-backed libraries; implemented in `Sti
    still described by the peer's own answer rather than re-derived on every node in the group.
    (Remote *image* providers ignore `IsLocked`; that is left alone, since it only fires for an image
    the holder did not publish and the result is a library that looks finished.)
+   Because the fetcher decision is the server's, first-run wiring checks it on every start
+   (`MetadataDefaults`): TMDb is taken back off the server's disabled lists for Movie, Series,
+   Season, Episode and BoxSet, and a blank metadata language or country gets Jellyfin's own
+   `en`/`US`. It also repairs the library's *type*: a Movies or TV Shows virtual folder whose
+   `*.collection` marker is not `movies`/`tvshows` is re-marked and rescanned
+   (`LibraryLayoutService.EnsureCollectionTypeAsync`), because in a `homevideos` or untyped library
+   a film resolves as a bare `Video` named after its file, with a frame grab and no metadata. The
+   libraries are reconciled before the download managers are synced, and do not depend on them:
+   a node with no indexer runs no manager and still gets titled, illustrated libraries.
    A series `tvshow.nfo` is deliberately **not** locked: two series items collapse by presentation
    key rather than by version link, so Jellyfin picks between them arbitrarily, and locking the one
    with no plot would leave whichever won looking blank.
