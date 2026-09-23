@@ -6804,7 +6804,8 @@
         "tags": [
           "QualityProfiles"
         ],
-        "summary": "Every quality profile either app has, merged by name.",
+        "summary": "Every quality profile, with which running manager holds a copy of each.",
+        "description": "Answered from the store. The managers are asked only which of them hold each profile, within\r\nStingStream.Core.Arr.QualityProfileService.ReadBudget; one that does not answer in time is left out.",
         "operationId": "GetQualityProfiles",
         "responses": {
           "200": {
@@ -6827,7 +6828,28 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "No app could be read, so there is no list to give."
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
           }
         },
         "security": [
@@ -6842,7 +6864,7 @@
         "tags": [
           "QualityProfiles"
         ],
-        "summary": "Create a profile in both apps.",
+        "summary": "Create a profile. The managers are given it on the next sync.",
         "operationId": "CreateQualityProfile",
         "requestBody": {
           "description": "The profile.",
@@ -6881,7 +6903,7 @@
         },
         "responses": {
           "200": {
-            "description": "The profile as the apps stored it.",
+            "description": "The profile as stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6891,7 +6913,7 @@
             }
           },
           "400": {
-            "description": "The profile is unnamed, allows nothing, or an app refused it.",
+            "description": "The profile is unnamed or allows nothing.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6986,7 +7008,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "No app has a profile by that name.",
+            "description": "There is no profile by that name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7032,8 +7054,8 @@
         "tags": [
           "QualityProfiles"
         ],
-        "summary": "Replace a profile in both apps.",
-        "description": "Renaming is deliberately not supported: the name is the profile's identity across two apps,\r\nand a rename that succeeded in one and failed in the other would leave two half-profiles.",
+        "summary": "Replace a profile. The managers follow on the next sync.",
+        "description": "Renaming is deliberately not supported: the name is the profile's identity inside each\r\nmanager, and titles there are filed under it.",
         "operationId": "UpdateQualityProfile",
         "parameters": [
           {
@@ -7083,7 +7105,7 @@
         },
         "responses": {
           "200": {
-            "description": "The profile as the apps stored it.",
+            "description": "The profile as stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7093,7 +7115,7 @@
             }
           },
           "400": {
-            "description": "The profile allows nothing, or an app refused it.",
+            "description": "The profile allows nothing.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7109,7 +7131,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "No app has a profile by that name.",
+            "description": "There is no profile by that name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7155,7 +7177,7 @@
         "tags": [
           "QualityProfiles"
         ],
-        "summary": "Remove a profile from both apps.",
+        "summary": "Remove a profile, and retire its name in the managers.",
         "operationId": "DeleteQualityProfile",
         "parameters": [
           {
@@ -7170,7 +7192,7 @@
         ],
         "responses": {
           "200": {
-            "description": "What each app did.",
+            "description": "Removed.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7180,7 +7202,7 @@
             }
           },
           "400": {
-            "description": "A built-in profile, or an app refused (usually because it is in use).",
+            "description": "A built-in profile, or a running manager has titles on it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7196,7 +7218,7 @@
             "description": "Forbidden"
           },
           "404": {
-            "description": "No app has a profile by that name.",
+            "description": "There is no profile by that name.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7259,7 +7281,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The profile as the apps stored it.",
+            "description": "The profile as stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7269,7 +7291,7 @@
             }
           },
           "400": {
-            "description": "An app refused.",
+            "description": "Bad Request",
             "content": {
               "application/json": {
                 "schema": {
@@ -20968,6 +20990,36 @@
         "additionalProperties": false,
         "description": "One quality, or one group of them, inside a profile."
       },
+      "QualityProfileSettings": {
+        "type": "object",
+        "properties": {
+          "Name": {
+            "type": "string",
+            "description": "The profile's name, and its identity inside each manager."
+          },
+          "Tiers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Allowed tiers, worst first. Empty for a profile imported from a manager whose qualities\r\nbelong to no tier (remuxes only, say); such a profile is left exactly as the manager has it."
+          },
+          "CutoffTier": {
+            "type": "string",
+            "description": "The tier at which upgrading stops. Empty when it belongs to no tier."
+          },
+          "UpgradeAllowed": {
+            "type": "boolean",
+            "description": "Whether a better copy replaces an existing file."
+          },
+          "Provisional": {
+            "type": "boolean",
+            "description": "A built-in as it ships, put here before any manager was read."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One quality profile, as StingStream stores it."
+      },
       "QualityProfileView": {
         "type": "object",
         "properties": {
@@ -20980,7 +21032,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Which apps have a profile by this name: `radarr`, `sonarr`, or both."
+            "description": "Which running managers hold a copy by this name: `radarr`, `sonarr`, both, or none\r\nwhile neither is running. The profile itself lives in StingStream either way."
           },
           "Ids": {
             "type": "object",
@@ -21026,7 +21078,7 @@
           },
           "InSync": {
             "type": "boolean",
-            "description": "Whether both apps agree about this profile."
+            "description": "Whether every running manager's copy says what StingStream's does."
           },
           "Unsupported": {
             "type": "object",
@@ -21055,7 +21107,7 @@
                 "$ref": "#/components/schemas/QualityProfileView"
               }
             ],
-            "description": "The profile as it now stands, read back from the apps.",
+            "description": "The profile as it is now stored.",
             "nullable": true
           },
           "Detail": {
@@ -21755,7 +21807,7 @@
         "properties": {
           "Resource": {
             "type": "string",
-            "description": "The arr resource: `indexer` or `downloadclient`."
+            "description": "The arr resource: `indexer`, `downloadclient` or `qualityprofile`."
           },
           "Name": {
             "type": "string",
@@ -23069,6 +23121,13 @@
           "DefaultQualityProfileName": {
             "type": "string",
             "description": "Quality profile to use when adding titles. Empty means \"whatever the app's first profile\r\nis\", which is what a fresh Radarr or Sonarr always has at least one of."
+          },
+          "QualityProfiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QualityProfileSettings"
+            },
+            "description": "Every quality profile this node has. StingStream owns these; the managers are given copies."
           },
           "Revision": {
             "type": "integer",

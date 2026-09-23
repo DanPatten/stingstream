@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using StingStream.Core.Data;
 
 namespace StingStream.Core.Arr;
 
@@ -32,7 +33,10 @@ public sealed class QualityProfileView
     /// <summary>The profile's name. This is its identity across both apps.</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Which apps have a profile by this name: <c>radarr</c>, <c>sonarr</c>, or both.</summary>
+    /// <summary>
+    /// Which running managers hold a copy by this name: <c>radarr</c>, <c>sonarr</c>, both, or none
+    /// while neither is running. The profile itself lives in StingStream either way.
+    /// </summary>
     public List<string> Apps { get; set; } = new();
 
     /// <summary>Each app's own integer id for it, so a caller can cross-check against the arr.</summary>
@@ -67,12 +71,11 @@ public sealed class QualityProfileView
     public bool IsDefault { get; set; }
 
     /// <summary>
-    /// Whether both apps agree about this profile.
+    /// Whether every running manager's copy says what StingStream's does.
     /// </summary>
     /// <remarks>
-    /// False when only one app has it, or when the two disagree about the cutoff or the allowed
-    /// set — which happens legitimately (a quality one app does not have) and illegitimately
-    /// (somebody edited one app by hand).
+    /// False for the few seconds between a save and the sync that follows it, or when somebody
+    /// edited a manager by hand. True when no manager is running: there is nothing to disagree.
     /// </remarks>
     public bool InSync { get; set; }
 
@@ -119,7 +122,7 @@ public sealed class QualityProfileWriteResult
     /// </remarks>
     public bool NotFound { get; set; }
 
-    /// <summary>The profile as it now stands, read back from the apps.</summary>
+    /// <summary>The profile as it is now stored.</summary>
     public QualityProfileView? Profile { get; set; }
 
     /// <summary>One line per app: what was created, updated, deleted or refused.</summary>
@@ -132,36 +135,76 @@ public sealed class QualityProfileWriteResult
     public string Message { get; set; } = string.Empty;
 }
 
-/// <summary>The profile list, or why there is not one.</summary>
-public sealed class QualityProfileList
+/// <summary>Which managers have had their stock profiles replaced, and which have been read into the store.</summary>
+public sealed class QualityProfileSeedMarker
 {
-    /// <summary>Every profile the apps that answered have.</summary>
-    public List<QualityProfileView> Profiles { get; init; } = new();
+    /// <summary>Settings key this document is stored under in <c>core.db</c>.</summary>
+    public const string StorageKey = "quality-profiles-seeded";
 
     /// <summary>
-    /// Set when no app could be read at all, so an empty list is a failure and not an answer.
+    /// Managers whose stock set (Any, SD, HD-720p and so on) has been replaced by the store's.
     /// </summary>
-    public string? Error { get; init; }
+    public List<string> Apps { get; set; } = new();
+
+    /// <summary>
+    /// Managers whose own profiles have been copied into <see cref="SharedSettings.QualityProfiles"/>.
+    /// </summary>
+    /// <remarks>
+    /// Only a manager already in <see cref="Apps"/> is copied from. One that is not still holds its
+    /// stock set, which is exactly what seeding replaces, and importing it would bring back profiles
+    /// nobody made.
+    /// </remarks>
+    public List<string> Adopted { get; set; } = new();
 }
 
 /// <summary>
-/// Quality-profile CRUD across Radarr and Sonarr at once.
+/// Quality profiles: StingStream's own list, and the copies of it each manager is given.
 /// </summary>
 /// <remarks>
-/// Every write follows the same shape as <see cref="OmniarrSyncService"/>: fetch the app's own
-/// schema, fill in what StingStream has an opinion about, post it back. The schema is what carries
-/// each quality's integer id, its source and its resolution, none of which StingStream stores or
-/// wants to.
+/// <para>
+/// <see cref="SharedSettings.QualityProfiles"/> is the list. Reading, creating, editing, resetting
+/// and deleting a profile touch only that, so all of it works while neither manager is running,
+/// which is most of the time on a node with no indexer yet. <see cref="SyncAsync"/> is the other
+/// half: a step of <see cref="OmniarrSyncService.SyncOneAsync"/>, which <see cref="SyncRetryWorker"/>
+/// runs whenever a manager is behind the settings, including the first time it comes up.
+/// </para>
+/// <para>
+/// A manager's copy is built the way <see cref="OmniarrSyncService"/> builds everything: fetch the
+/// manager's own schema or existing profile, fill in what StingStream has an opinion about, post it
+/// back. The schema is what carries each quality's integer id, source and resolution, none of which
+/// StingStream stores.
+/// </para>
+/// <para>
+/// Profiles are compared at the level they are stored, tiers and cutoff tier, so a profile copied in
+/// from a manager is never rewritten until somebody edits it: one that allows only
+/// <c>WEBDL-1080p</c> stores as "1080p" and matches its own copy.
+/// </para>
 /// </remarks>
 public sealed class QualityProfileService
 {
+    /// <summary>The resource name a deleted profile is retired under.</summary>
+    public const string RetiredResource = "qualityprofile";
+
+    /// <summary>
+    /// How long a request a person is waiting on spends asking the managers anything.
+    /// </summary>
+    /// <remarks>
+    /// The list is answered from the store; the managers only add which of them hold each profile.
+    /// A manager that is starting refuses the connection at once, but one that is migrating its
+    /// database accepts it and says nothing, and the arr client's own timeout is a minute.
+    /// </remarks>
+    public static readonly TimeSpan ReadBudget = TimeSpan.FromSeconds(3);
+
+    /// <summary>How long a delete spends finding out whether any title uses the profile.</summary>
+    public static readonly TimeSpan InUseBudget = TimeSpan.FromSeconds(5);
+
     private readonly ArrClientFactory _factory;
-    private readonly Data.SettingsStore _settings;
+    private readonly SettingsStore _settings;
     private readonly ILogger<QualityProfileService> _logger;
 
     public QualityProfileService(
         ArrClientFactory factory,
-        Data.SettingsStore settings,
+        SettingsStore settings,
         ILogger<QualityProfileService> logger)
     {
         _factory = factory;
@@ -169,100 +212,125 @@ public sealed class QualityProfileService
         _logger = logger;
     }
 
-    /// <summary>Every profile either app has, merged by name. Empty when no app answered.</summary>
-    public async Task<List<QualityProfileView>> ListAsync(CancellationToken ct = default)
-        => (await TryListAsync(ct).ConfigureAwait(false)).Profiles;
+    // --- the store -----------------------------------------------------------
 
     /// <summary>
-    /// Every profile either app has, merged by name, saying so when no app could be read.
+    /// Fill an empty store with the built-ins, and point an unset default at one of them.
     /// </summary>
-    /// <remarks>
-    /// This used to swallow every failure and return an empty list, which a settings screen could
-    /// only draw as "No quality profiles" — the one answer guaranteed to be wrong, since every app
-    /// always has at least one.
-    /// </remarks>
-    public async Task<QualityProfileList> TryListAsync(CancellationToken ct = default)
+    /// <param name="settings">The settings. Mutated.</param>
+    /// <returns>True when anything changed.</returns>
+    public static bool Initialize(SharedSettings settings)
     {
-        var defaultName = _settings.Get().DefaultQualityProfileName;
-        var byName = new Dictionary<string, QualityProfileView>(StringComparer.OrdinalIgnoreCase);
-        var perApp = new Dictionary<string, Dictionary<string, JsonObject>>(StringComparer.OrdinalIgnoreCase);
-
-        var clients = _factory.CreateAll();
-        if (clients.Count == 0)
+        ArgumentNullException.ThrowIfNull(settings);
+        if (settings.QualityProfiles.Count > 0)
         {
-            return new QualityProfileList { Error = "Quality profiles are available once an indexer is enabled." };
+            return false;
         }
 
-        foreach (var client in clients)
+        foreach (var builtIn in BuiltInQualityProfiles.All)
         {
-            List<JsonObject> profiles;
-            try
+            var entry = ToSettings(builtIn);
+            entry.Provisional = true;
+            settings.QualityProfiles.Add(entry);
+        }
+
+        // Only when unset. A node from before the store may default to a profile of its own that is
+        // still inside a manager, and comes back into the list when that manager is next read.
+        if (string.IsNullOrWhiteSpace(settings.DefaultQualityProfileName))
+        {
+            settings.DefaultQualityProfileName = BuiltInQualityProfiles.DefaultName;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Copy one manager's profiles into the store: every name it does not have yet, and every
+    /// built-in it still holds only provisionally.
+    /// </summary>
+    /// <param name="settings">The settings. Mutated.</param>
+    /// <param name="managerProfiles">The manager's <c>qualityprofile</c> resources.</param>
+    /// <returns>The names added or replaced.</returns>
+    /// <remarks>
+    /// A retired name is skipped: it was deleted here, and its copy in the manager is on its way out.
+    /// Idempotent, so two readers adopting the same manager at once end up where one would.
+    /// </remarks>
+    public static List<string> Adopt(SharedSettings settings, IEnumerable<JsonObject> managerProfiles)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(managerProfiles);
+
+        var changed = new List<string>();
+        foreach (var raw in managerProfiles)
+        {
+            var incoming = FromManager(raw);
+            if (string.IsNullOrWhiteSpace(incoming.Name) || IsRetired(settings, incoming.Name))
             {
-                profiles = await client.QualityProfilesAsync(ct).ConfigureAwait(false);
-            }
-            catch (ArrApiException ex)
-            {
-                _logger.LogWarning(ex, "Could not read {App}'s quality profiles", client.Name);
                 continue;
             }
 
-            var appMap = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
-            foreach (var raw in profiles)
+            var index = settings.QualityProfiles.FindIndex(
+                p => string.Equals(p.Name, incoming.Name, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
             {
-                var name = raw["name"]?.GetValue<string>();
-                if (string.IsNullOrWhiteSpace(name))
-                {
-                    continue;
-                }
-
-                appMap[name] = raw;
-                if (!byName.TryGetValue(name, out var view))
-                {
-                    view = new QualityProfileView { Name = name };
-                    byName[name] = view;
-                }
-
-                view.Apps.Add(client.Name);
-                if (raw["id"]?.GetValue<int>() is { } id)
-                {
-                    view.Ids[client.Name] = id;
-                }
-
-                // The first app to report a profile defines the view; the second is only compared
-                // against it. Radarr comes first in CreateAll's stable order, so a mixed group
-                // reads consistently rather than depending on which app answered faster.
-                if (view.Items.Count == 0)
-                {
-                    view.UpgradeAllowed = raw["upgradeAllowed"]?.GetValue<bool>() ?? false;
-                    view.Cutoff = CutoffName(raw);
-                    view.Items = ReadItems(raw);
-                    view.Tiers = QualityTiers.Of(Flatten(view.Items.Where(i => i.Allowed)));
-                    view.CutoffTier = QualityTiers.TierOf(view.Cutoff) ?? string.Empty;
-                }
+                settings.QualityProfiles.Add(incoming);
+                changed.Add(incoming.Name);
             }
-
-            perApp[client.Name] = appMap;
+            else if (settings.QualityProfiles[index].Provisional)
+            {
+                incoming.Name = settings.QualityProfiles[index].Name;
+                settings.QualityProfiles[index] = incoming;
+                changed.Add(incoming.Name);
+            }
         }
 
-        if (perApp.Count == 0)
+        return changed;
+    }
+
+    /// <summary>
+    /// The store, filled in first if this node has never read it.
+    /// </summary>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The profiles.</returns>
+    public async Task<List<QualityProfileSettings>> EnsureStoreAsync(CancellationToken ct = default)
+    {
+        var current = _settings.Get();
+        if (current.QualityProfiles.Count > 0)
         {
-            return new QualityProfileList { Error = "StingStream could not read the quality profiles yet. Try again in a moment." };
+            return current.QualityProfiles;
         }
 
-        foreach (var view in byName.Values)
+        var saved = await _settings.UpdateAsync(s => Initialize(s), ct).ConfigureAwait(false);
+        return saved.QualityProfiles;
+    }
+
+    /// <summary>One stored profile by name, or null. Never asks a manager.</summary>
+    public QualityProfileSettings? Find(string? name)
+        => _settings.Get().QualityProfiles.FirstOrDefault(
+            p => string.Equals(p.Name, name?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    // --- reading -------------------------------------------------------------
+
+    /// <summary>Every profile, from the store, with which running manager holds each.</summary>
+    public Task<List<QualityProfileView>> ListAsync(CancellationToken ct = default)
+        => ListAsync(_factory.CreateAll(), ct);
+
+    /// <summary>Every profile, from the store, with which of these managers holds each.</summary>
+    /// <param name="clients">The managers to ask, within <see cref="ReadBudget"/>.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The profiles, built-ins first.</returns>
+    public async Task<List<QualityProfileView>> ListAsync(IReadOnlyList<ArrClient> clients, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(clients);
+        await EnsureStoreAsync(ct).ConfigureAwait(false);
+
+        var held = await ReadManagersAsync(clients, ct).ConfigureAwait(false);
+        foreach (var (app, profiles) in held)
         {
-            view.IsBuiltIn = BuiltInQualityProfiles.IsBuiltIn(view.Name);
-            view.IsDefault = string.Equals(view.Name, defaultName, StringComparison.OrdinalIgnoreCase);
-            view.InSync = view.Apps.Count > 1 && AppsAgree(view, perApp);
+            await AdoptIfDueAsync(app, profiles, ct).ConfigureAwait(false);
         }
 
-        return new QualityProfileList
-        {
-            Profiles = byName.Values
-                .OrderBy(v => BuiltInQualityProfiles.Rank(v.Name))
-                .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList(),
-        };
+        return BuildViews(_settings.Get(), held);
     }
 
     /// <summary>One profile by name, or null.</summary>
@@ -281,11 +349,13 @@ public sealed class QualityProfileService
         foreach (var client in _factory.CreateAll())
         {
             JsonObject? schema;
+            using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            budget.CancelAfter(ReadBudget);
             try
             {
-                schema = await client.QualityProfileSchemaAsync(ct).ConfigureAwait(false);
+                schema = await client.QualityProfileSchemaAsync(budget.Token).ConfigureAwait(false);
             }
-            catch (ArrApiException ex)
+            catch (Exception ex) when (ex is ArrApiException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
             {
                 _logger.LogWarning(ex, "Could not read {App}'s quality-profile schema", client.Name);
                 continue;
@@ -316,10 +386,13 @@ public sealed class QualityProfileService
         return result;
     }
 
-    /// <summary>Create or replace a profile in both apps.</summary>
+    // --- writing -------------------------------------------------------------
+
+    /// <summary>Create or replace a profile in the store. The managers follow on the next sync.</summary>
     /// <param name="desired">The profile, keyed on <see cref="QualityProfileView.Name"/>.</param>
-    /// <param name="mustExist">True for an update: refuse when neither app has it.</param>
+    /// <param name="mustExist">True for an update: refuse when there is no such profile.</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <returns>What happened.</returns>
     public async Task<QualityProfileWriteResult> SaveAsync(
         QualityProfileView desired,
         bool mustExist,
@@ -328,83 +401,55 @@ public sealed class QualityProfileService
         ArgumentNullException.ThrowIfNull(desired);
         var result = new QualityProfileWriteResult();
 
-        var clients = _factory.CreateAll();
-        if (clients.Count == 0)
+        var entry = ToSettings(desired);
+        if (string.IsNullOrWhiteSpace(entry.Name))
         {
-            result.Message = "Quality profiles are available once an indexer is enabled.";
+            result.Message = "Give the profile a name.";
             return result;
         }
 
-        var byTier = desired.Tiers.Count > 0;
-        if (byTier ? !desired.Tiers.Any(QualityTiers.IsTier) : !desired.Items.Any(i => i.Allowed))
+        if (entry.Tiers.Count == 0)
         {
-            result.Message = "A quality profile must allow at least one quality.";
+            result.Message = "Choose at least one quality.";
             return result;
         }
 
-        var existedSomewhere = false;
-        var wroteSomewhere = false;
-
-        foreach (var client in clients)
-        {
-            try
-            {
-                var existing = await client.QualityProfileByNameAsync(desired.Name, ct).ConfigureAwait(false);
-                existedSomewhere |= existing is not null;
-
-                // The schema carries this app's complete quality tree with its real ids; the
-                // existing profile carries the same shape, so an update edits what is there rather
-                // than resetting fields StingStream has no opinion about (format scores, language).
-                var basis = existing?.DeepClone().AsObject()
-                    ?? await client.QualityProfileSchemaAsync(ct).ConfigureAwait(false);
-                if (basis is null)
-                {
-                    result.Detail.Add($"{client.Name}: skipped (no quality-profile schema)");
-                    continue;
-                }
-
-                if (!Prepare(basis, desired, client.Name, result))
-                {
-                    continue;
-                }
-
-                await WriteAsync(client, basis, existing, ct).ConfigureAwait(false);
-                result.Detail.Add($"{client.Name}: {(existing is null ? "created" : "updated")}");
-                wroteSomewhere = true;
-            }
-            catch (ArrApiException ex)
-            {
-                result.Detail.Add($"{client.Name}: {ArrClient.DescribeValidationFailure(ex.Body ?? ex.Message, System.Net.HttpStatusCode.BadRequest)}");
-                _logger.LogWarning(ex, "Writing quality profile {Name} into {App} failed", desired.Name, client.Name);
-            }
-        }
-
-        if (mustExist && !existedSomewhere)
+        await EnsureStoreAsync(ct).ConfigureAwait(false);
+        if (mustExist && Find(entry.Name) is null)
         {
             result.NotFound = true;
-            result.Message = $"There is no quality profile called \"{desired.Name}\".";
+            result.Message = $"There is no quality profile called \"{entry.Name}\".";
             return result;
         }
 
-        result.Ok = wroteSomewhere;
-        result.Profile = await GetAsync(desired.Name, ct).ConfigureAwait(false);
-        if (result.Profile is not null && desired.Unsupported.Count > 0)
-        {
-            // Re-reading the profile asks the apps what they *stored*, which by definition cannot
-            // mention a quality they do not have — so copy across the one thing the fresh read
-            // cannot carry.
-            result.Profile.Unsupported = desired.Unsupported;
-        }
+        var saved = await _settings.UpdateAsync(
+            s =>
+            {
+                var index = s.QualityProfiles.FindIndex(
+                    p => string.Equals(p.Name, entry.Name, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                {
+                    s.QualityProfiles.Add(entry);
+                }
+                else
+                {
+                    // Keep the stored spelling: it is the name the managers already know it by.
+                    entry.Name = s.QualityProfiles[index].Name;
+                    s.QualityProfiles[index] = entry;
+                }
 
-        if (!result.Ok)
-        {
-            result.Message = string.Join("; ", result.Detail);
-        }
+                s.Unretire(RetiredResource, entry.Name);
+            },
+            ct).ConfigureAwait(false);
 
+        result.Ok = true;
+        result.Detail.Add($"stored {entry.Name}");
+        result.Profile = BuildViews(saved, new Dictionary<string, List<JsonObject>>())
+            .FirstOrDefault(v => string.Equals(v.Name, entry.Name, StringComparison.OrdinalIgnoreCase));
         return result;
     }
 
-    /// <summary>Put a built-in profile back the way it shipped, in every app.</summary>
+    /// <summary>Put a built-in profile back the way it shipped.</summary>
     public async Task<QualityProfileWriteResult> ResetAsync(string name, CancellationToken ct = default)
     {
         var builtIn = BuiltInQualityProfiles.Find(name);
@@ -420,36 +465,127 @@ public sealed class QualityProfileService
         return await SaveAsync(BuiltInQualityProfiles.ToView(builtIn), mustExist: false, ct).ConfigureAwait(false);
     }
 
-    /// <summary>
-    /// Make sure one app has every built-in profile, and optionally nothing else.
-    /// </summary>
-    /// <param name="client">The app.</param>
-    /// <param name="removeOthers">
-    /// Delete every other profile. Only for the first pass on an app, when what it has is its own
-    /// stock set rather than anything a person made. A profile still in use is left where it is.
-    /// </param>
+    /// <summary>Remove a profile, and retire its name in the managers.</summary>
+    public Task<QualityProfileWriteResult> DeleteAsync(string name, CancellationToken ct = default)
+        => DeleteAsync(name, _factory.CreateAll(), ct);
+
+    /// <summary>Remove a profile, and retire its name in the managers.</summary>
+    /// <param name="name">The profile's name.</param>
+    /// <param name="clients">The managers to check for titles still using it.</param>
     /// <param name="ct">Cancellation token.</param>
-    /// <returns>What changed, one line per profile.</returns>
-    /// <exception cref="ArrApiException">The app could not be read at all.</exception>
-    public async Task<List<string>> EnsureBuiltInsAsync(ArrClient client, bool removeOthers, CancellationToken ct = default)
+    /// <returns>What happened.</returns>
+    /// <remarks>
+    /// Both managers refuse to delete a profile any title is filed under. When one is running, that
+    /// is checked first and the delete refused with a sentence that says what to do, rather than
+    /// removing the profile here and leaving it stuck there. When none is, nothing can be checked and
+    /// the delete goes ahead; the sync that retires the name moves any title still on it to the
+    /// default profile (<see cref="SyncAsync"/>).
+    /// </remarks>
+    public async Task<QualityProfileWriteResult> DeleteAsync(
+        string name,
+        IReadOnlyList<ArrClient> clients,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(clients);
+        var result = new QualityProfileWriteResult();
+
+        await EnsureStoreAsync(ct).ConfigureAwait(false);
+        var stored = Find(name);
+        if (stored is null)
+        {
+            result.NotFound = true;
+            result.Message = $"There is no quality profile called \"{name}\".";
+            return result;
+        }
+
+        if (BuiltInQualityProfiles.IsBuiltIn(stored.Name))
+        {
+            result.Message = "Built-in profiles can be reset, not deleted.";
+            return result;
+        }
+
+        if (await IsInUseAsync(clients, stored.Name, ct).ConfigureAwait(false))
+        {
+            result.Message = "This profile is in use. Move its movies and TV shows to another profile first.";
+            return result;
+        }
+
+        await _settings.UpdateAsync(
+            s =>
+            {
+                s.QualityProfiles.RemoveAll(p => string.Equals(p.Name, stored.Name, StringComparison.OrdinalIgnoreCase));
+                s.Retire(RetiredResource, stored.Name);
+                if (string.Equals(s.DefaultQualityProfileName, stored.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    s.DefaultQualityProfileName = BuiltInQualityProfiles.DefaultName;
+                }
+            },
+            ct).ConfigureAwait(false);
+
+        result.Ok = true;
+        result.Detail.Add($"deleted {stored.Name}");
+        return result;
+    }
+
+    // --- sync ----------------------------------------------------------------
+
+    /// <summary>
+    /// Bring one manager's quality profiles into line with the store.
+    /// </summary>
+    /// <param name="client">The manager, already known to be answering.</param>
+    /// <param name="status">Where each change is recorded.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <remarks>
+    /// <list type="number">
+    /// <item>The first time a manager is reached, its stock set is replaced: every stored profile is
+    /// written over whatever shares its name (both managers ship an "Any" that takes cams and remuxes),
+    /// and everything else is deleted. A stock profile a title already uses stays, and is copied into
+    /// the store so it can be seen and deleted later.</item>
+    /// <item>A manager seeded before profiles were stored here is copied into the store once
+    /// (<see cref="Adopt"/>), so nothing made inside it is lost.</item>
+    /// <item>After that, a stored profile the manager lacks is created, and one whose tiers, cutoff or
+    /// upgrade setting differ is rewritten. Nothing else is touched.</item>
+    /// <item>A retired name still present is deleted, after moving any title on it to the default
+    /// profile. If the manager still refuses (an import list or collection uses it), it stays, the
+    /// sync says so, and the next sync tries again.</item>
+    /// </list>
+    /// </remarks>
+    /// <exception cref="ArrApiException">The manager could not be read, or refused a write.</exception>
+    public async Task SyncAsync(ArrClient client, SyncStatus status, CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(client);
-        var changes = new List<string>();
+        ArgumentNullException.ThrowIfNull(status);
+
+        await EnsureStoreAsync(ct).ConfigureAwait(false);
+        var marker = Marker();
+        var firstContact = !marker.Apps.Contains(client.Name, StringComparer.OrdinalIgnoreCase);
         var existing = await client.QualityProfilesAsync(ct).ConfigureAwait(false);
 
-        // Created before anything is deleted, so the app is never left with no profile at all.
-        JsonObject? schema = null;
-        foreach (var builtIn in BuiltInQualityProfiles.All)
+        if (!firstContact)
         {
+            var adopted = await AdoptIfDueAsync(client.Name, existing, ct).ConfigureAwait(false);
+            if (adopted.Count > 0)
+            {
+                status.Detail.Add($"quality profile: kept {string.Join(", ", adopted)} from {client.Display}");
+            }
+        }
+
+        var settings = _settings.Get();
+        JsonObject? schema = null;
+        foreach (var profile in settings.QualityProfiles)
+        {
+            // Imported from a manager and made of qualities in no tier: there is nothing here to
+            // write, and the manager's own copy is the definition.
+            if (profile.Tiers.Count == 0)
+            {
+                continue;
+            }
+
             var current = existing.FirstOrDefault(p => string.Equals(
                 p["name"]?.GetValue<string>(),
-                builtIn.Name,
+                profile.Name,
                 StringComparison.OrdinalIgnoreCase));
-
-            // On first contact a profile by the same name is the app's own stock one -- both apps
-            // ship an "Any" that takes cams and remuxes -- so it is rewritten rather than trusted.
-            // After that it is somebody's edit, and left alone.
-            if (current is not null && !removeOthers)
+            if (current is not null && !firstContact && Matches(profile, current))
             {
                 continue;
             }
@@ -467,94 +603,380 @@ public sealed class QualityProfileService
             }
 
             var scratch = new QualityProfileWriteResult();
-            if (!Prepare(basis, BuiltInQualityProfiles.ToView(builtIn), client.Name, scratch))
+            if (!Prepare(basis, ToView(profile), client.Name, scratch))
             {
-                changes.AddRange(scratch.Detail);
+                status.Detail.AddRange(scratch.Detail.Select(d => $"quality profile {profile.Name}: {d}"));
                 continue;
             }
 
             await WriteAsync(client, basis, current, ct).ConfigureAwait(false);
-            changes.Add($"{(current is null ? "created" : "reset")} {builtIn.Name}");
+            status.Detail.Add($"quality profile: {(current is null ? "created" : "updated")} {profile.Name}");
         }
 
-        if (!removeOthers)
+        var keep = new HashSet<string>(settings.QualityProfiles.Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
+        var remove = firstContact
+            ? existing.Select(p => p["name"]?.GetValue<string>()).OfType<string>().Where(n => !keep.Contains(n)).ToList()
+            : settings.RetiredProviders
+                .Where(r => string.Equals(r.Resource, RetiredResource, StringComparison.OrdinalIgnoreCase))
+                .Select(r => r.Name)
+                .Where(n => !keep.Contains(n))
+                .ToList();
+
+        if (remove.Count > 0)
         {
-            return changes;
-        }
-
-        foreach (var profile in existing)
-        {
-            var name = profile["name"]?.GetValue<string>();
-            if (BuiltInQualityProfiles.IsBuiltIn(name) || profile["id"]?.GetValue<int>() is not { } id)
+            var now = await client.QualityProfilesAsync(ct).ConfigureAwait(false);
+            foreach (var profile in now)
             {
-                continue;
-            }
-
-            try
-            {
-                await client
-                    .DeleteAsync(string.Create(CultureInfo.InvariantCulture, $"qualityprofile/{id}"), ct)
-                    .ConfigureAwait(false);
-                changes.Add($"deleted {name}");
-            }
-            catch (ArrApiException ex)
-            {
-                // Almost always "in use": a title is already filed under it. It stays, and shows up
-                // as a profile of its own that can be deleted once nothing needs it.
-                _logger.LogInformation(ex, "Kept {App}'s quality profile {Name}", client.Name, name);
-            }
-        }
-
-        return changes;
-    }
-
-    /// <summary>Remove a profile from both apps.</summary>
-    public async Task<QualityProfileWriteResult> DeleteAsync(string name, CancellationToken ct = default)
-    {
-        var result = new QualityProfileWriteResult();
-        var found = false;
-
-        foreach (var client in _factory.CreateAll())
-        {
-            try
-            {
-                var existing = await client.QualityProfileByNameAsync(name, ct).ConfigureAwait(false);
-                if (existing is null)
+                var name = profile["name"]?.GetValue<string>();
+                if (name is null
+                    || !remove.Contains(name, StringComparer.OrdinalIgnoreCase)
+                    || profile["id"]?.GetValue<int>() is not { } id)
                 {
-                    result.Detail.Add($"{client.Name}: not present");
                     continue;
                 }
 
-                found = true;
-                var id = existing["id"]?.GetValue<int>() ?? 0;
-                await client
-                    .DeleteAsync(string.Create(CultureInfo.InvariantCulture, $"qualityprofile/{id}"), ct)
-                    .ConfigureAwait(false);
-                result.Detail.Add($"{client.Name}: deleted");
-            }
-            catch (ArrApiException ex)
-            {
-                // The app refused, which is a different thing from the profile not existing --
-                // usually "QualityProfile [5] is in use". That sentence is exactly what the user
-                // needs, so it is passed through rather than flattened into a 404.
-                found = true;
-                result.Detail.Add(
-                    $"{client.Name}: {ArrClient.DescribeValidationFailure(ex.Body ?? ex.Message, System.Net.HttpStatusCode.BadRequest)}");
-                result.Message = result.Detail[^1];
-                _logger.LogWarning(ex, "Deleting quality profile {Name} from {App} failed", name, client.Name);
-                return result;
+                await RemoveAsync(client, name, id, now, settings, reassign: !firstContact, status, ct).ConfigureAwait(false);
             }
         }
 
-        result.Ok = found;
-        if (!found)
+        if (firstContact)
         {
-            result.NotFound = true;
-            result.Message = $"There is no quality profile called \"{name}\".";
+            // Whatever survived was in use. It belongs in the list, or it could never be deleted.
+            var left = await client.QualityProfilesAsync(ct).ConfigureAwait(false);
+            if (left.Any(p => !keep.Contains(p["name"]?.GetValue<string>() ?? string.Empty)))
+            {
+                await _settings.UpdateAsync(s => Adopt(s, left), ct).ConfigureAwait(false);
+            }
+
+            marker = Marker();
+            AddOnce(marker.Apps, client.Name);
+            AddOnce(marker.Adopted, client.Name);
+            await _settings.PutDocumentAsync(QualityProfileSeedMarker.StorageKey, marker, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// Delete one profile from a manager, first moving its titles to the default when asked.
+    /// </summary>
+    private async Task RemoveAsync(
+        ArrClient client,
+        string name,
+        int id,
+        List<JsonObject> profiles,
+        SharedSettings settings,
+        bool reassign,
+        SyncStatus status,
+        CancellationToken ct)
+    {
+        var path = string.Create(CultureInfo.InvariantCulture, $"qualityprofile/{id}");
+        try
+        {
+            await client.DeleteAsync(path, ct).ConfigureAwait(false);
+            status.Detail.Add($"quality profile: removed {name}");
+            return;
+        }
+        catch (ArrApiException ex) when (ex.Status is not null && reassign)
+        {
+            _logger.LogInformation(ex, "{App} refused to delete quality profile {Name}; moving its titles", client.Name, name);
+        }
+        catch (ArrApiException ex) when (ex.Status is not null)
+        {
+            // First contact: a stock profile a title already uses. It stays, and is adopted.
+            _logger.LogInformation(ex, "Kept {App}'s quality profile {Name}", client.Name, name);
+            status.Detail.Add($"quality profile: kept {name} (in use)");
+            return;
         }
 
-        return result;
+        var target = TargetFor(profiles, settings, id);
+        if (target is null)
+        {
+            status.Detail.Add($"quality profile: kept {name} (in use, and no other profile to move titles to)");
+            return;
+        }
+
+        var moved = await MoveTitlesAsync(client, id, target.Value, ct).ConfigureAwait(false);
+        try
+        {
+            await client.DeleteAsync(path, ct).ConfigureAwait(false);
+            status.Detail.Add($"quality profile: moved {moved} title(s) off {name} and removed it");
+        }
+        catch (ArrApiException ex) when (ex.Status is not null)
+        {
+            _logger.LogWarning(ex, "{App} still refuses to delete quality profile {Name}", client.Name, name);
+            status.Detail.Add($"quality profile: kept {name} (still in use: {ArrClient.DescribeValidationFailure(ex.Body ?? ex.Message, ex.Status.Value)})");
+        }
     }
+
+    /// <summary>The id of the profile titles move to when theirs is retired.</summary>
+    private static int? TargetFor(List<JsonObject> profiles, SharedSettings settings, int retiredId)
+    {
+        int? IdOf(string? name) => profiles
+            .Where(p => string.Equals(p["name"]?.GetValue<string>(), name, StringComparison.OrdinalIgnoreCase))
+            .Select(p => p["id"]?.GetValue<int>())
+            .FirstOrDefault(i => i is not null && i != retiredId);
+
+        return IdOf(settings.DefaultQualityProfileName)
+            ?? IdOf(BuiltInQualityProfiles.DefaultName)
+            ?? settings.QualityProfiles.Select(p => IdOf(p.Name)).FirstOrDefault(i => i is not null);
+    }
+
+    /// <summary>Move every movie or show on one profile to another, through the manager's bulk editor.</summary>
+    private static async Task<int> MoveTitlesAsync(ArrClient client, int from, int to, CancellationToken ct)
+    {
+        var ids = (await client.ListAsync(client.LibraryResource, ct).ConfigureAwait(false))
+            .Where(t => t["qualityProfileId"]?.GetValue<int>() == from)
+            .Select(t => t["id"]?.GetValue<int>())
+            .OfType<int>()
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return 0;
+        }
+
+        var idList = new JsonArray();
+        foreach (var id in ids)
+        {
+            idList.Add(id);
+        }
+
+        var body = new JsonObject
+        {
+            [client.Kind == ArrKind.Radarr ? "movieIds" : "seriesIds"] = idList,
+            ["qualityProfileId"] = to,
+        };
+        await client.PutAsync($"{client.LibraryResource}/editor", body, ct).ConfigureAwait(false);
+        return ids.Count;
+    }
+
+    // --- helpers ---------------------------------------------------------------
+
+    private QualityProfileSeedMarker Marker()
+        => _settings.GetDocument<QualityProfileSeedMarker>(QualityProfileSeedMarker.StorageKey)
+            ?? new QualityProfileSeedMarker();
+
+    private static void AddOnce(List<string> list, string value)
+    {
+        if (!list.Contains(value, StringComparer.OrdinalIgnoreCase))
+        {
+            list.Add(value);
+        }
+    }
+
+    private static bool IsRetired(SharedSettings settings, string name)
+        => settings.RetiredProviders.Any(r =>
+            string.Equals(r.Resource, RetiredResource, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Copy a seeded manager's profiles into the store, once.</summary>
+    /// <returns>The names that came in.</returns>
+    private async Task<List<string>> AdoptIfDueAsync(string app, List<JsonObject> profiles, CancellationToken ct)
+    {
+        var marker = Marker();
+        if (!marker.Apps.Contains(app, StringComparer.OrdinalIgnoreCase)
+            || marker.Adopted.Contains(app, StringComparer.OrdinalIgnoreCase))
+        {
+            return new List<string>();
+        }
+
+        var changed = new List<string>();
+        await _settings.UpdateAsync(s => changed = Adopt(s, profiles), ct).ConfigureAwait(false);
+
+        marker = Marker();
+        AddOnce(marker.Adopted, app);
+        await _settings.PutDocumentAsync(QualityProfileSeedMarker.StorageKey, marker, ct).ConfigureAwait(false);
+        if (changed.Count > 0)
+        {
+            _logger.LogInformation("Copied {App}'s quality profiles into StingStream: {Names}", app, string.Join(", ", changed));
+        }
+
+        return changed;
+    }
+
+    /// <summary>Each manager's profiles, from those that answer within <see cref="ReadBudget"/>.</summary>
+    private async Task<Dictionary<string, List<JsonObject>>> ReadManagersAsync(
+        IReadOnlyList<ArrClient> clients,
+        CancellationToken ct)
+    {
+        var held = new Dictionary<string, List<JsonObject>>(StringComparer.OrdinalIgnoreCase);
+        if (clients.Count == 0)
+        {
+            return held;
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(ReadBudget);
+        var reads = clients.Select(async c =>
+        {
+            try
+            {
+                return (c.Name, Profiles: await c.QualityProfilesAsync(budget.Token).ConfigureAwait(false));
+            }
+            catch (Exception ex) when (ex is ArrApiException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+            {
+                _logger.LogDebug(ex, "{App} did not answer for its quality profiles", c.Name);
+                return (c.Name, Profiles: (List<JsonObject>?)null);
+            }
+        }).ToList();
+
+        foreach (var (app, profiles) in await Task.WhenAll(reads).ConfigureAwait(false))
+        {
+            if (profiles is not null)
+            {
+                held[app] = profiles;
+            }
+        }
+
+        return held;
+    }
+
+    /// <summary>Whether any running manager has a title on this profile. False when none can say.</summary>
+    private async Task<bool> IsInUseAsync(IReadOnlyList<ArrClient> clients, string name, CancellationToken ct)
+    {
+        if (clients.Count == 0)
+        {
+            return false;
+        }
+
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        budget.CancelAfter(InUseBudget);
+        var checks = clients.Select(async c =>
+        {
+            try
+            {
+                var profile = await c.QualityProfileByNameAsync(name, budget.Token).ConfigureAwait(false);
+                if (profile?["id"]?.GetValue<int>() is not { } id)
+                {
+                    return false;
+                }
+
+                var titles = await c.ListAsync(c.LibraryResource, budget.Token).ConfigureAwait(false);
+                return titles.Any(t => t["qualityProfileId"]?.GetValue<int>() == id);
+            }
+            catch (Exception ex) when (ex is ArrApiException || (ex is OperationCanceledException && !ct.IsCancellationRequested))
+            {
+                _logger.LogDebug(ex, "{App} did not answer whether quality profile {Name} is in use", c.Name, name);
+                return false;
+            }
+        }).ToList();
+
+        return (await Task.WhenAll(checks).ConfigureAwait(false)).Any(inUse => inUse);
+    }
+
+    /// <summary>The list as the API reports it: the store, annotated with what each manager holds.</summary>
+    /// <param name="settings">The settings, for the store and the default.</param>
+    /// <param name="held">Each manager that answered, and its profiles.</param>
+    /// <returns>The views, built-ins first.</returns>
+    public static List<QualityProfileView> BuildViews(
+        SharedSettings settings,
+        IReadOnlyDictionary<string, List<JsonObject>> held)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        ArgumentNullException.ThrowIfNull(held);
+
+        var views = new List<QualityProfileView>();
+        foreach (var stored in settings.QualityProfiles)
+        {
+            var view = ToView(stored);
+            view.IsBuiltIn = BuiltInQualityProfiles.IsBuiltIn(stored.Name);
+            view.IsDefault = string.Equals(stored.Name, settings.DefaultQualityProfileName, StringComparison.OrdinalIgnoreCase);
+            view.InSync = true;
+
+            foreach (var (app, profiles) in held)
+            {
+                var raw = profiles.FirstOrDefault(p => string.Equals(
+                    p["name"]?.GetValue<string>(),
+                    stored.Name,
+                    StringComparison.OrdinalIgnoreCase));
+                if (raw is null)
+                {
+                    view.InSync = false;
+                    continue;
+                }
+
+                view.Apps.Add(app);
+                if (raw["id"]?.GetValue<int>() is { } id)
+                {
+                    view.Ids[app] = id;
+                }
+
+                if (stored.Tiers.Count > 0 && !Matches(stored, raw))
+                {
+                    view.InSync = false;
+                }
+            }
+
+            views.Add(view);
+        }
+
+        return views
+            .OrderBy(v => BuiltInQualityProfiles.Rank(v.Name))
+            .ThenBy(v => v.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    /// <summary>A manager's profile, as the store would hold it.</summary>
+    public static QualityProfileSettings FromManager(JsonObject raw)
+    {
+        ArgumentNullException.ThrowIfNull(raw);
+        return new QualityProfileSettings
+        {
+            Name = raw["name"]?.GetValue<string>()?.Trim() ?? string.Empty,
+            UpgradeAllowed = raw["upgradeAllowed"]?.GetValue<bool>() ?? false,
+            Tiers = QualityTiers.Of(Flatten(ReadItems(raw).Where(i => i.Allowed))),
+            CutoffTier = QualityTiers.TierOf(CutoffName(raw)) ?? string.Empty,
+        };
+    }
+
+    /// <summary>Whether a manager's copy already says what the stored profile says.</summary>
+    public static bool Matches(QualityProfileSettings stored, JsonObject raw)
+    {
+        ArgumentNullException.ThrowIfNull(stored);
+        var actual = FromManager(raw);
+        var wanted = QualityTiers.All.Where(t => stored.Tiers.Contains(t, StringComparer.OrdinalIgnoreCase));
+        return actual.UpgradeAllowed == stored.UpgradeAllowed
+            && actual.Tiers.SequenceEqual(wanted, StringComparer.OrdinalIgnoreCase)
+            && string.Equals(actual.CutoffTier, stored.CutoffTier, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// What a write asks the store to hold: tiers in order, and a cutoff among them.
+    /// </summary>
+    /// <remarks>
+    /// A caller that names qualities (<see cref="QualityProfileView.Items"/>) rather than tiers is
+    /// still understood: the tiers those qualities belong to are what is kept.
+    /// </remarks>
+    public static QualityProfileSettings ToSettings(QualityProfileView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        var byTier = view.Tiers.Count > 0;
+        var tiers = byTier
+            ? QualityTiers.All.Where(t => view.Tiers.Contains(t, StringComparer.OrdinalIgnoreCase)).ToList()
+            : QualityTiers.Of(Flatten(view.Items.Where(i => i.Allowed)));
+        var cutoff = byTier ? view.CutoffTier : QualityTiers.TierOf(view.Cutoff) ?? string.Empty;
+        if (!tiers.Contains(cutoff, StringComparer.OrdinalIgnoreCase))
+        {
+            cutoff = tiers.LastOrDefault() ?? string.Empty;
+        }
+
+        return new QualityProfileSettings
+        {
+            Name = view.Name?.Trim() ?? string.Empty,
+            Tiers = tiers,
+            CutoffTier = QualityTiers.All.FirstOrDefault(t => string.Equals(t, cutoff, StringComparison.OrdinalIgnoreCase)) ?? string.Empty,
+            UpgradeAllowed = view.UpgradeAllowed,
+        };
+    }
+
+    private static QualityProfileSettings ToSettings(BuiltInQualityProfile builtIn)
+        => ToSettings(BuiltInQualityProfiles.ToView(builtIn));
+
+    private static QualityProfileView ToView(QualityProfileSettings stored) => new()
+    {
+        Name = stored.Name,
+        Tiers = stored.Tiers.ToList(),
+        CutoffTier = stored.CutoffTier,
+        UpgradeAllowed = stored.UpgradeAllowed,
+    };
 
     // --- mapping -----------------------------------------------------------
 
@@ -815,46 +1237,5 @@ public sealed class QualityProfileService
         }
 
         return string.Empty;
-    }
-
-    /// <summary>True when every app holding this profile stores the same cutoff and allowed set.</summary>
-    private static bool AppsAgree(
-        QualityProfileView view,
-        Dictionary<string, Dictionary<string, JsonObject>> perApp)
-    {
-        string? cutoff = null;
-        HashSet<string>? allowed = null;
-
-        foreach (var app in view.Apps)
-        {
-            if (!perApp.TryGetValue(app, out var profiles) || !profiles.TryGetValue(view.Name, out var raw))
-            {
-                return false;
-            }
-
-            var thisCutoff = CutoffName(raw);
-            var thisAllowed = new HashSet<string>(
-                Flatten(ReadItems(raw).Where(i => i.Allowed)),
-                StringComparer.OrdinalIgnoreCase);
-
-            if (cutoff is null)
-            {
-                cutoff = thisCutoff;
-                allowed = thisAllowed;
-                continue;
-            }
-
-            if (!string.Equals(cutoff, thisCutoff, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (allowed is not null && !allowed.SetEquals(thisAllowed))
-            {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

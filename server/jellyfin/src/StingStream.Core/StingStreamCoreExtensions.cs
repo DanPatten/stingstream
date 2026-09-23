@@ -81,8 +81,8 @@ public static class StingStreamCoreExtensions
             client.Timeout = TimeSpan.FromSeconds(20);
         });
         services.AddSingleton<TorznabProbe>();
+        // Quality profiles live in the shared settings; OmniarrSyncService gives each manager its copies.
         services.AddSingleton<QualityProfileService>();
-        services.AddHostedService<QualityProfileSeedWorker>();
 
         services.AddSingleton<StingStream.Core.Downloads.DownloadsService>();
         services.AddSingleton<ChildVersionService>();

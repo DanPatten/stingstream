@@ -8,10 +8,9 @@ import { useSharedSettingsField } from "./useSharedSettingsField";
 /**
  * Quality profiles, and the cutoff at which a better copy stops being fetched.
  *
- * The section says so itself when the movie manager and the series manager
- * disagree about a profile, rather than showing one app's answer as if it were
- * both — the same instinct as the Downloads list naming an engine that did not
- * report.
+ * The profiles are the server's own (`SharedSettings.QualityProfiles`), so this
+ * page works the same on a node with no indexer yet, where the managers that
+ * use them are not running. The sync hands them over when they start.
  */
 export const QualityPane: React.FC = () => {
   const { t } = useTranslation();

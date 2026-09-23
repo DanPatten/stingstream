@@ -38,16 +38,19 @@ public sealed class OmniarrSyncService : IDisposable
 
     private readonly ArrClientFactory _factory;
     private readonly SettingsStore _settings;
+    private readonly QualityProfileService _profiles;
     private readonly ILogger<OmniarrSyncService> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public OmniarrSyncService(
         ArrClientFactory factory,
         SettingsStore settings,
+        QualityProfileService profiles,
         ILogger<OmniarrSyncService> logger)
     {
         _factory = factory;
         _settings = settings;
+        _profiles = profiles;
         _logger = logger;
     }
 
@@ -117,6 +120,11 @@ public sealed class OmniarrSyncService : IDisposable
             await SyncIndexersAsync(client, shared, status, ct).ConfigureAwait(false);
             await SyncNamingAsync(client, shared, status, ct).ConfigureAwait(false);
             await SyncNotificationsAsync(client, shared, status, ct).ConfigureAwait(false);
+
+            // Profiles are StingStream's (SharedSettings.QualityProfiles); this gives the manager
+            // its copies and retires deleted ones. Reads the store itself rather than `shared`,
+            // because the first read of a manager can add to it.
+            await _profiles.SyncAsync(client, status, ct).ConfigureAwait(false);
 
             status.Ok = true;
             status.Message = $"Synced {status.Detail.Count} change(s) into {client.Display}";

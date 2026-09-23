@@ -1550,10 +1550,14 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every quality profile either app has, merged by name. */
+        /**
+         * Every quality profile, with which running manager holds a copy of each.
+         * @description Answered from the store. The managers are asked only which of them hold each profile, within
+         *     StingStream.Core.Arr.QualityProfileService.ReadBudget; one that does not answer in time is left out.
+         */
         get: operations["QualityProfiles_GetQualityProfiles"];
         put?: never;
-        /** Create a profile in both apps. */
+        /** Create a profile. The managers are given it on the next sync. */
         post: operations["QualityProfiles_CreateQualityProfile"];
         delete?: never;
         options?: never;
@@ -1571,13 +1575,13 @@ export interface paths {
         /** One profile by name. */
         get: operations["QualityProfiles_GetQualityProfile"];
         /**
-         * Replace a profile in both apps.
-         * @description Renaming is deliberately not supported: the name is the profile's identity across two apps,
-         *     and a rename that succeeded in one and failed in the other would leave two half-profiles.
+         * Replace a profile. The managers follow on the next sync.
+         * @description Renaming is deliberately not supported: the name is the profile's identity inside each
+         *     manager, and titles there are filed under it.
          */
         put: operations["QualityProfiles_UpdateQualityProfile"];
         post?: never;
-        /** Remove a profile from both apps. */
+        /** Remove a profile, and retire its name in the managers. */
         delete: operations["QualityProfiles_DeleteQualityProfile"];
         options?: never;
         head?: never;
@@ -6166,11 +6170,30 @@ export interface components {
             /** @description The group's members, empty for a plain quality. */
             Items?: components["schemas"]["QualityProfileItemView"][];
         };
+        /** @description One quality profile, as StingStream stores it. */
+        QualityProfileSettings: {
+            /** @description The profile's name, and its identity inside each manager. */
+            Name?: string;
+            /**
+             * @description Allowed tiers, worst first. Empty for a profile imported from a manager whose qualities
+             *     belong to no tier (remuxes only, say); such a profile is left exactly as the manager has it.
+             */
+            Tiers?: string[];
+            /** @description The tier at which upgrading stops. Empty when it belongs to no tier. */
+            CutoffTier?: string;
+            /** @description Whether a better copy replaces an existing file. */
+            UpgradeAllowed?: boolean;
+            /** @description A built-in as it ships, put here before any manager was read. */
+            Provisional?: boolean;
+        };
         /** @description One quality profile, as StingStream models it across both arrs. */
         QualityProfileView: {
             /** @description The profile's name. This is its identity across both apps. */
             Name?: string;
-            /** @description Which apps have a profile by this name: `radarr`, `sonarr`, or both. */
+            /**
+             * @description Which running managers hold a copy by this name: `radarr`, `sonarr`, both, or none
+             *     while neither is running. The profile itself lives in StingStream either way.
+             */
             Apps?: string[];
             /** @description Each app's own integer id for it, so a caller can cross-check against the arr. */
             Ids?: {
@@ -6193,7 +6216,7 @@ export interface components {
             IsBuiltIn?: boolean;
             /** @description The default profile used when a title is added without naming one. */
             IsDefault?: boolean;
-            /** @description Whether both apps agree about this profile. */
+            /** @description Whether every running manager's copy says what StingStream's does. */
             InSync?: boolean;
             /** @description Quality names the profile asked for that an app does not have, keyed by app. */
             Unsupported?: {
@@ -6204,7 +6227,7 @@ export interface components {
         QualityProfileWriteResult: {
             /** @description True when the failure was "no app has that profile" rather than "an app refused". */
             NotFound?: boolean;
-            /** @description The profile as it now stands, read back from the apps. */
+            /** @description The profile as it is now stored. */
             Profile?: components["schemas"]["QualityProfileView"] | null;
             /** @description One line per app: what was created, updated, deleted or refused. */
             Detail?: string[];
@@ -6547,7 +6570,7 @@ export interface components {
         };
         /** @description A provider name StingStream registered once and has since dropped. */
         RetiredProvider: {
-            /** @description The arr resource: `indexer` or `downloadclient`. */
+            /** @description The arr resource: `indexer`, `downloadclient` or `qualityprofile`. */
             Resource?: string;
             /** @description The name it was registered under. */
             Name?: string;
@@ -6977,6 +7000,8 @@ export interface components {
              *     is", which is what a fresh Radarr or Sonarr always has at least one of.
              */
             DefaultQualityProfileName?: string;
+            /** @description Every quality profile this node has. StingStream owns these; the managers are given copies. */
+            QualityProfiles?: components["schemas"]["QualityProfileSettings"][];
             /**
              * Format: int64
              * @description Bumped on every write, so a sync can tell whether it has anything to do.
@@ -12985,12 +13010,18 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No app could be read, so there is no list to give. */
+            /** @description The server is currently starting or is temporarily not available. */
             503: {
                 headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "text/html": unknown;
+                };
             };
         };
     };
@@ -13010,7 +13041,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The profile as the apps stored it. */
+            /** @description The profile as stored. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13019,7 +13050,7 @@ export interface operations {
                     "application/json": components["schemas"]["QualityProfileWriteResult"];
                 };
             };
-            /** @description The profile is unnamed, allows nothing, or an app refused it. */
+            /** @description The profile is unnamed or allows nothing. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13101,7 +13132,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No app has a profile by that name. */
+            /** @description There is no profile by that name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13144,7 +13175,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description The profile as the apps stored it. */
+            /** @description The profile as stored. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13153,7 +13184,7 @@ export interface operations {
                     "application/json": components["schemas"]["QualityProfileWriteResult"];
                 };
             };
-            /** @description The profile allows nothing, or an app refused it. */
+            /** @description The profile allows nothing. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13176,7 +13207,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No app has a profile by that name. */
+            /** @description There is no profile by that name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13212,7 +13243,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description What each app did. */
+            /** @description Removed. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13221,7 +13252,7 @@ export interface operations {
                     "application/json": components["schemas"]["QualityProfileWriteResult"];
                 };
             };
-            /** @description A built-in profile, or an app refused (usually because it is in use). */
+            /** @description A built-in profile, or a running manager has titles on it. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -13244,7 +13275,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No app has a profile by that name. */
+            /** @description There is no profile by that name. */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -13280,7 +13311,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The profile as the apps stored it. */
+            /** @description The profile as stored. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -13289,7 +13320,7 @@ export interface operations {
                     "application/json": components["schemas"]["QualityProfileWriteResult"];
                 };
             };
-            /** @description An app refused. */
+            /** @description Bad Request */
             400: {
                 headers: {
                     [name: string]: unknown;

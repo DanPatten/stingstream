@@ -104,6 +104,28 @@ public sealed class SharedSettings
     /// </summary>
     public string DefaultQualityProfileName { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Every quality profile this node has. StingStream owns these; the managers are given copies.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Until 2026-09-23 a profile lived only inside Radarr and Sonarr, which run only while an
+    /// enabled indexer covers them, so a node with no indexer could not show or edit a single
+    /// profile. Dan: <i>"you can define these ahead of time"</i>. Now the list is here, edited
+    /// through <c>QualityProfilesController</c>, and every sync pushes it into each manager
+    /// (<see cref="Arr.QualityProfileService.SyncAsync"/>). A deleted profile's name goes on
+    /// <see cref="RetiredProviders"/> as a <c>qualityprofile</c>, exactly as a removed indexer's does.
+    /// </para>
+    /// <para>
+    /// Empty only on a node that has never read it. The first read fills it with the built-ins
+    /// and whatever the managers already hold (<see cref="Arr.QualityProfileService.EnsureStoreAsync"/>).
+    /// </para>
+    /// <para>
+    /// <b>Server-owned</b>, like <see cref="Libraries"/>: see <see cref="PreserveServerOwned"/>.
+    /// </para>
+    /// </remarks>
+    public List<QualityProfileSettings> QualityProfiles { get; set; } = new();
+
     /// <summary>Bumped on every write, so a sync can tell whether it has anything to do.</summary>
     public long Revision { get; set; }
 
@@ -143,6 +165,10 @@ public sealed class SharedSettings
         ArgumentNullException.ThrowIfNull(stored);
 
         incoming.Libraries = stored.Libraries;
+
+        // Edited one at a time through QualityProfilesController. A settings screen that read the
+        // document before a profile was saved would otherwise put the old list back.
+        incoming.QualityProfiles = stored.QualityProfiles;
 
         // Also server-owned, and a whole-document PUT can drop an indexer or client without going
         // through the endpoints that retire its name, so the difference is retired here.
@@ -198,10 +224,45 @@ public sealed class SharedSettings
             && string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
 }
 
+/// <summary>One quality profile, as StingStream stores it.</summary>
+/// <remarks>
+/// Picture sizes, not quality names: each manager is given every quality it has in these tiers
+/// (<see cref="Arr.QualityTiers.Resolve"/>), because the movie and TV managers do not share a
+/// vocabulary and a person has an opinion about size rather than about <c>WEBRip</c> against
+/// <c>HDTV</c>.
+/// </remarks>
+public sealed class QualityProfileSettings
+{
+    /// <summary>The profile's name, and its identity inside each manager.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Allowed tiers, worst first. Empty for a profile imported from a manager whose qualities
+    /// belong to no tier (remuxes only, say); such a profile is left exactly as the manager has it.
+    /// </summary>
+    public List<string> Tiers { get; set; } = new();
+
+    /// <summary>The tier at which upgrading stops. Empty when it belongs to no tier.</summary>
+    public string CutoffTier { get; set; } = string.Empty;
+
+    /// <summary>Whether a better copy replaces an existing file.</summary>
+    public bool UpgradeAllowed { get; set; } = true;
+
+    /// <summary>
+    /// A built-in as it ships, put here before any manager was read.
+    /// </summary>
+    /// <remarks>
+    /// A node from before profiles were stored here may have edited its built-ins inside a manager
+    /// that is not running yet. When that manager is first read, its version replaces a provisional
+    /// one rather than being overwritten by it. Any save through the API clears the flag.
+    /// </remarks>
+    public bool Provisional { get; set; }
+}
+
 /// <summary>A provider name StingStream registered once and has since dropped.</summary>
 public sealed class RetiredProvider
 {
-    /// <summary>The arr resource: <c>indexer</c> or <c>downloadclient</c>.</summary>
+    /// <summary>The arr resource: <c>indexer</c>, <c>downloadclient</c> or <c>qualityprofile</c>.</summary>
     public string Resource { get; set; } = string.Empty;
 
     /// <summary>The name it was registered under.</summary>

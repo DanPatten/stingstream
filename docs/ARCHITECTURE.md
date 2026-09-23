@@ -1458,6 +1458,9 @@ even if you never touch the code, because they are design decisions rather than 
   Omniarr premise. What is *not* shared is the quality vocabulary — Radarr knows 34 names, Sonarr 26,
   overlapping in 24 — so items travel by name, each app gets the subset it recognises, and the
   response reports per app what it could not take rather than letting the two drift silently.
+  Since 2026-09-23 the profiles are StingStream's own (`SharedSettings.QualityProfiles`, as picture
+  sizes) and the sync copies them into each app, so they can be edited while neither app runs; see
+  `docs/UI-API-GAPS.md` gap 4.
 * **Bring-your-own download client is supported.** Not because the embedded engines are
   insufficient, but because somebody migrating already has a seedbox with a queue in it.
 * **The Downloads list merges four sources into one.** A film grabbed through the qBittorrent shim

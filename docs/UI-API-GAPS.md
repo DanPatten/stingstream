@@ -165,13 +165,32 @@ constraint rather than a quirk:
   asked. Found by running it; there is a test.
 * **A cutoff that is not allowed is rejected**, so it falls back to the lowest allowed quality —
   which is also what "no cutoff" behaves like, and is the only value that stores at all.
-* **A profile still in use cannot be deleted**, and the app's own sentence
-  ("QualityProfile [5] is in use.") is exactly what the user needs, so it comes back as a `400`
-  carrying that text rather than being flattened into a `404`.
+* **A profile still in use cannot be deleted.** It comes back as a `400` saying so rather than
+  being flattened into a `404` (since 2026-09-23 checked before the delete, see below).
 
 `SharedSettings.DefaultQualityProfileName` stays what it always was — the profile to use when
 adding without picking one — and the Server settings screen still edits it, now beside the real
 list.
+
+**Changed 2026-09-23: StingStream owns the profiles.** Reading them out of the managers meant a node
+with no indexer, where neither manager runs, had no profiles at all: the endpoint answered 503 ("available once an
+indexer is enabled"), and the app's three retries spent seven seconds on a skeleton before showing
+it. Dan: *"you can define these ahead of time."* The list is now `SharedSettings.QualityProfiles`,
+stored as tiers (`sd`/`720p`/`1080p`/`2160p`), a cutoff tier and the upgrade switch, and every
+endpoint above answers from it. The managers are asked only which of them hold each profile, within
+three seconds. `QualityProfileService.SyncAsync`, a step of every sync, gives each manager its
+copies; `SyncRetryWorker` runs it whenever a manager is behind the settings, so a profile saved while
+the managers are down arrives when they start. It replaced `QualityProfileSeedWorker`, whose
+first-contact seeding it absorbed. Two consequences:
+
+* **Nothing made inside a manager is lost.** A manager seeded before the store existed is copied
+  into it the first time it is read (`QualityProfileSeedMarker.Adopted`); its versions replace the
+  built-ins the store started with, unless those were edited here first. Profiles are compared as
+  tiers, so a copied profile is never rewritten until somebody edits it.
+* **A delete retires the name**, like an indexer's (`RetiredProviders`, resource `qualityprofile`).
+  While a manager is running and has titles on the profile, the delete is refused with a sentence
+  saying to move them first. While none is, the delete goes ahead, and the sync that retires the
+  name moves any title still on it to the default profile before deleting it.
 
 ---
 

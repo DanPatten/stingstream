@@ -499,7 +499,13 @@ export function useArrTitle(
 }
 
 /**
- * Every quality profile either app has, merged by name. Gap 4.
+ * Every quality profile. Gap 4.
+ *
+ * StingStream stores these itself (`SharedSettings.QualityProfiles`), so the list answers at once
+ * whether or not a manager is running; `Apps` and `Ids` say which running manager holds a copy.
+ * It used to be read out of the managers and answered 503 while neither ran, which the default
+ * three retries turned into seven seconds of skeleton before the error: the Quality page "not
+ * loading" (Dan, 2026-09-23). One retry is enough for an endpoint that no longer fails that way.
  *
  * Through `unwrap`, not `data ?? []`: a failure with no body used to come back as an empty list,
  * which the settings screen drew as "No quality profiles" on a node that had several.
@@ -514,10 +520,11 @@ export function useQualityProfiles(enabled = true) {
         "GET /qualityprofiles",
       ) as QualityProfileView[],
     enabled: enabled && !!client,
+    retry: 1,
   });
 }
 
-/** Create or replace a profile in both apps. Gap 4. */
+/** Create or replace a profile. The managers are given it on the next sync. Gap 4. */
 export function useSaveQualityProfile() {
   const client = useStingStreamClient();
   const queryClient = useQueryClient();
@@ -566,7 +573,7 @@ export function useResetQualityProfile() {
   });
 }
 
-/** Remove a profile from both apps. Gap 4. */
+/** Remove a profile. Refused while a running manager has titles on it. Gap 4. */
 export function useDeleteQualityProfile() {
   const client = useStingStreamClient();
   const queryClient = useQueryClient();
