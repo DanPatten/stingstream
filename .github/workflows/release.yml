@@ -712,11 +712,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p dist/android
+          # One directory per artifact: both carry the same `app-release-unsigned.apk`, so into
+          # one directory the second download fails on "file exists" and neither path below
+          # matches -- which is how v0.2.0 shipped with no Android APKs.
+          mkdir -p dist/android/phone dist/android/tv
           gh run download "${{ steps.find.outputs.run_id }}" --repo "${{ github.repository }}" \
-            -n stingstream-phone-release-unsigned -D dist/android || true
+            -n stingstream-phone-release-unsigned -D dist/android/phone || true
           gh run download "${{ steps.find.outputs.run_id }}" --repo "${{ github.repository }}" \
-            -n stingstream-tv-release-unsigned -D dist/android || true
+            -n stingstream-tv-release-unsigned -D dist/android/tv || true
           # Normalize whatever gradle named the APK (app-release-unsigned.apk / app-release.apk)
           # into the names tools/generate-version-json.sh looks for.
           phone=$(find dist/android -path '*phone*' -name '*.apk' | head -1)
