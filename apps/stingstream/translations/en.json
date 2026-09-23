@@ -2329,7 +2329,7 @@
     "type_tvshows": "TV shows",
     "type_homevideos": "Other videos",
     "folders_title": "Folders",
-    "add_folder": "Browse for folder",
+    "add_folder": "Add folder",
     "change_folder": "Change folder",
     "remove_folder": "Remove folder",
     "more_folders": "{{path}} and {{count}} more",
