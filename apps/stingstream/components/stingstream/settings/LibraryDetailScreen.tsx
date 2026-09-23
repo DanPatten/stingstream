@@ -159,10 +159,10 @@ function LibraryDetail({ library }: { library: Library }) {
         ) : null}
       </View>
 
-      {/* Opens on the drive list, as Plex's does. Opening inside the last folder made its parent
-          one "Up" away, and the parent is the one folder guaranteed to be refused. */}
+      {/* Opens on the library's first folder, or the node's media folder when it has none. */}
       <FolderBrowserDialog
         visible={browsing}
+        initialPath={library.paths[0]}
         existing={recordings ? [] : library.paths}
         onClose={() => setBrowsing(false)}
         onAdd={addFolder}

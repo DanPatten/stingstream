@@ -201,11 +201,7 @@ public sealed class FirstRunService : BackgroundService
         }
 
         await EnsureSharedSettingsAsync(runtime, report, cancellationToken).ConfigureAwait(false);
-        // Every start, not only the first: it checks whether the plugin is *there* rather than
-        // whether it has run, so an install that failed for want of a network repairs itself.
-        await EnsureSubtitlesAsync(report, cancellationToken).ConfigureAwait(false);
-        await EnsureTorrentCategoriesAsync(report, cancellationToken).ConfigureAwait(false);
-        await SyncArrsAsync(report, cancellationToken).ConfigureAwait(false);
+        EnsureMetadataDefaults(report);
 
         // Every start, and above the first-run gate on purpose. It is derived from the settings and
         // idempotent -- when nothing has changed it compares what is there against what should be
@@ -215,9 +211,22 @@ public sealed class FirstRunService : BackgroundService
         //
         // The materializer calls it too, because on a node whose first run failed halfway it may be
         // the one that gets there first.
+        //
+        // **Before the download managers, and independent of them.** The libraries are what makes
+        // a film on disk a titled, illustrated film; the managers only fetch new ones, and a node
+        // with no indexer does not run them at all (ArrEnablement). This used to run after the arr
+        // sync, which waits up to ArrStartupTimeout per manager for one that is slow to answer, so
+        // the libraries a person was looking at could sit uncreated or unrepaired for minutes
+        // behind a component they had no use for.
         var layout = await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
         report.Steps.AddRange(layout.Steps);
         report.Ok &= layout.Ok;
+
+        // Every start, not only the first: it checks whether the plugin is *there* rather than
+        // whether it has run, so an install that failed for want of a network repairs itself.
+        await EnsureSubtitlesAsync(report, cancellationToken).ConfigureAwait(false);
+        await EnsureTorrentCategoriesAsync(report, cancellationToken).ConfigureAwait(false);
+        await SyncArrsAsync(report, cancellationToken).ConfigureAwait(false);
 
         if (!firstRun)
         {
@@ -423,6 +432,27 @@ public sealed class FirstRunService : BackgroundService
             "settings: libraries seeded ("
             + string.Join(", ", settings.Libraries.Select(l => l.Name))
             + ")");
+    }
+
+    // --- metadata ----------------------------------------------------------
+
+    /// <summary>Keep TMDb able to describe and illustrate what the libraries hold. Every start.</summary>
+    /// <remarks>See <see cref="StingStream.Core.Library.MetadataDefaults"/>. Saves only when something was actually wrong.</remarks>
+    private void EnsureMetadataDefaults(FirstRunReport report)
+    {
+        var changes = StingStream.Core.Library.MetadataDefaults.Apply(_serverConfig.Configuration);
+        if (changes.Count == 0)
+        {
+            return;
+        }
+
+        _serverConfig.SaveConfiguration();
+        foreach (var change in changes)
+        {
+            report.Steps.Add($"metadata: {change}");
+        }
+
+        _logger.LogWarning("Repaired the server's metadata settings: {Changes}", string.Join("; ", changes));
     }
 
     // --- subtitles ---------------------------------------------------------

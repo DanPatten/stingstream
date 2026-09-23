@@ -105,6 +105,17 @@ public sealed class LibrariesController : StingStreamControllerBase
     public ActionResult<List<LibrarySettings>> Get()
         => _settings.Get().Libraries.Select(Resolved).ToList();
 
+    /// <summary>The node's own media folder, where the folder browser opens.</summary>
+    /// <response code="200">The folder, or a null path when the node cannot say.</response>
+    /// <returns>The folder.</returns>
+    [HttpGet("MediaFolder", Name = "GetLibraryMediaFolder")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<MediaFolderResponse> GetMediaFolder()
+        => new MediaFolderResponse
+        {
+            Path = RootFolderResolver.MediaFolder(_runtime.Current?.Paths, _runtime.DataDirectory),
+        };
+
     /// <summary>Add a library.</summary>
     /// <param name="request">Its name, type and folders.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -556,6 +567,13 @@ public sealed class LibraryUpdateRequest
 
     /// <summary>Whether readers on this server see it.</summary>
     public bool? Hidden { get; set; }
+}
+
+/// <summary>The node's media folder.</summary>
+public sealed class MediaFolderResponse
+{
+    /// <summary>An absolute path, or <see langword="null"/> when the node cannot say.</summary>
+    public string? Path { get; set; }
 }
 
 /// <summary>A library to add.</summary>

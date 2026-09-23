@@ -127,4 +127,24 @@ public class RootFolderResolverTests
             new[] { @"D:\data\media\Movies" },
             RootFolderResolver.AllLocal(settings, Runtime, RootFolderResolver.LibraryKind.Movies));
     }
+
+    [Fact]
+    public void TheMediaFolderIsTheParentOfTheDefaultMoviesFolder()
+    {
+        // The folder browser's home. Not the service account's own home: on Windows the node runs
+        // as LocalSystem, whose profile is under System32 and holds nothing anybody wants to add.
+        var media = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "node", "media");
+        var paths = new PathsRuntime { MediaMovies = System.IO.Path.Combine(media, "Movies") };
+
+        Assert.Equal(media, RootFolderResolver.MediaFolder(paths, dataDirectory: null));
+    }
+
+    [Fact]
+    public void TheMediaFolderFallsBackToTheDataDirectory()
+    {
+        var data = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "node");
+
+        Assert.Equal(System.IO.Path.Combine(data, "media"), RootFolderResolver.MediaFolder(null, data));
+        Assert.Null(RootFolderResolver.MediaFolder(null, null));
+    }
 }

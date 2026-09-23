@@ -167,7 +167,7 @@ public sealed class LibraryLayoutService
             report.Steps.Add(
                 report.Created.Count > 0
                     ? "libraries: rescan queued (a library was created)"
-                    : "libraries: rescan queued (a folder was removed)");
+                    : "libraries: rescan queued (a folder was removed or a library retyped)");
         }
 
         // The settings now carry the folder names and ids Jellyfin actually used, plus the
@@ -371,7 +371,10 @@ public sealed class LibraryLayoutService
     /// <param name="stored">Its settings row, when it has one. Recordings is derived and has none.</param>
     /// <param name="report">Accumulates what happened.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns><c>true</c> when a location was removed, so the caller can queue one rescan.</returns>
+    /// <returns>
+    /// <c>true</c> when a location was removed or the library's type was repaired, so the caller
+    /// can queue one rescan.
+    /// </returns>
     /// <remarks>
     /// <para>
     /// <b>Add before remove, always.</b> If an add throws, on a path that cannot be created or
@@ -438,19 +441,30 @@ public sealed class LibraryLayoutService
                 stored?.ManagedLocations,
                 desired.Paths);
 
+            // Before anything else about an existing library: what kind of library it is decides
+            // how every file in it is read, so a wrong type makes the rest moot.
+            var retyped = await EnsureCollectionTypeAsync(folder, desired, report, cancellationToken)
+                .ConfigureAwait(false);
+
             if (toAdd.Count == 0 && toRemove.Count == 0)
             {
                 // The every-start no-op. Reconciliation runs on every boot now, so this comparison
                 // is the thing standing between that and a pile of pointless library events.
-                report.Steps.Add($"library {desired.Name}: already correct");
+                if (!retyped)
+                {
+                    report.Steps.Add($"library {desired.Name}: already correct");
+                }
+
                 Adopt(desired, stored, desired.Paths);
                 if (desired.Unified)
                 {
                     ApplyOptions(folder.Name, report);
                 }
 
-                return false;
+                return retyped;
             }
+
+            removed = retyped;
 
             // Upstream stops the watcher around exactly these calls; a file event fired against a
             // library mid-rewire is read against a location that is on its way in or out.
@@ -583,6 +597,108 @@ public sealed class LibraryLayoutService
         return folders.FirstOrDefault(
             f => string.Equals(f.Name, desired.FolderName, StringComparison.OrdinalIgnoreCase));
     }
+
+    /// <summary>
+    /// Make an existing library the kind it is supposed to be: <c>movies</c> for Movies,
+    /// <c>tvshows</c> for TV Shows.
+    /// </summary>
+    /// <param name="folder">The virtual folder as Jellyfin reports it.</param>
+    /// <param name="desired">What it should be.</param>
+    /// <param name="report">Accumulates what happened.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns><c>true</c> when the type was repaired, so the caller queues a rescan.</returns>
+    /// <remarks>
+    /// <para>
+    /// <see cref="Find"/> adopts an existing virtual folder by id or name and never used to look at
+    /// its type, so a Movies folder that was not a <c>movies</c> collection stayed that way for
+    /// good. The type is not cosmetic: in a <c>homevideos</c> or untyped collection
+    /// <c>MovieResolver</c> makes a plain <c>Video</c> named after the raw file
+    /// ("besthd-8mile-720p"), no internet provider handles a <c>Video</c>, and the only image it
+    /// ever gets is a frame grab. That is exactly what a film with no metadata looks like.
+    /// </para>
+    /// <para>
+    /// Jellyfin reads the type from an empty <c>&lt;type&gt;.collection</c> marker in the virtual
+    /// folder's directory when it resolves the folder, and keeps its own copy on the
+    /// <see cref="CollectionFolder"/> item. Both are rewritten. The rescan the caller queues then
+    /// re-resolves every file; the fork's <c>Folder.ValidateChildren</c> drops the stale
+    /// <c>Video</c> rows when the same path comes back as a <c>Movie</c>.
+    /// </para>
+    /// </remarks>
+    private async Task<bool> EnsureCollectionTypeAsync(
+        VirtualFolderInfo folder,
+        DesiredLibrary desired,
+        LayoutReport report,
+        CancellationToken cancellationToken)
+    {
+        if (folder.CollectionType == desired.Type)
+        {
+            return false;
+        }
+
+        if (folder.ItemId is null
+            || !Guid.TryParse(folder.ItemId, out var id)
+            || _library.GetItemById(id) is not CollectionFolder collection
+            || string.IsNullOrWhiteSpace(collection.Path)
+            || !Directory.Exists(collection.Path))
+        {
+            _logger.LogWarning(
+                "The {Name} library is a {Actual} library rather than {Wanted}, and its folder could not be found to fix it",
+                desired.Name,
+                folder.CollectionType?.ToString() ?? "mixed",
+                desired.Type);
+            return false;
+        }
+
+        WriteCollectionMarker(collection.Path, desired.Type);
+        collection.CollectionType = ToCollectionType(desired.Type);
+        await collection.UpdateToRepositoryAsync(ItemUpdateType.MetadataEdit, cancellationToken)
+            .ConfigureAwait(false);
+
+        report.Steps.Add(
+            $"library {desired.Name}: type was {folder.CollectionType?.ToString() ?? "mixed"}, now {desired.Type}");
+        _logger.LogWarning(
+            "The {Name} library was a {Actual} library; made it {Wanted} and queued a rescan",
+            desired.Name,
+            folder.CollectionType?.ToString() ?? "mixed",
+            desired.Type);
+        return true;
+    }
+
+    /// <summary>
+    /// Leave exactly one collection-type marker in a virtual folder's directory: the one for
+    /// <paramref name="type"/>.
+    /// </summary>
+    /// <param name="virtualFolderPath">The virtual folder's directory under <c>root/default</c>.</param>
+    /// <param name="type">The type it should be.</param>
+    /// <remarks>
+    /// Jellyfin takes the first <c>*.collection</c> file it can parse, in directory order, so a
+    /// stray second marker would make the type depend on the file system. Every other one goes.
+    /// </remarks>
+    public static void WriteCollectionMarker(string virtualFolderPath, CollectionTypeOptions type)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(virtualFolderPath);
+
+        var wanted = type.ToString().ToLowerInvariant() + ".collection";
+        foreach (var marker in Directory.EnumerateFiles(virtualFolderPath, "*.collection"))
+        {
+            if (!string.Equals(Path.GetFileName(marker), wanted, StringComparison.OrdinalIgnoreCase))
+            {
+                File.Delete(marker);
+            }
+        }
+
+        var path = Path.Combine(virtualFolderPath, wanted);
+        if (!File.Exists(path))
+        {
+            File.WriteAllBytes(path, Array.Empty<byte>());
+        }
+    }
+
+    /// <summary>The item-side enum for a library type. The two enums share their member names.</summary>
+    /// <param name="type">The library type.</param>
+    /// <returns>The collection type.</returns>
+    public static CollectionType ToCollectionType(CollectionTypeOptions type)
+        => Enum.Parse<CollectionType>(type.ToString(), ignoreCase: true);
 
     /// <summary>
     /// Bring an existing library's options up to <see cref="BuildOptions"/>, if they are not already.

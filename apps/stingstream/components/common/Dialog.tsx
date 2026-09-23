@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useRef,
 } from "react";
 import { Modal, Platform, Pressable, ScrollView, View } from "react-native";
 import { Button, type ButtonVariant } from "@/components/Button";
@@ -10,6 +11,7 @@ import { elevation, radius } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { useGlobalModal } from "@/providers/GlobalModalProvider";
+import { pushEscape } from "@/utils/escapeStack";
 import { Icon, type IconName } from "./Icon";
 import { Text } from "./Text";
 
@@ -80,6 +82,8 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
   // the time this was written the sheet presented nothing at all on the web.
   const isCard = Platform.OS === "web" && !Platform.isTV;
   const { showModal, hideModal } = useGlobalModal();
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
 
   const body = (
     <DialogBody
@@ -98,17 +102,11 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
   // `visible` so the listener only exists while the dialog is open.
   useEffect(() => {
     if (!visible || Platform.OS !== "web" || !dismissible) return;
-    const onKeyDown = (event: { key?: string }) => {
-      if (event.key === "Escape") onClose();
-    };
-    const target = globalThis as unknown as {
-      addEventListener?: (t: string, h: (e: never) => void) => void;
-      removeEventListener?: (t: string, h: (e: never) => void) => void;
-    };
-    target.addEventListener?.("keydown", onKeyDown as (e: never) => void);
-    return () =>
-      target.removeEventListener?.("keydown", onKeyDown as (e: never) => void);
-  }, [visible, dismissible, onClose]);
+    // Through the shared stack, so only the modal opened last closes. See utils/escapeStack.
+    // Pushed once per opening, through a ref: re-pushing whenever a caller's inline `onClose`
+    // changed identity would move this dialog back above a sheet opened on top of it.
+    return pushEscape(() => closeRef.current());
+  }, [visible, dismissible]);
 
   // Off the web the sheet provider owns presentation, so this component only
   // pushes content into it and takes it back out again.

@@ -273,3 +273,19 @@ export async function deleteLibrary(
   });
   if (!res.ok) throw await readError(res, "DELETE /libraries");
 }
+
+/**
+ * The node's own media folder (`<data>\media`), where the folder browser opens and what its home
+ * entry is. Null when the node cannot say.
+ */
+export async function fetchMediaFolder(
+  apiBaseUrl: string,
+  accessToken?: string | null,
+): Promise<string | null> {
+  const res = await fetch(`${apiBaseUrl}${PATH}/MediaFolder`, {
+    headers: authHeaders(accessToken),
+  });
+  if (!res.ok) throw await readError(res, "GET /libraries/MediaFolder");
+  const body = (await res.json()) as Record<string, unknown>;
+  return field<string>(body ?? {}, "path") || null;
+}

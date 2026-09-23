@@ -2336,7 +2336,7 @@
     "off": "Off",
     "enabled_title": "Enabled",
     "browse_title": "Add folder",
-    "browse_up": "Up one folder",
+    "browse_home": "Media",
     "browse_path": "Folder path",
     "browse_empty": "No folders here.",
     "browse_no_matches": "No matching folders.",

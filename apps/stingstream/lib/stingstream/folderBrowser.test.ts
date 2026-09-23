@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  activeRoot,
   addableFolder,
   DRIVES,
   folderConflict,
@@ -9,6 +10,8 @@ import {
   normalizeFolder,
   parentPath,
   relateFolders,
+  rootLabel,
+  sidebarRoots,
   suggestionSource,
 } from "./folderBrowser";
 
@@ -182,5 +185,44 @@ describe("addableFolder", () => {
     expect(addableFolder("Q:\\nope\\deeper", "missing_parent").reason).toBe(
       "not_found",
     );
+  });
+});
+
+describe("activeRoot", () => {
+  const home = "C:\\ProgramData\\StingStream\\media";
+  const roots = [home, "C:\\", "D:\\"];
+
+  test("a path inside home lights home, not its drive", () => {
+    expect(activeRoot(`${home}\\Movies`, roots)).toBe(home);
+    expect(activeRoot(home, roots)).toBe(home);
+  });
+
+  test("anything else lights its drive", () => {
+    expect(activeRoot("C:\\Users\\dan", roots)).toBe("C:\\");
+    expect(activeRoot("d:/media/tv", roots)).toBe("D:\\");
+  });
+
+  test("nothing matches a drive that is not listed", () => {
+    expect(activeRoot("Q:\\x", roots)).toBeNull();
+  });
+});
+
+describe("sidebarRoots", () => {
+  test("drives on Windows", () => {
+    expect(sidebarRoots(["C:\\", "D:\\"], "C:\\data\\media")).toEqual([
+      "C:\\",
+      "D:\\",
+    ]);
+  });
+
+  test("only / on a POSIX server, whatever it mounts", () => {
+    expect(sidebarRoots(["/", "/boot", "/mnt/nas"], "/srv/media")).toEqual([
+      "/",
+    ]);
+  });
+
+  test("labels a drive by its letter", () => {
+    expect(rootLabel("c:\\")).toBe("C:");
+    expect(rootLabel("/")).toBe("/");
   });
 });

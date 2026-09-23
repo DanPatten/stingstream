@@ -111,8 +111,45 @@ public static class RootFolderResolver
             return own;
         }
 
+        // Only Movies and TV shows have a default folder. Other videos has none, and falling back
+        // to the films folder for it would lay a homevideos collection over media/Movies. Jellyfin
+        // takes a folder's content type from the first library that holds it, so whichever of the
+        // two it met first would decide whether a film is a Movie with TMDb metadata or a bare
+        // Video named after its file with a frame grab for a poster.
+        if (!IsMoviesOrTv(library.Type))
+        {
+            return Array.Empty<string>();
+        }
+
         var fallback = Fallback(paths, KindOf(library.Type));
         return string.IsNullOrWhiteSpace(fallback) ? Array.Empty<string>() : new[] { fallback };
+    }
+
+    private static bool IsMoviesOrTv(string? type)
+        => string.Equals(type, LibraryTypes.Movies, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(type, LibraryTypes.TvShows, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The node's own media folder, above its default Movies and TV folders.</summary>
+    /// <param name="paths">The supervisor's runtime paths, when there is a supervisor.</param>
+    /// <param name="dataDirectory">The node's data directory, the fallback.</param>
+    /// <returns>An absolute path, or <see langword="null"/> when neither can answer.</returns>
+    /// <remarks>
+    /// Where the folder browser opens and what its home entry is. Deliberately not the account's
+    /// home: the Windows service runs as LocalSystem, whose profile is nothing a person browses.
+    /// </remarks>
+    public static string? MediaFolder(PathsRuntime? paths, string? dataDirectory)
+    {
+        var movies = paths?.MediaMovies;
+        if (!string.IsNullOrWhiteSpace(movies))
+        {
+            var parent = System.IO.Path.GetDirectoryName(System.IO.Path.TrimEndingDirectorySeparator(movies));
+            if (!string.IsNullOrWhiteSpace(parent))
+            {
+                return parent;
+            }
+        }
+
+        return string.IsNullOrWhiteSpace(dataDirectory) ? null : System.IO.Path.Combine(dataDirectory, "media");
     }
 
     private static bool Is(LibrarySettings library, string type)

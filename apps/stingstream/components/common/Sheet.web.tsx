@@ -19,6 +19,7 @@ import {
 import { elevation, radius } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
+import { pushEscape } from "@/utils/escapeStack";
 import type { SheetModalProps, SheetModalRef } from "./Sheet.types";
 
 /**
@@ -65,6 +66,9 @@ export const SheetModal = forwardRef<SheetModalRef, SheetModalProps>(
       onDismiss?.();
     }, [onChange, onDismiss]);
 
+    const dismissRef = useRef(dismiss);
+    dismissRef.current = dismiss;
+
     useImperativeHandle(
       ref,
       () => ({
@@ -83,20 +87,10 @@ export const SheetModal = forwardRef<SheetModalRef, SheetModalProps>(
     // Escape closes, the way every other dialog on the web does.
     useEffect(() => {
       if (!visible || !webDismissible) return;
-      const onKeyDown = (event: { key?: string }) => {
-        if (event.key === "Escape") dismiss();
-      };
-      const target = globalThis as unknown as {
-        addEventListener?: (t: string, h: (e: never) => void) => void;
-        removeEventListener?: (t: string, h: (e: never) => void) => void;
-      };
-      target.addEventListener?.("keydown", onKeyDown as (e: never) => void);
-      return () =>
-        target.removeEventListener?.(
-          "keydown",
-          onKeyDown as (e: never) => void,
-        );
-    }, [visible, webDismissible, dismiss]);
+      // Through the shared stack, so only the modal opened last closes (utils/escapeStack).
+      // Pushed once per opening, through a ref, so a re-render never reorders the stack.
+      return pushEscape(() => dismissRef.current());
+    }, [visible, webDismissible]);
 
     if (!visible) return null;
 

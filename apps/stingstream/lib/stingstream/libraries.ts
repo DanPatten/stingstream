@@ -6,6 +6,7 @@ import {
   createLibrary,
   deleteLibrary,
   fetchLibraries,
+  fetchMediaFolder,
   type Library,
   type LibraryCreate,
   type LibraryUpdate,
@@ -181,5 +182,17 @@ export function useDeleteLibrary() {
       );
       invalidate();
     },
+  });
+}
+
+/** The node's media folder, the folder browser's home. */
+export function useMediaFolder() {
+  const { base, token } = useConnection();
+  return useQuery({
+    queryKey: [...KEY, "media-folder"],
+    queryFn: () => fetchMediaFolder(base!, token),
+    enabled: !!base,
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: 1,
   });
 }

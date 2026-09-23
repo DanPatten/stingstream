@@ -119,6 +119,8 @@ export const ICONS = {
   servers: "server",
   services: "apps",
   storage: "folder-open",
+  /** One folder on the server, in the folder browser. */
+  folder: "folder",
   quality: "sparkles",
   files: "document-text",
   transcoding: "hardware-chip",

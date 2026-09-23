@@ -188,3 +188,45 @@ export function addableFolder(
   if (lookup === "missing_parent") return { path: null, reason: "not_found" };
   return { path, reason: null };
 }
+
+/**
+ * Which sidebar entry a path is under: the most specific root that is it or contains it.
+ *
+ * Most specific because home (`C:\ProgramData\StingStream\media`) sits under a drive (`C:\`), and
+ * a path inside home should light home rather than the drive.
+ */
+export function activeRoot(
+  path: string,
+  roots: readonly string[],
+): string | null {
+  let best: string | null = null;
+  let depth = -1;
+  for (const root of roots) {
+    const relation = relateFolders(path, root);
+    if (relation !== "same" && relation !== "inside") continue;
+    const size = segments(root).length;
+    if (size > depth) {
+      best = root;
+      depth = size;
+    }
+  }
+  return best;
+}
+
+/**
+ * The sidebar's roots: the drives the server reports, or `/` on a POSIX server, whose drive list
+ * is every mount point and not what anybody means by "a drive".
+ */
+export function sidebarRoots(
+  drives: readonly string[],
+  home: string | null,
+): string[] {
+  const posix = home?.startsWith("/") || drives.some((d) => d.startsWith("/"));
+  if (posix) return ["/"];
+  return drives.filter((d) => DRIVE_ROOT.test(d) || UNC_SHARE.test(d));
+}
+
+/** A drive's short label, `C:` for `C:\`. */
+export function rootLabel(root: string): string {
+  return DRIVE_ROOT.test(root) ? root.slice(0, 2).toUpperCase() : root;
+}
