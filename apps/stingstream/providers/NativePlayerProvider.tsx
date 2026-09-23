@@ -23,7 +23,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { BackHandler, Platform } from "react-native";
+import { AppState, BackHandler, Platform } from "react-native";
 import { SystemBars } from "react-native-edge-to-edge";
 import {
   PlaybackSpeedScope,
@@ -427,6 +427,20 @@ const NativePlayerProviderInner: React.FC<{
     }),
     [],
   );
+
+  // Sent to the background mid-movie (a call, the home button, the screen locking), the app may
+  // be killed before the player is ever dismissed, and then the server has only the last
+  // ten-second heartbeat. Report the position the moment the app leaves the foreground.
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state !== "background") return;
+      const session = sessionRef.current;
+      if (!session || session.awaitingLoad || session.reportedStopKey) return;
+      if (!session.hasPlaybackStarted || !isConnectedRef.current) return;
+      void reportProgressRef.current(buildProgressInfo(session));
+    });
+    return () => subscription.remove();
+  }, [buildProgressInfo]);
 
   const reportPlaybackStart = useCallback(
     (session: NativeSession) => {

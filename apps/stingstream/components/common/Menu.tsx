@@ -230,7 +230,9 @@ export const MenuItem: React.FC<MenuItemProps> = ({
     if (!autoFocus || Platform.OS !== "web") return;
     // A frame late: the card it sits in is still being portalled in on the first one.
     const frame = requestAnimationFrame(() =>
-      (pressable.current as unknown as { focus?: () => void } | null)?.focus?.(),
+      (
+        pressable.current as unknown as { focus?: () => void } | null
+      )?.focus?.(),
     );
     return () => cancelAnimationFrame(frame);
   }, [autoFocus]);

@@ -1219,7 +1219,6 @@
       "none": "None",
       "tracks": "Tracks"
     },
-    "left": "left",
     "director": "Director",
     "cast": "Cast",
     "technical_details": "Technical details",
@@ -1239,16 +1238,14 @@
       "download_button": "Download"
     },
     "mark_played": "Mark as watched",
-    "mark_unplayed": "Mark as unwatched",
-    "resume_playback": "Resume playback",
-    "resume_playback_description": "Do you want to continue where you left off or start from the beginning?",
-    "play_from_start": "Play from start",
-    "continue_from": "Continue from {{time}}"
+    "mark_unplayed": "Mark as unwatched"
   },
   "item": {
     "play": "Play",
     "resume": "Resume",
-    "resume_left": "Resume · {{time}} left",
+    "resume_from": "Resume from {{time}}",
+    "play_from_beginning": "Play from beginning",
+    "time_left": "{{time}} left",
     "trailer": "Trailer",
     "add_to_watchlist": "Add to a watchlist",
     "in_watchlist": "In a watchlist",

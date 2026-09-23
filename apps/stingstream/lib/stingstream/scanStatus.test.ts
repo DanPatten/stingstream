@@ -23,8 +23,18 @@ const MOVIES = "f137a2dd21bbc1b99aa5c0f6bf02a805";
 const TV = "a1b2c3";
 
 const idleFolders = [
-  { ItemId: MOVIES, Name: "Movies", RefreshStatus: "Idle", RefreshProgress: null },
-  { ItemId: TV, Name: "TV Shows", RefreshStatus: "Idle", RefreshProgress: null },
+  {
+    ItemId: MOVIES,
+    Name: "Movies",
+    RefreshStatus: "Idle",
+    RefreshProgress: null,
+  },
+  {
+    ItemId: TV,
+    Name: "TV Shows",
+    RefreshStatus: "Idle",
+    RefreshProgress: null,
+  },
 ];
 const idleTask = [{ Key: SCAN_TASK_KEY, State: "Idle" }];
 
@@ -54,7 +64,13 @@ describe("summarizeScan", () => {
   test("the server-wide task gives the overall number", () => {
     const summary = summarizeScan(
       [{ ...idleFolders[0], RefreshStatus: "Active", RefreshProgress: 80 }],
-      [{ Key: SCAN_TASK_KEY, State: "Running", CurrentProgressPercentage: 12.5 }],
+      [
+        {
+          Key: SCAN_TASK_KEY,
+          State: "Running",
+          CurrentProgressPercentage: 12.5,
+        },
+      ],
     );
     expect(summary.wholeServer).toBe(true);
     expect(summary.percent).toBe(12);
@@ -80,7 +96,11 @@ describe("summarizeScan", () => {
   test("an unrelated task running is not a scan", () => {
     expect(
       summarizeScan(idleFolders, [
-        { Key: "RefreshPeople", State: "Running", CurrentProgressPercentage: 5 },
+        {
+          Key: "RefreshPeople",
+          State: "Running",
+          CurrentProgressPercentage: 5,
+        },
       ]).active,
     ).toBe(false);
   });
@@ -104,7 +124,13 @@ describe("holdHighest", () => {
       (p) =>
         holdHighest(
           summarizeScan(
-            [{ ...idleFolders[0], RefreshStatus: "Active", RefreshProgress: p }],
+            [
+              {
+                ...idleFolders[0],
+                RefreshStatus: "Active",
+                RefreshProgress: p,
+              },
+            ],
             idleTask,
           ),
           highest,
@@ -162,7 +188,10 @@ describe("labels", () => {
 
   test("a library page ignores another library's scan", () => {
     const tvOnly = summarizeScan(
-      [idleFolders[0], { ...idleFolders[1], RefreshStatus: "Active", RefreshProgress: 5 }],
+      [
+        idleFolders[0],
+        { ...idleFolders[1], RefreshStatus: "Active", RefreshProgress: 5 },
+      ],
       idleTask,
     );
     expect(scanPillLabel(tvOnly, t, MOVIES)).toBeNull();

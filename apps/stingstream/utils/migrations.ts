@@ -67,6 +67,22 @@ const MIGRATIONS: Migration[] = [
       store.set(SETTINGS_KEY, JSON.stringify(settings));
     },
   },
+  {
+    version: 3,
+    description:
+      "turn the resume question on, now that Play asks Plex's resume or start over by default",
+    run: (store) => {
+      const raw = store.getString(SETTINGS_KEY);
+      if (!raw) return;
+      const settings = JSON.parse(raw) as Record<string, unknown>;
+      // The whole settings object is saved on every change, so `false` here is almost always the
+      // old default written back rather than a choice. Dan, 2026-09-22: Play asks. Anyone who
+      // really wants it off can turn it off again under Playback, and this never runs twice.
+      if (settings.showResumeDialog !== false) return;
+      settings.showResumeDialog = true;
+      store.set(SETTINGS_KEY, JSON.stringify(settings));
+    },
+  },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.reduce(

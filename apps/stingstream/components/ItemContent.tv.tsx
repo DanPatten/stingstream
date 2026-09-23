@@ -8,6 +8,7 @@ import { getTvShowsApi, getUserLibraryApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { BlurView } from "expo-blur";
 import { File } from "expo-file-system";
+import { useLocalSearchParams } from "expo-router";
 import { useAtom } from "jotai";
 import React, {
   useCallback,
@@ -17,7 +18,7 @@ import React, {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Alert, Dimensions, ScrollView, View } from "react-native";
+import { Dimensions, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AwardsBadge } from "@/components/AwardsBadge";
 import { ItemImage } from "@/components/common/ItemImage";
@@ -68,6 +69,11 @@ import { useSettings } from "@/utils/atoms/settings";
 import type { TVOptionItem } from "@/utils/atoms/tvOptionModal";
 import { getLogoImageUrlById } from "@/utils/jellyfin/image/getLogoImageUrlById";
 import { getPrimaryImageUrlById } from "@/utils/jellyfin/image/getPrimaryImageUrlById";
+import {
+  formatResumePosition,
+  resumePositionTicks,
+  shouldAskToResume,
+} from "@/utils/resume";
 import { scaleSize } from "@/utils/scaleSize";
 import { rememberSeriesTrackFromRow } from "@/utils/seriesTrackMemory";
 import { SUBTITLES_OFF } from "@/utils/subtitles/subtitleIndex";
@@ -76,7 +82,7 @@ import {
   buildSubtitleMenu,
   type TrackMenuRow,
 } from "@/utils/subtitles/trackMenu";
-import { formatDuration, runtimeTicksToMinutes } from "@/utils/time";
+import { runtimeTicksToMinutes } from "@/utils/time";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -228,51 +234,55 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
 
     const handlePlay = () => {
       if (!item || !selectedOptions) return;
+      autoPlayed.current = true;
 
-      const hasPlaybackProgress =
-        (item.UserData?.PlaybackPositionTicks ?? 0) > 0;
+      const position = resumePositionTicks(item);
 
-      // With the resume dialog turned off in settings, an in-progress item
-      // resumes right away instead of asking resume-or-restart.
-      if (hasPlaybackProgress && !settings.showResumeDialog) {
-        navigateToPlayer(
-          item.UserData?.PlaybackPositionTicks?.toString() ?? "0",
-        );
+      // Turned off under Playback, or nothing to resume: play at once.
+      if (!shouldAskToResume(item, settings)) {
+        navigateToPlayer(String(position));
         return;
       }
 
-      if (hasPlaybackProgress) {
-        Alert.alert(
-          t("item_card.resume_playback"),
-          t("item_card.resume_playback_description"),
-          [
-            {
-              text: t("common.cancel"),
-              style: "cancel",
-            },
-            {
-              text: t("item_card.play_from_start"),
-              onPress: () => navigateToPlayer("0"),
-            },
-            {
-              text: t("item_card.continue_from", {
-                time: formatDuration(item.UserData?.PlaybackPositionTicks),
-              }),
-              onPress: () =>
-                navigateToPlayer(
-                  item.UserData?.PlaybackPositionTicks?.toString() ?? "0",
-                ),
-              isPreferred: true,
-            },
-          ],
-        );
-      } else {
-        navigateToPlayer("0");
-      }
+      // Plex's question, through the navigation-based option modal every other TV chooser uses
+      // (docs/conventions/tv.md): "Resume from 1:02:33" first and focused, then "Play from
+      // beginning". Back dismisses it and plays nothing. It was an `Alert` with the usual answer
+      // last.
+      showOptions({
+        title: item.Name ?? t("item.resume"),
+        options: [
+          {
+            label: t("item.resume_from", {
+              time: formatResumePosition(position),
+            }),
+            value: position,
+            selected: true,
+          },
+          {
+            label: t("item.play_from_beginning"),
+            value: 0,
+            selected: false,
+          },
+        ],
+        // It navigates to the player, which the still-open modal route would swallow.
+        deferApplyUntilDismissed: true,
+        onSelect: (ticks: number) => navigateToPlayer(String(ticks)),
+      });
     };
 
     // TV Option Modal hook for quality, audio, media source selectors
     const { showOptions } = useTVOptionModal();
+
+    // The TV hero's Play opens this page with `autoPlay`, which nothing read: pressed here once,
+    // when the play settings have resolved, so the resume question still comes first.
+    const { autoPlay } = useLocalSearchParams<{ autoPlay?: string }>();
+    const autoPlayed = useRef(false);
+    useEffect(() => {
+      if (autoPlay !== "true" || autoPlayed.current) return;
+      if (!item || !selectedOptions || !itemWithSources) return;
+      handlePlay();
+      // handlePlay is a fresh closure every render; the ref is what keeps this to once.
+    }, [autoPlay, item, selectedOptions, itemWithSources]);
 
     // TV Subtitle Modal hook
     const { showSubtitleModal } = useTVSubtitleModal();
@@ -590,13 +600,7 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
     const duration = item?.RunTimeTicks
       ? runtimeTicksToMinutes(item.RunTimeTicks)
       : null;
-    const hasProgress = (item?.UserData?.PlaybackPositionTicks ?? 0) > 0;
-    const remainingTime = hasProgress
-      ? runtimeTicksToMinutes(
-          (item?.RunTimeTicks || 0) -
-            (item?.UserData?.PlaybackPositionTicks || 0),
-        )
-      : null;
+    const hasProgress = resumePositionTicks(item) > 0;
 
     // Get director
     const director = item?.People?.find((p) => p.Type === "Director");
@@ -888,9 +892,8 @@ export const ItemContentTV: React.FC<ItemContentTVProps> = React.memo(
                       color: "#000000",
                     }}
                   >
-                    {hasProgress
-                      ? `${remainingTime} ${t("item_card.left")}`
-                      : t("common.play")}
+                    {/* "Resume", as Plex says it. The time left was the whole label. */}
+                    {hasProgress ? t("item.resume") : t("common.play")}
                   </Text>
                 </TVButton>
                 <TVFavoriteButton

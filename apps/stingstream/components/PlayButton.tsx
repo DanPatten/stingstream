@@ -522,10 +522,10 @@ export const PlayButton: React.FC<Props> = ({
 
   return (
     // Sized to the button on a wide row, so the rule under it is the button's width; the whole
-    // column on a phone, where the button is too.
+    // column on a phone (`fullWidth`), where the button is too.
     <View
       style={[
-        { alignSelf: fullWidth ? "flex-start" : "stretch", flexShrink: 0 },
+        { alignSelf: fullWidth ? "stretch" : "flex-start", flexShrink: 0 },
         style,
       ]}
     >

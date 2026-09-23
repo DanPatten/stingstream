@@ -3,7 +3,7 @@ import type {
   MediaSourceInfo,
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { getItemRefreshApi } from "@jellyfin/sdk/lib/utils/api";
-import { useNavigation } from "expo-router";
+import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useAtom } from "jotai";
 import React, {
   useCallback,
@@ -109,6 +109,10 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
   const insets = useSafeAreaInsets();
   const [user] = useAtom(userAtom);
   const { t } = useTranslation();
+  // The home hero's Play opens this page with `autoPlay`, and it was ignored: the label said Play
+  // and the button only navigated. Pressed here once the versions are known, so a pinned source
+  // and the resume question both still apply.
+  const { autoPlay } = useLocalSearchParams<{ autoPlay?: string }>();
 
   // The desktop top bar says where you are, and on a details page that is the
   // title itself — not the name of whichever tab expo-router happened to
@@ -328,6 +332,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
             selectedOptions={selectedOptions}
             moreActions={moreActions}
             moreAnchorRef={moreAnchor}
+            autoPlay={autoPlay === "true" && Boolean(itemWithSources)}
           />
           {/* Directly under Play, because it says what Play is about to do. It draws nothing at
               all when only one copy exists, which is most libraries. */}

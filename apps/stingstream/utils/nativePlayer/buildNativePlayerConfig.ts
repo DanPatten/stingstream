@@ -585,7 +585,8 @@ export async function buildNativePlayerConfig(params: {
       offline,
       downloadedItem,
       stream,
-      mediaSourceId: req.mediaSourceId ?? mediaSource.Id ?? undefined,
+      // `||`, not `??`: callers pass "" for "no preference", which is not an id.
+      mediaSourceId: req.mediaSourceId || mediaSource.Id || undefined,
       bitrateValue,
       audioIndex,
       subtitleIndex,

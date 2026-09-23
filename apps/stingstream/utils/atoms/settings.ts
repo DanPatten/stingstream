@@ -628,7 +628,8 @@ export const defaultValues: Settings = {
   skipRecap: "ask",
   skipCommercial: "ask",
   skipPreview: "ask",
-  showResumeDialog: false,
+  // On: Play asks "Resume from 1:02:33" or "Play from beginning", as Plex does (Dan, 2026-09-22).
+  showResumeDialog: true,
   // Playback speed defaults
   defaultPlaybackSpeed: 1.0,
   playbackSpeedPerMedia: {},

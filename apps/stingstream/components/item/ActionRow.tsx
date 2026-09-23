@@ -39,8 +39,13 @@ interface Props {
    * did. The page owns the ref when it owns such a picker.
    */
   moreAnchorRef?: RefObject<View | null>;
+  /** Press Play as soon as it can. See `PlayButton`'s own `autoPlay`. */
+  autoPlay?: boolean;
   style?: StyleProp<ViewStyle>;
 }
+
+/** `Button` size `lg`, which Play is. */
+const PLAY_BUTTON_HEIGHT = 52;
 
 /**
  * Play, and the six things you might do instead.
@@ -60,6 +65,7 @@ export const ActionRow: React.FC<Props> = ({
   selectedOptions,
   moreActions = [],
   moreAnchorRef,
+  autoPlay = false,
   style,
 }) => {
   const { t } = useTranslation();
@@ -90,7 +96,11 @@ export const ActionRow: React.FC<Props> = ({
       <View
         style={{
           flexDirection: isCompact ? "column" : "row",
-          alignItems: isCompact ? "stretch" : "center",
+          // Top-aligned, so a progress rule and caption under Play hang below the row rather
+          // than pushing the icons down to the middle of the column. Wraps rather than
+          // squeezing Play, whose label is never truncated.
+          alignItems: isCompact ? "stretch" : "flex-start",
+          flexWrap: isCompact ? "nowrap" : "wrap",
           gap: 12,
         }}
       >
@@ -98,8 +108,9 @@ export const ActionRow: React.FC<Props> = ({
           <PlayButton
             item={(playItem ?? item) as BaseItemDto}
             selectedOptions={selectedOptions}
-            fullWidth={!isCompact}
-            style={isCompact ? undefined : { flexGrow: 0, minWidth: 200 }}
+            fullWidth={isCompact}
+            autoPlay={autoPlay}
+            style={isCompact ? undefined : { minWidth: 200 }}
           />
         ) : null}
 
@@ -109,6 +120,8 @@ export const ActionRow: React.FC<Props> = ({
             alignItems: "center",
             flexWrap: "wrap",
             gap: 8,
+            // The large button's height, so the icons sit on Play's centre line.
+            minHeight: isCompact ? undefined : PLAY_BUTTON_HEIGHT,
           }}
         >
           {trailerUrl ? (

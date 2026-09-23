@@ -713,25 +713,25 @@ const HomeMobile = () => {
   // The scan pill floats over the rows, so it needs a box that fills the page to sit in.
   return (
     <View style={{ flex: 1 }}>
-    <ScrollView
-      ref={scrollRef}
-      nestedScrollEnabled
-      contentInsetAdjustmentBehavior='automatic'
-      refreshControl={
-        <RefreshControl
-          refreshing={loading}
-          onRefresh={refetch}
-          tintColor='white'
-          colors={["white"]}
-        />
-      }
-      contentContainerStyle={{
-        paddingLeft: insets.left,
-        paddingRight: insets.right,
-        paddingBottom: 32,
-      }}
-    >
-      {/*
+      <ScrollView
+        ref={scrollRef}
+        nestedScrollEnabled
+        contentInsetAdjustmentBehavior='automatic'
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={refetch}
+            tintColor='white'
+            colors={["white"]}
+          />
+        }
+        contentContainerStyle={{
+          paddingLeft: insets.left,
+          paddingRight: insets.right,
+          paddingBottom: 32,
+        }}
+      >
+        {/*
         `bleed`, because neither the hero nor a row is page content in the way
         a paragraph is: the hero is a full-bleed picture and a row's cards
         scroll past the gutter, and both apply the gutter themselves — to the
@@ -741,116 +741,116 @@ const HomeMobile = () => {
         for exactly that reason: a hero bled to the window with rows capped at
         1440 would start its title 230 px left of every heading below it.
       */}
-      <PageContainer
-        width='media'
-        bleed
-        style={{
-          gap: 24,
-        }}
-      >
-        <HomeHeroCarousel />
-        {sections.map((section, index) => {
-          // Render Streamystats sections after Recently Added sections
-          // For default sections: place after Recently Added, before Suggested Movies (if present)
-          // For custom sections: place at the very end
-          const hasSuggestedMovies =
-            !settings?.streamyStatsMovieRecommendations &&
-            !settings?.home?.sections;
-          const streamystatsIndex =
-            sections.length - 1 - (hasSuggestedMovies ? 1 : 0);
-          const hasStreamystatsContent =
-            settings.streamyStatsMovieRecommendations ||
-            settings.streamyStatsSeriesRecommendations ||
-            settings.streamyStatsPromotedWatchlists;
-          const streamystatsSections =
-            index === streamystatsIndex && hasStreamystatsContent ? (
-              <View key='streamystats-sections' style={{ gap: 24 }}>
-                {settings.streamyStatsMovieRecommendations && (
-                  <StreamystatsRecommendations
-                    title={t(
-                      "home.settings.plugins.streamystats.recommended_movies",
-                    )}
-                    type='Movie'
-                    enabled={allHighPriorityLoaded}
-                  />
-                )}
-                {settings.streamyStatsSeriesRecommendations && (
-                  <StreamystatsRecommendations
-                    title={t(
-                      "home.settings.plugins.streamystats.recommended_series",
-                    )}
-                    type='Series'
-                    enabled={allHighPriorityLoaded}
-                  />
-                )}
-                {settings.streamyStatsPromotedWatchlists && (
-                  <StreamystatsPromotedWatchlists
-                    enabled={allHighPriorityLoaded}
-                  />
-                )}
-              </View>
-            ) : null;
-          if (section.type === "InfiniteScrollingCollectionList") {
-            const isHighPriority = section.priority === 1;
-            // "See all" on every row that is a window onto a library, which
-            // after this change is every row except the first.
-            //
-            // pass-02's complaint was that "Suggested movies" was the odd one
-            // out — a row of movies from the movie library with no way into it
-            // while the rows above it had one. It has one now. "Continue
-            // watching" is the one row that is not a slice of a library but a
-            // list about you, and there is no screen of it to send anyone to;
-            // inventing a destination that lands somewhere approximate would
-            // be worse than the row not offering one.
-            const handleSeeAll = section.parentId
-              ? () => {
-                  router.push({
-                    pathname: "/(auth)/(tabs)/(libraries)/[libraryId]",
-                    params: {
-                      libraryId: section.parentId as string,
-                      ...(section.seeAllSort ?? {}),
-                    },
-                  } as never);
-                }
-              : undefined;
-            return (
-              <View key={index} style={{ gap: 24 }}>
-                <InfiniteScrollingCollectionList
-                  testID='home-row'
-                  title={section.title}
-                  queryKey={section.queryKey}
-                  queryFn={section.queryFn}
-                  orientation={section.orientation}
-                  hideIfEmpty
-                  pageSize={section.pageSize}
-                  enabled={isHighPriority || allHighPriorityLoaded}
-                  onLoaded={
-                    isHighPriority
-                      ? () => markSectionLoaded(section.queryKey)
-                      : undefined
+        <PageContainer
+          width='media'
+          bleed
+          style={{
+            gap: 24,
+          }}
+        >
+          <HomeHeroCarousel />
+          {sections.map((section, index) => {
+            // Render Streamystats sections after Recently Added sections
+            // For default sections: place after Recently Added, before Suggested Movies (if present)
+            // For custom sections: place at the very end
+            const hasSuggestedMovies =
+              !settings?.streamyStatsMovieRecommendations &&
+              !settings?.home?.sections;
+            const streamystatsIndex =
+              sections.length - 1 - (hasSuggestedMovies ? 1 : 0);
+            const hasStreamystatsContent =
+              settings.streamyStatsMovieRecommendations ||
+              settings.streamyStatsSeriesRecommendations ||
+              settings.streamyStatsPromotedWatchlists;
+            const streamystatsSections =
+              index === streamystatsIndex && hasStreamystatsContent ? (
+                <View key='streamystats-sections' style={{ gap: 24 }}>
+                  {settings.streamyStatsMovieRecommendations && (
+                    <StreamystatsRecommendations
+                      title={t(
+                        "home.settings.plugins.streamystats.recommended_movies",
+                      )}
+                      type='Movie'
+                      enabled={allHighPriorityLoaded}
+                    />
+                  )}
+                  {settings.streamyStatsSeriesRecommendations && (
+                    <StreamystatsRecommendations
+                      title={t(
+                        "home.settings.plugins.streamystats.recommended_series",
+                      )}
+                      type='Series'
+                      enabled={allHighPriorityLoaded}
+                    />
+                  )}
+                  {settings.streamyStatsPromotedWatchlists && (
+                    <StreamystatsPromotedWatchlists
+                      enabled={allHighPriorityLoaded}
+                    />
+                  )}
+                </View>
+              ) : null;
+            if (section.type === "InfiniteScrollingCollectionList") {
+              const isHighPriority = section.priority === 1;
+              // "See all" on every row that is a window onto a library, which
+              // after this change is every row except the first.
+              //
+              // pass-02's complaint was that "Suggested movies" was the odd one
+              // out — a row of movies from the movie library with no way into it
+              // while the rows above it had one. It has one now. "Continue
+              // watching" is the one row that is not a slice of a library but a
+              // list about you, and there is no screen of it to send anyone to;
+              // inventing a destination that lands somewhere approximate would
+              // be worse than the row not offering one.
+              const handleSeeAll = section.parentId
+                ? () => {
+                    router.push({
+                      pathname: "/(auth)/(tabs)/(libraries)/[libraryId]",
+                      params: {
+                        libraryId: section.parentId as string,
+                        ...(section.seeAllSort ?? {}),
+                      },
+                    } as never);
                   }
-                  onPressSeeAll={handleSeeAll}
-                />
-                {streamystatsSections}
-              </View>
-            );
-          }
-          if (section.type === "MediaListSection") {
-            return (
-              <View key={index} style={{ gap: 24 }}>
-                <MediaListSection
-                  queryKey={section.queryKey}
-                  queryFn={section.queryFn}
-                />
-                {streamystatsSections}
-              </View>
-            );
-          }
-          return null;
-        })}
-      </PageContainer>
-    </ScrollView>
-    <ScanIndicator />
+                : undefined;
+              return (
+                <View key={index} style={{ gap: 24 }}>
+                  <InfiniteScrollingCollectionList
+                    testID='home-row'
+                    title={section.title}
+                    queryKey={section.queryKey}
+                    queryFn={section.queryFn}
+                    orientation={section.orientation}
+                    hideIfEmpty
+                    pageSize={section.pageSize}
+                    enabled={isHighPriority || allHighPriorityLoaded}
+                    onLoaded={
+                      isHighPriority
+                        ? () => markSectionLoaded(section.queryKey)
+                        : undefined
+                    }
+                    onPressSeeAll={handleSeeAll}
+                  />
+                  {streamystatsSections}
+                </View>
+              );
+            }
+            if (section.type === "MediaListSection") {
+              return (
+                <View key={index} style={{ gap: 24 }}>
+                  <MediaListSection
+                    queryKey={section.queryKey}
+                    queryFn={section.queryFn}
+                  />
+                  {streamystatsSections}
+                </View>
+              );
+            }
+            return null;
+          })}
+        </PageContainer>
+      </ScrollView>
+      <ScanIndicator />
     </View>
   );
 };

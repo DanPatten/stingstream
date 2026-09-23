@@ -19,7 +19,13 @@ import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useAtomValue } from "jotai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { PixelRatio, Platform, useWindowDimensions, View } from "react-native";
+import {
+  AppState,
+  PixelRatio,
+  Platform,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { useAnimatedReaction, useSharedValue } from "react-native-reanimated";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
@@ -81,6 +87,8 @@ import {
   isImageBasedSubtitle,
 } from "@/utils/jellyfin/subtitleUtils";
 import { logAndCaptureError, writeToLog } from "@/utils/log";
+import { sendKeepaliveReport } from "@/utils/nativePlayer/keepaliveReport";
+import { reportablePositionTicks } from "@/utils/nativePlayer/reportablePosition";
 import { buildSwitchQuery } from "@/utils/nativePlayer/switchQuery";
 import {
   getEffectiveSubtitleMarginY,
@@ -709,12 +717,18 @@ export default function DirectPlayerPage() {
     const stopKey = stream.sessionId || item.Id;
     if (reportedStopKeyRef.current === stopKey) return;
     reportedStopKeyRef.current = stopKey;
-    const currentTimeInTicks = msToTicks(progress.get());
+    const currentTimeInTicks = reportablePositionTicks(
+      msToTicks(progress.get()),
+      startTicks,
+      hasPlaybackStarted,
+    );
     try {
       await getPlaystateApi(api).reportPlaybackStopped({
         playbackStopInfo: {
           ItemId: item.Id,
-          MediaSourceId: mediaSourceId,
+          // The version that actually played. The URL's `mediaSourceId` is often "", and the
+          // server then filed the position under the primary version whichever copy it was.
+          MediaSourceId: stream.mediaSource?.Id || mediaSourceId || undefined,
           PositionTicks: currentTimeInTicks,
           PlaySessionId: stream.sessionId || undefined,
           // Release the server-side live stream (and its tuner slot) on stop.
@@ -739,7 +753,16 @@ export default function DirectPlayerPage() {
         error instanceof Error ? error.message : String(error),
       );
     }
-  }, [api, item, mediaSourceId, stream, progress, isConnected]);
+  }, [
+    api,
+    item,
+    mediaSourceId,
+    stream,
+    progress,
+    isConnected,
+    startTicks,
+    hasPlaybackStarted,
+  ]);
 
   const stop = useCallback(() => {
     // Update URL with final playback position before stopping
@@ -837,8 +860,14 @@ export default function DirectPlayerPage() {
       // falsy); -1 means "off" and is reported as-is.
       AudioStreamIndex: currentAudioIndex,
       SubtitleStreamIndex: currentSubtitleIndex,
-      MediaSourceId: mediaSourceId,
-      PositionTicks: msToTicks(progress.get()),
+      MediaSourceId: stream.mediaSource?.Id || mediaSourceId || undefined,
+      // Never 0 before playback has really started: every progress report overwrites the saved
+      // position, and 0 clears it (see reportablePosition.ts).
+      PositionTicks: reportablePositionTicks(
+        msToTicks(progress.get()),
+        startTicks,
+        hasPlaybackStarted,
+      ),
       // Read through the ref, not the isPlaying state: this is called from
       // handlers that may have been created before the last transition, and a
       // report must describe the state at the moment it is built.
@@ -859,6 +888,8 @@ export default function DirectPlayerPage() {
     progress,
     isMuted,
     offline,
+    startTicks,
+    hasPlaybackStarted,
   ]);
 
   // Report after the state commits. Deliberately excludes playbackManager:
@@ -949,7 +980,9 @@ export default function DirectPlayerPage() {
       const shouldReportProgress =
         shouldUpdateUrl ||
         now - lastProgressReportTime.get() >= PROGRESS_REPORT_INTERVAL;
-      if (!shouldReportProgress) return;
+      // The native presented player has always waited for this; this route did not, and the web
+      // player's first event (`progress`, at 0:00, before the resume seek) reached the server.
+      if (!shouldReportProgress || !hasPlaybackStarted) return;
       lastProgressReportTime.value = now;
 
       const progressInfo = currentPlayStateInfo();
@@ -968,8 +1001,57 @@ export default function DirectPlayerPage() {
       stream,
       isSeeking,
       isBuffering,
+      hasPlaybackStarted,
     ],
   );
+
+  // Leaving without closing the player: a browser tab closed or switched away from, the app sent
+  // to the background. Neither runs the navigation teardown, so the server kept whatever the last
+  // heartbeat said, up to ten seconds stale, and closed the session five minutes later.
+  const currentPlayStateInfoRef = useRef(currentPlayStateInfo);
+  useEffect(() => {
+    currentPlayStateInfoRef.current = currentPlayStateInfo;
+  }, [currentPlayStateInfo]);
+
+  useEffect(() => {
+    const reportNow = (how: "progress" | "stopped") => {
+      if (!isConnectedRef.current || isPlaybackStoppedRef.current) return;
+      const info = currentPlayStateInfoRef.current();
+      const currentApi = apiRef.current;
+      if (!info || !currentApi) return;
+      if (Platform.OS === "web") {
+        // The page may be gone before an ordinary request finishes.
+        sendKeepaliveReport(currentApi, { kind: how, info });
+        if (how === "stopped") {
+          reportedStopKeyRef.current =
+            info.PlaySessionId || info.ItemId || null;
+        }
+        return;
+      }
+      void reportProgressRef.current(info);
+    };
+
+    if (Platform.OS === "web") {
+      const doc = (globalThis as { document?: Document }).document;
+      const win = globalThis as unknown as Window;
+      if (!doc || typeof win.addEventListener !== "function") return;
+      const onVisibility = () => {
+        if (doc.visibilityState === "hidden") reportNow("progress");
+      };
+      const onPageHide = () => reportNow("stopped");
+      doc.addEventListener("visibilitychange", onVisibility);
+      win.addEventListener("pagehide", onPageHide);
+      return () => {
+        doc.removeEventListener("visibilitychange", onVisibility);
+        win.removeEventListener("pagehide", onPageHide);
+      };
+    }
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "background") reportNow("progress");
+    });
+    return () => subscription.remove();
+  }, []);
 
   /** Prepare metadata for iOS native media controls (Control Center, Lock Screen) */
   const nowPlayingMetadata = useMemo(() => {

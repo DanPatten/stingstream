@@ -61,10 +61,13 @@ const page: React.FC = () => {
     id: seriesId,
     seasonIndex,
     offline: offlineParam,
+    autoPlay: autoPlayParam,
   } = params as {
     id: string;
     seasonIndex: string;
     offline?: string;
+    /** The home hero's Play: press this page's Play once it knows what it plays. */
+    autoPlay?: string;
   };
 
   const isOffline = offlineParam === "true";
@@ -305,6 +308,7 @@ const page: React.FC = () => {
             playItem={nextEpisode}
             selectedOptions={playOptions}
             moreActions={moreActions}
+            autoPlay={autoPlayParam === "true" && Boolean(nextEpisode)}
           />
           {!isOffline ? (
             <SourceSelector

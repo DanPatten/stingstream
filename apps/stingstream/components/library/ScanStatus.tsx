@@ -32,10 +32,7 @@ export function useLibraryScanLabel(): (
 ) => string | null {
   const { t } = useTranslation();
   const summary = useScanStatus();
-  return useCallback(
-    (id) => libraryScanLabel(summary, id, t),
-    [summary, t],
-  );
+  return useCallback((id) => libraryScanLabel(summary, id, t), [summary, t]);
 }
 
 /** A thin bar, with a short stub when the server has not given a number yet. */
@@ -94,7 +91,13 @@ export function ScanStatus({
   );
 }
 
-function ScanPill({ label, percent }: { label: string; percent: number | null }) {
+function ScanPill({
+  label,
+  percent,
+}: {
+  label: string;
+  percent: number | null;
+}) {
   const { color } = useTheme();
   return (
     <View

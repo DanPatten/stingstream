@@ -339,6 +339,31 @@ works unchanged. Proven pattern for remote-backed libraries; implemented in `Sti
    cancels a running scan and starts again: a queued one runs after the current one, and any
    number queued during it collapse into one.
 
+   **A scan is visible while it runs, and its movies appear as it finds them** (2026-09-22, Dan
+   on the v0.2.1 beta: "it took too long for them to start popping in"). The server's
+   `LibraryChanged` push is debounced by `LibraryUpdateDuration` (30 s) with a timer that restarts
+   on every change (`LibraryChangedNotifier.OnLibraryChange`), so during a scan that keeps finding
+   things it only fires once the scan is over. The app no longer relies on it for this: while
+   `/ScheduledTasks` (the "Scan Media Library" task) or `/Library/VirtualFolders` (a library's own
+   `RefreshStatus` and `RefreshProgress`) says a scan is running, it refetches the home rows and
+   library grids every 6 s and shows the progress (`hooks/useScanStatus.ts`,
+   `lib/stingstream/scanStatus.ts`). Administrators only, since both endpoints are.
+
+   **Promo clips and samples are not movies** (`JunkFileIgnoreRule`, 2026-09-22). A release's
+   advert beside the film (`RARBG.com.mp4`, `www.YTS.MX.mp4`, `ETRG.mp4`) made the movie resolver
+   read the folder as two movies. The rule is an `IResolverIgnoreRule` exported from
+   StingStream.Core, so no upstream file is patched: exact promo names at any size, and a base name
+   that is a bare web address or starts with `sample-` only when the video is under 150 MB.
+   Upstream already ignores `sample.*`, `*.sample.*` and a `sample` folder, and treats `-sample` and
+   `-trailer` suffixes as extras.
+
+   **TMDb posters are downloaded at `w780`, not `original`** (`MetadataDefaults.ApplyTmdbImageSizes`,
+   every start, only when no size is set). The originals are 1000x1500 to 2000x3000 and the server
+   resizes every card from them on first request; measured on node 1, a cold resize from a
+   1400x2100 original took 0.70 s and from a 691x1024 one 0.33 s. Backdrops stay at `original`.
+   Chapter image extraction and trickplay were already off in every library the node creates
+   (`LibraryLayoutService.BuildOptions`), so neither holds up a first scan.
+
    **Each library can be switched off** (`LibrarySettings.Enabled`, 2026-09-10), and off means
    the owner saying "not on this server": the library is withdrawn from the media server's view,
    the manager that fills it is stopped through `config.toml`, and the materializer stops writing

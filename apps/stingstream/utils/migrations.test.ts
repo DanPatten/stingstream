@@ -124,6 +124,17 @@ describe("runStorageMigrations", () => {
       expect(storedSettings().theme).toBe("light");
     });
 
+    test("the resume question is turned on where the old default was stored", () => {
+      settingsBlob({ theme: "dark", showResumeDialog: false });
+
+      runStorageMigrations(store);
+
+      expect(storedSettings()).toEqual({
+        theme: "dark",
+        showResumeDialog: true,
+      });
+    });
+
     test("a store with no settings blob is not a failure", () => {
       data.set("token", "abc");
 

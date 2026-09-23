@@ -47,9 +47,9 @@ describe("resumePositionTicks", () => {
 
 describe("shouldAskToResume", () => {
   test("asks when there is a position and the setting is on or unset", () => {
-    expect(shouldAskToResume(item(minutes(10)), { showResumeDialog: true })).toBe(
-      true,
-    );
+    expect(
+      shouldAskToResume(item(minutes(10)), { showResumeDialog: true }),
+    ).toBe(true);
     expect(shouldAskToResume(item(minutes(10)), {})).toBe(true);
   });
 
