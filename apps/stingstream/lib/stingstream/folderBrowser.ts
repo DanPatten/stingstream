@@ -5,7 +5,7 @@
  * `/Environment/DirectoryContents`, which answer with full paths, so the only
  * arithmetic this side does is "one level up". That is pure and lives here, because
  * the server may be Windows, Linux or a UNC share whatever the browser is running on,
- * and a regex that only knew one of them sent the Up button somewhere nonsensical.
+ * and a regex that only knew one of them sent the Back button somewhere nonsensical.
  *
  * No React here, so `bun:test` can load it.
  */
@@ -211,6 +211,23 @@ export function activeRoot(
     }
   }
   return best;
+}
+
+/**
+ * Where Back goes: one level up, but never above the sidebar entry the path sits under. Null when
+ * the path is that entry itself (or under none of them), which is when Back is disabled. So from
+ * `C:\ProgramData\StingStream\media\Movies` it steps to Media and stops there, rather than
+ * wandering up through `ProgramData`. A path under no entry still steps up, to its own root.
+ */
+export function backTarget(
+  path: string,
+  roots: readonly string[],
+): string | null {
+  const root = activeRoot(path, roots);
+  if (root !== null && relateFolders(path, root) === "same") return null;
+  // Under no sidebar entry (a typed share, say): still one level up, as far as a root.
+  const up = parentPath(path);
+  return up === DRIVES ? null : up;
 }
 
 /**

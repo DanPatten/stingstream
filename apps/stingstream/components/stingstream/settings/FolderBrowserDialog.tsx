@@ -24,6 +24,7 @@ import { useTheme } from "@/hooks/useTheme";
 import {
   activeRoot,
   addableFolder,
+  backTarget,
   DRIVES,
   type FolderLookup,
   folderConflict,
@@ -61,10 +62,10 @@ const CONFLICT_KEY = {
  * Adding a folder on the server, laid out as Plex's "Add Folder" is.
  *
  * Dan, 2026-09-22, on the one this replaced: *"100% trash"*, and then on the first rebuild, that the
- * up button and its icon were confusing. So there is none: the path field is at the top, a sidebar
- * on the left holds the node's media folder (the house) and one entry per drive, and the list on
- * the right holds the subfolders of wherever the field points. Going up is a sidebar entry or an
- * edit of the field, exactly as in Plex.
+ * up button and its icon were confusing. The path field is at the top, a sidebar on the left holds
+ * the node's media folder (the house) and one entry per drive, and the list on the right holds the
+ * subfolders of wherever the field points. Beside the field is a back arrow, which Dan asked for
+ * next: one level up per press, stopping at the sidebar entry the path is under (`backTarget`).
  *
  * The field is the one source of truth. The list follows it as you type (debounced), a row or a
  * sidebar entry puts its path into it, and Add adds what it says. The first version's Select added
@@ -305,6 +306,10 @@ function FolderBrowserBody({
     target,
     places.map((place) => place.path),
   );
+  const back = backTarget(
+    target,
+    places.map((place) => place.path),
+  );
 
   // The folder is not listable but its parent says it is there: it exists and cannot be opened,
   // which is a different thing to say from "it will be created".
@@ -424,47 +429,71 @@ function FolderBrowserBody({
         <Text variant='heading' weight='semibold' style={{ flex: 1 }}>
           {t("libraries.browse_title")}
         </Text>
-        <CloseButton label={t("common.close")} onPress={onClose} />
+        <IconButton
+          testID='folder-browser-close'
+          icon='close'
+          label={t("common.close")}
+          onPress={onClose}
+        />
       </View>
 
-      <View>
-        <Input
-          testID='folder-browser-path'
-          accessibilityLabel={t("libraries.browse_path")}
-          placeholder={t("libraries.browse_path")}
-          value={draft}
-          onChangeText={(value) => {
-            touched.current = true;
-            setDraft(value);
-            setRejection(null);
-          }}
-          onSubmitEditing={() => {
-            const row = highlight >= 0 ? rows[highlight] : undefined;
-            go(row ? row.path : draft);
-          }}
-          onKeyPress={(event) => {
-            const native = event.nativeEvent as { key?: string };
-            onKey(native.key ?? "", () =>
-              (
-                event as unknown as { preventDefault?: () => void }
-              ).preventDefault?.(),
-            );
-          }}
-          autoFocus={Platform.OS === "web"}
-          autoCapitalize='none'
-          autoCorrect={false}
-          error={fieldError}
-          editable={!adding}
-        />
-        {fieldHint ? (
-          <Text
-            variant='caption'
-            tone='secondary'
-            style={{ marginTop: space["2"] }}
-          >
-            {fieldHint}
-          </Text>
-        ) : null}
+      <View
+        style={{
+          flexDirection: "row",
+          alignItems: "flex-start",
+          gap: space["2"],
+        }}
+      >
+        <View style={{ paddingTop: 4 }}>
+          <IconButton
+            testID='folder-browser-back'
+            icon='chevronLeft'
+            label={t("common.back")}
+            disabled={back === null || adding}
+            onPress={() => {
+              if (back !== null) go(back);
+            }}
+          />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Input
+            testID='folder-browser-path'
+            accessibilityLabel={t("libraries.browse_path")}
+            placeholder={t("libraries.browse_path")}
+            value={draft}
+            onChangeText={(value) => {
+              touched.current = true;
+              setDraft(value);
+              setRejection(null);
+            }}
+            onSubmitEditing={() => {
+              const row = highlight >= 0 ? rows[highlight] : undefined;
+              go(row ? row.path : draft);
+            }}
+            onKeyPress={(event) => {
+              const native = event.nativeEvent as { key?: string };
+              onKey(native.key ?? "", () =>
+                (
+                  event as unknown as { preventDefault?: () => void }
+                ).preventDefault?.(),
+              );
+            }}
+            autoFocus={Platform.OS === "web"}
+            autoCapitalize='none'
+            autoCorrect={false}
+            error={fieldError}
+            editable={!adding}
+          />
+          {fieldHint ? (
+            <Text
+              variant='caption'
+              tone='secondary'
+              style={{ marginTop: space["2"] }}
+            >
+              {fieldHint}
+            </Text>
+          ) : null}
+        </View>
       </View>
 
       {wide ? (
@@ -571,20 +600,29 @@ function FolderPlusGlyph() {
   );
 }
 
-function CloseButton({
+/** Back beside the path field, and close in the title row. */
+function IconButton({
+  icon,
   label,
   onPress,
+  disabled = false,
+  testID,
 }: {
+  icon: IconName;
   label: string;
   onPress: () => void;
+  disabled?: boolean;
+  testID?: string;
 }) {
   const { color } = useTheme();
   const states = usePressableStates();
   return (
     <Pressable
-      testID='folder-browser-close'
+      testID={testID}
       accessibilityRole='button'
       accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
       onPress={onPress}
       hitSlop={6}
       {...states.handlers}
@@ -600,7 +638,11 @@ function CloseButton({
         states.webStyle,
       ]}
     >
-      <Icon name='close' size={20} color={color.text.secondary} />
+      <Icon
+        name={icon}
+        size={20}
+        color={disabled ? color.text.disabled : color.text.secondary}
+      />
     </Pressable>
   );
 }

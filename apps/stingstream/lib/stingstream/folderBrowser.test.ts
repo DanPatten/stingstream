@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   activeRoot,
   addableFolder,
+  backTarget,
   DRIVES,
   folderConflict,
   folderName,
@@ -204,6 +205,31 @@ describe("activeRoot", () => {
 
   test("nothing matches a drive that is not listed", () => {
     expect(activeRoot("Q:\\x", roots)).toBeNull();
+  });
+});
+
+describe("backTarget", () => {
+  const home = "C:\\ProgramData\\StingStream\\media";
+  const roots = [home, "C:\\", "D:\\"];
+
+  test("steps up one level inside a root", () => {
+    expect(backTarget(`${home}\\Movies\\Old`, roots)).toBe(`${home}\\Movies`);
+    expect(backTarget(`${home}\\Movies`, roots)).toBe(home);
+    expect(backTarget("D:\\TV\\Shows", roots)).toBe("D:\\TV");
+    expect(backTarget("D:\\TV", roots)).toBe("D:\\");
+  });
+
+  test("stops at the root the path is under", () => {
+    expect(backTarget(home, roots)).toBeNull();
+    expect(backTarget("C:\\", roots)).toBeNull();
+    expect(backTarget("d:/", roots)).toBeNull();
+  });
+
+  test("a path under no root still steps up, as far as its own root", () => {
+    expect(backTarget("\\\\nas\\share\\films", roots)).toBe("\\\\nas\\share");
+    expect(backTarget("\\\\nas\\share", roots)).toBeNull();
+    expect(backTarget("/srv/media", ["/"])).toBe("/srv");
+    expect(backTarget("/", ["/"])).toBeNull();
   });
 });
 
