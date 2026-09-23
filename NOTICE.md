@@ -19,7 +19,8 @@ binary fetched on demand (not vendored). New StingStream code is licensed **GPL-
 
 - **Upstream:** https://github.com/jellyfin/jellyfin
 - **Branch vendored:** `master` (matches both the plan and the repository's default branch/`HEAD`).
-- **Commit vendored:** `c80f05fad100433077c3011baeebb52271939823`
+- **Commit vendored:** `208c278b75abd897aefa1e1175126eac5e4dbfaa` (2026-09-22, 13.0 development;
+  first vendored at `c80f05fad100433077c3011baeebb52271939823`, 12.0 development)
 - **License:** GPL-2.0, per `server/jellyfin/LICENSE` (the file itself is the plain "Version 2,
   June 1991" text with no "or later" clause). Jellyfin's project lead has stated the project is
   "effectively 2+" (GPL-2.0-or-later in practice) in GitHub issue #8226, but that is a maintainer

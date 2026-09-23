@@ -96,6 +96,9 @@ rather than a StingStream-specific need, and a good candidate to send upstream.
 record) and `Fido2` 4.0.1 (passkeys). Central package management means a new dependency has to be
 declared there; all three entries carry a comment marking them as StingStream's.
 
+**Upstream-pull risk:** a guaranteed textual conflict whenever upstream bumps a neighbouring
+package (the 2026-09-23 pull hit it on `BitFaster.Caching`). Take upstream's version and keep ours.
+
 `Fido2` is the package name; the library and its namespace are `Fido2NetLib`. MIT. It is what makes
 passkeys possible on every platform a node ships to: the Rust alternative reaches OpenSSL, which
 does not build on a stock Windows toolchain, while this one is pure .NET over `libsodium` — and
