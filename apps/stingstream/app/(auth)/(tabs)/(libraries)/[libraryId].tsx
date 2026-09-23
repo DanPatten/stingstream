@@ -956,7 +956,12 @@ const Page = () => {
               // rather than a spinner in the middle of an empty page: nothing
               // moves when the real cards arrive.
               isGridLoading ? (
-                <SkeletonGrid kind='portrait' columns={grid.columns} />
+                <SkeletonGrid
+                  kind='portrait'
+                  columns={grid.columns}
+                  cell={grid.cell}
+                  withinGutter={false}
+                />
               ) : (
                 // Three situations, three different next moves: a filter to
                 // clear, a movie or a show to go and ask for, or nothing to be

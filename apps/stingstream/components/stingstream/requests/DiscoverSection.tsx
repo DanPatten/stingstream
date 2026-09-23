@@ -134,7 +134,7 @@ export function DiscoverSection() {
           onPress={setPicking}
         />
       ) : search.isLoading ? (
-        <SkeletonGrid kind='portrait' columns={grid.columns} />
+        <SkeletonGrid kind='portrait' columns={grid.columns} cell={grid.cell} />
       ) : search.error ? (
         <RequestsErrorState error={search.error} onRetry={search.refetch} />
       ) : results.length === 0 ? (

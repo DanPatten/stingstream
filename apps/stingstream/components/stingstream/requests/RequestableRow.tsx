@@ -183,7 +183,7 @@ export const RequestableGrid: React.FC<GridProps> = ({
     <View onLayout={measure}>
       {title ? <SectionHeader title={title} /> : null}
       {loading || paneWidth === null ? (
-        <SkeletonGrid kind='portrait' columns={grid.columns} />
+        <SkeletonGrid kind='portrait' columns={grid.columns} cell={grid.cell} />
       ) : (
         <View
           testID='requestable-grid'

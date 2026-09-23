@@ -112,7 +112,12 @@ export function RequestPosterGrid({
   return (
     <View onLayout={measure}>
       {loading || paneWidth === null ? (
-        <SkeletonGrid kind='portrait' columns={grid.columns} rows={lines} />
+        <SkeletonGrid
+          kind='portrait'
+          columns={grid.columns}
+          rows={lines}
+          cell={grid.cell}
+        />
       ) : (
         <View
           testID={testID}

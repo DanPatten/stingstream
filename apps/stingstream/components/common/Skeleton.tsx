@@ -7,7 +7,7 @@ import {
   View,
   type ViewStyle,
 } from "react-native";
-import type { CardKind } from "@/components/cards/CardData";
+import { CARD_GRID_ROW_GAP, type CardKind } from "@/components/cards/CardData";
 import { useCardLayout } from "@/components/cards/useCardLayout";
 import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { interaction, radius as RADII } from "@/constants/theme";
@@ -113,17 +113,90 @@ export const SkeletonRow: React.FC<{
  * is about to compute for the real data — hand it the same number, or the grid
  * reflows the moment the items land.
  */
+/** The cell geometry `useCardGrid` lays its cards out with (`grid.cell`). */
+export interface SkeletonGridCell {
+  width: number;
+  height: number;
+  cardWidth: number;
+  columnOffset: (index: number) => number;
+}
+
 export const SkeletonGrid: React.FC<{
   kind: CardKind;
   columns: number;
   /** Rows to draw. Enough to fill a viewport is the point, not accuracy. */
   rows?: number;
   withLabels?: boolean;
+  /**
+   * The real grid's cells. Pass `grid.cell` whenever there is one: the skeleton is then drawn
+   * with the grid's own bleed, column widths, card offsets and row gap, so nothing moves when the
+   * cards arrive. Without it, the percentage layout below is only close: it padded where the grid
+   * bleeds, gave the last column a different width and sized posters from the default card width,
+   * which is how the Requests page's skeleton sat out of line with the cards that replaced it.
+   */
+  cell?: SkeletonGridCell;
+  /**
+   * With `cell`: whether the grid sits inside the page gutter and bleeds out of it, as the
+   * Requests grids do (true), or already spans the full width, as a `PageContainer bleed` list
+   * does (false).
+   */
+  withinGutter?: boolean;
   style?: StyleProp<ViewStyle>;
-}> = ({ kind, columns, rows = 3, withLabels = true, style }) => {
+}> = ({
+  kind,
+  columns,
+  rows = 3,
+  withLabels = true,
+  cell,
+  withinGutter = true,
+  style,
+}) => {
   const layout = useCardLayout(kind);
   const { gutter } = useBreakpoint();
   const safeColumns = Math.max(1, Math.floor(columns) || 1);
+
+  if (cell) {
+    return (
+      <View
+        accessibilityRole='progressbar'
+        accessibilityLabel='Loading'
+        style={[
+          {
+            marginHorizontal: withinGutter ? -gutter : 0,
+            flexDirection: "row",
+            flexWrap: "wrap",
+            rowGap: CARD_GRID_ROW_GAP,
+          },
+          style,
+        ]}
+      >
+        {indices(safeColumns * rows).map((index) => (
+          <View
+            key={index}
+            style={{
+              width: cell.width,
+              height: cell.height,
+              flexGrow: 0,
+              flexShrink: 0,
+            }}
+          >
+            <View
+              style={{
+                marginLeft: cell.columnOffset(index),
+                width: cell.cardWidth,
+              }}
+            >
+              <Skeleton
+                height={Math.round(cell.cardWidth / layout.aspectRatio)}
+                radius={layout.cornerRadius}
+              />
+              {withLabels ? <SkeletonLabels /> : null}
+            </View>
+          </View>
+        ))}
+      </View>
+    );
+  }
 
   return (
     <View

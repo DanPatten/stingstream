@@ -1095,14 +1095,7 @@ async fn forward(
             .into_response();
     }
     if !status.state.is_routable() {
-        // Retry-After tells a well-behaved client (and Radarr's HTTP layer) to back off rather
-        // than hammer a child that is in its restart backoff.
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            [("retry-after", "5")],
-            format!("{child} is {:?} and cannot serve requests yet", status.state),
-        )
-            .into_response();
+        return not_ready(child, status.state);
     }
     let upstream = Upstream {
         authority: format!("127.0.0.1:{}", status.port),
@@ -1110,7 +1103,46 @@ async fn forward(
         name: child,
     };
     let client_addr = peer_addr(&req);
-    proxy::proxy(state.client, upstream, gateway_prefix, client_addr, req).await
+    let response = proxy::proxy(state.client, upstream, gateway_prefix, client_addr, req).await;
+    // `Starting` is routable so that Jellyfin's own "starting up" answer reaches the client, but
+    // for the first several seconds of it nothing is listening on the port yet and the proxy can
+    // only say 502. That was the answer a returning browser got for most of a cold start, with no
+    // Retry-After and nothing to tell it from a broken proxy. A child the supervisor has not yet
+    // seen answer gets the same "not ready" as one that is not routable at all. A healthy child
+    // that refuses a connection is a real fault and keeps its 502.
+    if response.status() == StatusCode::BAD_GATEWAY && status.state != ChildState::Healthy {
+        return not_ready(child, status.state);
+    }
+    response
+}
+
+/// The header on every "not ready yet" answer the gateway writes itself. See [`not_ready`].
+pub const NODE_STATE_HEADER: &str = "x-stingstream-state";
+
+/// The gateway's answer for a child that cannot serve a request yet.
+///
+/// `503` + `Retry-After` is the part every HTTP client already understands, and it tells a
+/// well-behaved one (Radarr's HTTP layer included) to back off rather than hammer a child that is
+/// starting or in its restart backoff. The [`NODE_STATE_HEADER`] and the JSON body are the part
+/// the app reads: they say *this node answered and is coming up*, which is a different screen from
+/// "nothing answered". `starting` covers every state that ends on its own; `failed` is the
+/// supervisor having given up, which waiting will not fix.
+fn not_ready(child: &str, state: ChildState) -> Response {
+    let summary = if state == ChildState::Failed {
+        "failed"
+    } else {
+        "starting"
+    };
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [
+            (header::RETRY_AFTER.as_str(), "5"),
+            (NODE_STATE_HEADER, summary),
+            (header::CACHE_CONTROL.as_str(), "no-store"),
+        ],
+        Json(json!({ "status": summary, "child": child, "state": state })),
+    )
+        .into_response()
 }
 
 /// True when the given child is in a state the gateway will route to.
@@ -1823,6 +1855,60 @@ mod tests {
         }
         let (_, body) = call("/stingstream/api/v1/webhooks/arr", "127.0.0.1:51234", SetupHandle::known(true)).await;
         assert!(allowed(&body), "{body}");
+    }
+
+    /// A returning browser loads the bundle from the gateway while the media server behind it is
+    /// still coming up. Every proxied request it makes in that window must say "starting" in a way
+    /// the app can read, whether the child is not routable yet or routable with nothing listening.
+    #[tokio::test]
+    async fn a_child_that_is_not_ready_answers_503_starting_on_every_proxied_path() {
+        use tower::ServiceExt;
+
+        async fn call(state: ChildState, path: &str) -> (StatusCode, axum::http::HeaderMap, serde_json::Value) {
+            let mut runtime = sample_runtime();
+            // Port 1: nothing listens there, so a routable child gets the proxy's connect error.
+            runtime.children.insert(
+                "jellyfin".into(),
+                serde_json::from_value(serde_json::json!({
+                    "enabled": true,
+                    "port": 1,
+                    "url_base": "/stingstream",
+                    "base_url": "http://127.0.0.1:1/stingstream"
+                }))
+                .unwrap(),
+            );
+            let node = Arc::new(NodeState::new(crate::config::Config::default(), runtime, false));
+            node.set_state("jellyfin", state);
+            let app = router_with_web(node, WebSource::None, SetupHandle::known(false));
+            let mut req = Request::builder().uri(path).body(Body::empty()).unwrap();
+            req.extensions_mut()
+                .insert(ConnectInfo("127.0.0.1:50000".parse::<SocketAddr>().unwrap()));
+            let resp = app.oneshot(req).await.unwrap();
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024).await.unwrap();
+            (status, headers, serde_json::from_slice(&bytes).unwrap_or_default())
+        }
+
+        for state in [ChildState::Stopped, ChildState::Restarting, ChildState::Starting] {
+            for path in ["/jellyfin/System/Info/Public", "/jellyfin/Users/Me", "/stingstream/api/v1/setup/state"] {
+                let (status, headers, body) = call(state, path).await;
+                assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{state:?} {path}");
+                assert_eq!(headers[NODE_STATE_HEADER], "starting", "{state:?} {path}");
+                assert_eq!(headers[header::RETRY_AFTER], "5", "{state:?} {path}");
+                assert_eq!(body["status"], "starting", "{state:?} {path}");
+            }
+        }
+
+        let (status, headers, body) = call(ChildState::Failed, "/jellyfin/System/Info/Public").await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(headers[NODE_STATE_HEADER], "failed");
+        assert_eq!(body["status"], "failed");
+
+        // A healthy child that refuses the connection is a fault, not a start-up, and says so.
+        let (status, headers, _) = call(ChildState::Healthy, "/jellyfin/System/Info/Public").await;
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(headers.get(NODE_STATE_HEADER).is_none());
     }
 
     /// A stock client at the wrong door still gets a fast, honest 404 -- now without naming the
