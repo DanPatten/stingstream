@@ -172,29 +172,53 @@ export function useIndexers() {
   const client = useStingStreamClient();
   return useQuery({
     queryKey: keys.indexers,
-    queryFn: async () => {
-      const { data, error } = await client!.GET(
-        "/stingstream/api/v1/Settings/indexers",
-      );
-      if (error) throw error;
-      return data;
-    },
+    queryFn: async () =>
+      unwrap(
+        await client!.GET("/stingstream/api/v1/Settings/indexers"),
+        "GET /Settings/indexers",
+        [],
+      ),
     enabled: !!client,
   });
 }
 
+/**
+ * Indexer and download-client writes go through `unwrap` so the server's own sentence reaches the
+ * screen. They used to rethrow `openapi-fetch`'s error value as it came, which is a parsed body or
+ * a string rather than an `Error`, so every screen's `err instanceof Error` check failed and a
+ * useful message ("Another indexer is already called ...") became "could not test it".
+ */
 export function useAddIndexer() {
   const client = useStingStreamClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (indexer: IndexerSettings) => {
-      const { data, error } = await client!.POST(
-        "/stingstream/api/v1/Settings/indexers",
-        { params: { query: { sync: true } }, body: indexer },
-      );
-      if (error) throw error;
-      return data;
+    mutationFn: async (indexer: IndexerSettings) =>
+      unwrap(
+        await client!.POST("/stingstream/api/v1/Settings/indexers", {
+          params: { query: { sync: true } },
+          body: indexer,
+        }),
+        "POST /Settings/indexers",
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.indexers });
+      queryClient.invalidateQueries({ queryKey: keys.sync });
     },
+  });
+}
+
+export function useUpdateIndexer() {
+  const client = useStingStreamClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (indexer: IndexerSettings & { Id: string }) =>
+      unwrap(
+        await client!.PUT("/stingstream/api/v1/Settings/indexers/{id}", {
+          params: { path: { id: indexer.Id }, query: { sync: true } },
+          body: indexer,
+        }),
+        "PUT /Settings/indexers",
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.indexers });
       queryClient.invalidateQueries({ queryKey: keys.sync });
@@ -207,11 +231,13 @@ export function useDeleteIndexer() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await client!.DELETE(
-        "/stingstream/api/v1/Settings/indexers/{id}",
-        { params: { path: { id } } },
+      unwrap(
+        await client!.DELETE("/stingstream/api/v1/Settings/indexers/{id}", {
+          params: { path: { id } },
+        }),
+        "DELETE /Settings/indexers",
+        null,
       );
-      if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.indexers });
@@ -229,23 +255,6 @@ export function useSyncStatus() {
       return data as SyncStatus[];
     },
     enabled: !!client,
-  });
-}
-
-export function useRunSync() {
-  const client = useStingStreamClient();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async () => {
-      const { data, error } = await client!.POST("/stingstream/api/v1/sync", {
-        params: { query: { waitSeconds: 10 } },
-      });
-      if (error) throw error;
-      return data as SyncStatus[];
-    },
-    onSuccess: (data) => {
-      queryClient.setQueryData(keys.sync, data);
-    },
   });
 }
 
@@ -702,13 +711,12 @@ export function useExternalDownloadClients() {
   const client = useStingStreamClient();
   return useQuery({
     queryKey: keys.externalClients,
-    queryFn: async () => {
-      const { data, error } = await client!.GET(
-        "/stingstream/api/v1/Settings/downloadclients",
-      );
-      if (error) throw error;
-      return (data ?? []) as ExternalDownloadClientSettings[];
-    },
+    queryFn: async () =>
+      unwrap(
+        await client!.GET("/stingstream/api/v1/Settings/downloadclients"),
+        "GET /Settings/downloadclients",
+        [],
+      ) as ExternalDownloadClientSettings[],
     enabled: !!client,
   });
 }
@@ -717,14 +725,35 @@ export function useAddExternalDownloadClient() {
   const client = useStingStreamClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (external: ExternalDownloadClientSettings) => {
-      const { data, error } = await client!.POST(
-        "/stingstream/api/v1/Settings/downloadclients",
-        { params: { query: { sync: true } }, body: external },
-      );
-      if (error) throw error;
-      return data as ExternalDownloadClientSettings;
+    mutationFn: async (external: ExternalDownloadClientSettings) =>
+      unwrap(
+        await client!.POST("/stingstream/api/v1/Settings/downloadclients", {
+          params: { query: { sync: true } },
+          body: external,
+        }),
+        "POST /Settings/downloadclients",
+      ) as ExternalDownloadClientSettings,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: keys.externalClients });
+      queryClient.invalidateQueries({ queryKey: keys.sync });
     },
+  });
+}
+
+export function useUpdateExternalDownloadClient() {
+  const client = useStingStreamClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      external: ExternalDownloadClientSettings & { Id: string },
+    ) =>
+      unwrap(
+        await client!.PUT("/stingstream/api/v1/Settings/downloadclients/{id}", {
+          params: { path: { id: external.Id }, query: { sync: true } },
+          body: external,
+        }),
+        "PUT /Settings/downloadclients",
+      ) as ExternalDownloadClientSettings,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.externalClients });
       queryClient.invalidateQueries({ queryKey: keys.sync });
@@ -736,14 +765,14 @@ export function useDeleteExternalDownloadClient() {
   const client = useStingStreamClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { data, error } = await client!.DELETE(
-        "/stingstream/api/v1/Settings/downloadclients/{id}",
-        { params: { path: { id } } },
-      );
-      if (error) throw error;
-      return data;
-    },
+    mutationFn: async (id: string) =>
+      unwrap(
+        await client!.DELETE(
+          "/stingstream/api/v1/Settings/downloadclients/{id}",
+          { params: { path: { id } } },
+        ),
+        "DELETE /Settings/downloadclients",
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.externalClients });
       queryClient.invalidateQueries({ queryKey: keys.sync });
@@ -752,7 +781,7 @@ export function useDeleteExternalDownloadClient() {
 }
 
 /**
- * Ask the arrs whether a download client is reachable. Gap 8.
+ * Check that a download client answers. Gap 8.
  *
  * Not a query: a test is an action somebody takes, it has a side effect on
  * somebody else's server, and running it because a component re-rendered would
@@ -761,34 +790,33 @@ export function useDeleteExternalDownloadClient() {
 export function useTestExternalDownloadClient() {
   const client = useStingStreamClient();
   return useMutation({
-    mutationFn: async (external: ExternalDownloadClientSettings) => {
-      const { data, error } = await client!.POST(
-        "/stingstream/api/v1/Settings/downloadclients/test",
-        { body: external },
-      );
-      if (error) throw error;
-      return data as ConnectivityTestResult;
-    },
+    mutationFn: async (external: ExternalDownloadClientSettings) =>
+      unwrap(
+        await client!.POST(
+          "/stingstream/api/v1/Settings/downloadclients/test",
+          { body: external },
+        ),
+        "POST /Settings/downloadclients/test",
+      ) as ConnectivityTestResult,
   });
 }
 
 /**
- * Ask the arrs whether an indexer actually works. Gap 9.
+ * Check that an indexer answers. Gap 9.
  *
  * `Ok: false` is a *successful* call with a bad indexer, so the failure lives in
- * the result rather than in a thrown error — the mutation only rejects when the
- * request itself could not be made.
+ * the result rather than in a thrown error. The mutation only rejects when the
+ * request itself could not be made, and then with the server's own message.
  */
 export function useTestIndexer() {
   const client = useStingStreamClient();
   return useMutation({
-    mutationFn: async (indexer: IndexerSettings) => {
-      const { data, error } = await client!.POST(
-        "/stingstream/api/v1/Settings/indexers/test",
-        { body: indexer },
-      );
-      if (error) throw error;
-      return data as ConnectivityTestResult;
-    },
+    mutationFn: async (indexer: IndexerSettings) =>
+      unwrap(
+        await client!.POST("/stingstream/api/v1/Settings/indexers/test", {
+          body: indexer,
+        }),
+        "POST /Settings/indexers/test",
+      ) as ConnectivityTestResult,
   });
 }

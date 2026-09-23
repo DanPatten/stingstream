@@ -29,7 +29,7 @@ namespace StingStream.Core.Arr;
 /// Where the two schemas genuinely differ, the difference is explicit and commented, not hidden
 /// behind a shared abstraction.
 /// </remarks>
-public sealed class OmniarrSyncService
+public sealed class OmniarrSyncService : IDisposable
 {
     // Implementation identifiers, identical in both apps (verified against
     // server/radarr/src/NzbDrone.Core and server/sonarr/src/NzbDrone.Core).
@@ -41,6 +41,7 @@ public sealed class OmniarrSyncService
     private readonly ArrClientFactory _factory;
     private readonly SettingsStore _settings;
     private readonly ILogger<OmniarrSyncService> _logger;
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public OmniarrSyncService(
         ArrClientFactory factory,
@@ -52,6 +53,9 @@ public sealed class OmniarrSyncService
         _logger = logger;
     }
 
+    /// <inheritdoc />
+    public void Dispose() => _gate.Dispose();
+
     /// <summary>
     /// Push the current shared settings into every configured app.
     /// </summary>
@@ -61,14 +65,24 @@ public sealed class OmniarrSyncService
     /// </param>
     public async Task<List<SyncStatus>> SyncAllAsync(TimeSpan waitFor, CancellationToken ct = default)
     {
-        var shared = _settings.Get();
+        // One sync at a time. A save, first-run wiring and SyncRetryWorker can all ask at once, and
+        // two passes into the same app both see "no provider called X" and both create one.
+        await _gate.WaitAsync(ct).ConfigureAwait(false);
         var results = new List<SyncStatus>();
-
-        foreach (var client in _factory.CreateAll())
+        try
         {
-            var status = await SyncOneAsync(client, shared, waitFor, ct).ConfigureAwait(false);
-            results.Add(status);
-            await _settings.RecordSyncAsync(status, ct).ConfigureAwait(false);
+            // Read under the gate, so a pass that waited behind another pushes the newest settings.
+            var shared = _settings.Get();
+            foreach (var client in _factory.CreateAll())
+            {
+                var status = await SyncOneAsync(client, shared, waitFor, ct).ConfigureAwait(false);
+                results.Add(status);
+                await _settings.RecordSyncAsync(status, ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            _gate.Release();
         }
 
         if (results.Count == 0)
@@ -286,6 +300,15 @@ public sealed class OmniarrSyncService
             .Where(c => c.Enabled && (client.Kind == ArrKind.Radarr ? c.ForMovies : c.ForSeries))
             .ToList();
 
+        await RemoveUnwantedAsync(
+            client,
+            "downloadclient",
+            shared.ExternalDownloadClients.Select(c => c.Name),
+            wanted.Select(c => c.Name),
+            shared,
+            status,
+            ct).ConfigureAwait(false);
+
         if (wanted.Count == 0)
         {
             return;
@@ -387,6 +410,15 @@ public sealed class OmniarrSyncService
             .Where(i => i.Enabled && (client.Kind == ArrKind.Radarr ? i.ForMovies : i.ForSeries))
             .ToList();
 
+        await RemoveUnwantedAsync(
+            client,
+            "indexer",
+            shared.Indexers.Select(i => i.Name),
+            wanted.Select(i => i.Name),
+            shared,
+            status,
+            ct).ConfigureAwait(false);
+
         if (wanted.Count == 0)
         {
             status.Detail.Add("indexers: none configured for this app");
@@ -484,6 +516,52 @@ public sealed class OmniarrSyncService
         }
 
         return detail;
+    }
+
+    /// <summary>
+    /// Remove from one app every provider StingStream manages there but no longer wants there.
+    /// </summary>
+    /// <remarks>
+    /// "Managed" is every name StingStream holds for this resource plus every name it has retired
+    /// (<see cref="SharedSettings.RetiredProviders"/>). Anything else in the app is somebody's own
+    /// and is left alone. A managed name that is not wanted in this app — disabled, switched off
+    /// for this library type, removed, or renamed away from — is deleted, which is what makes a
+    /// disabled indexer stop searching rather than carry on inside the app with its last settings.
+    /// </remarks>
+    private async Task RemoveUnwantedAsync(
+        ArrClient client,
+        string resource,
+        IEnumerable<string> held,
+        IEnumerable<string> wanted,
+        SharedSettings shared,
+        SyncStatus status,
+        CancellationToken ct)
+    {
+        var keep = new HashSet<string>(wanted, StringComparer.OrdinalIgnoreCase);
+        var remove = new HashSet<string>(
+            held.Concat(shared.RetiredProviders
+                    .Where(r => string.Equals(r.Resource, resource, StringComparison.OrdinalIgnoreCase))
+                    .Select(r => r.Name))
+                .Where(n => !keep.Contains(n)),
+            StringComparer.OrdinalIgnoreCase);
+        if (remove.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var existing in await client.ListAsync(resource, ct).ConfigureAwait(false))
+        {
+            var name = existing["name"]?.GetValue<string>();
+            if (name is null || !remove.Contains(name) || existing["id"]?.GetValue<int>() is not { } id)
+            {
+                continue;
+            }
+
+            await client
+                .DeleteAsync(string.Create(CultureInfo.InvariantCulture, $"{resource}/{id}"), ct)
+                .ConfigureAwait(false);
+            status.Detail.Add($"{resource}: removed {name}");
+        }
     }
 
     private static JsonArray ToJsonArray(IEnumerable<int> values)

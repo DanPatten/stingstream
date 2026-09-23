@@ -39,6 +39,21 @@ public sealed class SharedSettings
     public List<ExternalDownloadClientSettings> ExternalDownloadClients { get; set; } = new();
 
     /// <summary>
+    /// Names StingStream once registered in the arrs and no longer wants there: an indexer or
+    /// download client that was removed, or renamed away from this name.
+    /// </summary>
+    /// <remarks>
+    /// Both arrs pair a provider with ours by name, and sync never deletes a provider it does not
+    /// know it made, because it cannot tell one of ours from one somebody made by hand. This list
+    /// is how it knows. Removing the provider at the moment of the edit is not enough on its own:
+    /// the arr may be stopped then (a manager only runs while an indexer covers it), and a
+    /// provider left behind keeps searching or keeps receiving grabs the UI no longer shows. Each
+    /// sync removes whatever on this list is still present, so the removal lands whenever the arr
+    /// is next up.
+    /// </remarks>
+    public List<RetiredProvider> RetiredProviders { get; set; } = new();
+
+    /// <summary>
     /// Superseded by <see cref="Libraries"/>, and kept only so an unmigrated <c>core.db</c> still
     /// deserializes.
     /// </summary>
@@ -125,6 +140,22 @@ public sealed class SharedSettings
         ArgumentNullException.ThrowIfNull(stored);
 
         incoming.Libraries = stored.Libraries;
+
+        // Also server-owned, and a whole-document PUT can drop an indexer or client without going
+        // through the endpoints that retire its name, so the difference is retired here.
+        incoming.RetiredProviders = new List<RetiredProvider>(stored.RetiredProviders);
+        foreach (var gone in stored.Indexers.Where(s =>
+                     !incoming.Indexers.Any(i => string.Equals(i.Name, s.Name, StringComparison.OrdinalIgnoreCase))))
+        {
+            incoming.Retire("indexer", gone.Name);
+        }
+
+        foreach (var gone in stored.ExternalDownloadClients.Where(s =>
+                     !incoming.ExternalDownloadClients.Any(c => string.Equals(c.Name, s.Name, StringComparison.OrdinalIgnoreCase))))
+        {
+            incoming.Retire("downloadclient", gone.Name);
+        }
+
         return incoming;
     }
 
@@ -136,6 +167,42 @@ public sealed class SharedSettings
     public ExternalDownloadClientSettings? ExternalDownloadClient(string id)
         => ExternalDownloadClients.FirstOrDefault(
             c => string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Record that a provider name should no longer exist in the arrs.</summary>
+    /// <param name="resource"><c>indexer</c> or <c>downloadclient</c>.</param>
+    /// <param name="name">The name it was registered under.</param>
+    public void Retire(string resource, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || IsRetired(resource, name))
+        {
+            return;
+        }
+
+        RetiredProviders.Add(new RetiredProvider { Resource = resource, Name = name });
+    }
+
+    /// <summary>Take a name off the retired list, because it is in use again.</summary>
+    /// <param name="resource"><c>indexer</c> or <c>downloadclient</c>.</param>
+    /// <param name="name">The name.</param>
+    public void Unretire(string resource, string name)
+        => RetiredProviders.RemoveAll(r =>
+            string.Equals(r.Resource, resource, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    private bool IsRetired(string resource, string name)
+        => RetiredProviders.Any(r =>
+            string.Equals(r.Resource, resource, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
+}
+
+/// <summary>A provider name StingStream registered once and has since dropped.</summary>
+public sealed class RetiredProvider
+{
+    /// <summary>The arr resource: <c>indexer</c> or <c>downloadclient</c>.</summary>
+    public string Resource { get; set; } = string.Empty;
+
+    /// <summary>The name it was registered under.</summary>
+    public string Name { get; set; } = string.Empty;
 }
 
 /// <summary>

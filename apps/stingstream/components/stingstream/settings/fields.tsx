@@ -167,6 +167,41 @@ export function ToggleRow({
 }
 
 /**
+ * A labelled switch inside an add or edit form, where a `ToggleRow` would draw a whole list row.
+ *
+ * Unlike `ToggleRow` it saves nothing by itself: the form it sits in is the one place a click on
+ * the form's own button is the decision.
+ */
+export function FormSwitch({
+  title,
+  value,
+  onValueChange,
+}: {
+  title: string;
+  value: boolean;
+  onValueChange: (v: boolean) => void;
+}) {
+  const { accent } = useTheme();
+  return (
+    <View
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: 8,
+      }}
+    >
+      <Text>{title}</Text>
+      <SettingSwitch
+        value={value}
+        onValueChange={onValueChange}
+        trackColor={{ true: accent[500] }}
+      />
+    </View>
+  );
+}
+
+/**
  * What is left of the Save bar: a line that says a change is on its way.
  *
  * Settings apply themselves now (`useAutosave`), so the only thing a reader still needs from that

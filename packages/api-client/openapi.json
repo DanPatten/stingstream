@@ -7,10 +7,846 @@
   },
   "servers": [
     {
-      "url": "/jellyfin"
+      "url": "/stingstream"
     }
   ],
   "paths": {
+    "/stingstream/api/v1/Connections/connect": {
+      "post": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Use another server's invite link, sharing the chosen libraries back.",
+        "operationId": "Connect",
+        "requestBody": {
+          "description": "The code and the libraries this server shares.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectBody"
+                  }
+                ],
+                "description": "Body of `POST /connections/connect`."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectBody"
+                  }
+                ],
+                "description": "Body of `POST /connections/connect`."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectBody"
+                  }
+                ],
+                "description": "Body of `POST /connections/connect`."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshJoinResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "It could not be used, and why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Connections/groups/{group}": {
+      "get": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "What this server remembers about one connection.",
+        "operationId": "Details",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The group id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The address and who connected it; both may be empty.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Connections/groups/{group}/address": {
+      "put": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Change where the other server is reached, for when it moves.",
+        "operationId": "SetAddress",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The group id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The address; empty clears it.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionAddressBody"
+                  }
+                ],
+                "description": "Body of `PUT /connections/groups/{group}/address`."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionAddressBody"
+                  }
+                ],
+                "description": "Body of `PUT /connections/groups/{group}/address`."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionAddressBody"
+                  }
+                ],
+                "description": "Body of `PUT /connections/groups/{group}/address`."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionDetails"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not a usable address.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Connections/invite": {
+      "post": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Make an invite link that shares the chosen libraries.",
+        "operationId": "Invite",
+        "requestBody": {
+          "description": "The libraries this server shares.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionLibrariesBody"
+                  }
+                ],
+                "description": "Body naming which libraries this server shares."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionLibrariesBody"
+                  }
+                ],
+                "description": "Body naming which libraries this server shares."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionLibrariesBody"
+                  }
+                ],
+                "description": "Body naming which libraries this server shares."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The invite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionInvite"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "It could not be made, and why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Connections/invite/{group}": {
+      "post": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Show a pending invite's link again, as a fresh code for the same connection.",
+        "operationId": "Reissue",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The group the invite created.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The invite.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionInvite"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "It could not be made, and why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "This server has no such connection.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Connections/requests": {
+      "get": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Invite links waiting for an administrator.",
+        "operationId": "Requests",
+        "responses": {
+          "200": {
+            "description": "Every request for an administrator; a member's own for a member.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConnectionRequestSummary"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Bring an invite link here for an administrator to approve.",
+        "description": "Any member. Bringing a link decides nothing: the code only works once an administrator here\r\napproves it, and the other server already chose what it shares when it made the link.",
+        "operationId": "SaveRequest",
+        "requestBody": {
+          "description": "What the link carried.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionRequestBody"
+                  }
+                ],
+                "description": "Body of `POST /connections/requests`: what an invite link carried."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionRequestBody"
+                  }
+                ],
+                "description": "Body of `POST /connections/requests`: what an invite link carried."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionRequestBody"
+                  }
+                ],
+                "description": "Body of `POST /connections/requests`: what an invite link carried."
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Saved."
+          },
+          "400": {
+            "description": "The link was incomplete.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Connections/requests/{id}": {
+      "delete": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Decline a request, or withdraw your own.",
+        "operationId": "Decline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The request.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Removed."
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such request, or not yours to remove.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Connections/requests/{id}/approve": {
+      "post": {
+        "tags": [
+          "Connections"
+        ],
+        "summary": "Approve a request, sharing the chosen libraries.",
+        "operationId": "Approve",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The request.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The libraries this server shares.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionLibrariesBody"
+                  }
+                ],
+                "description": "Body naming which libraries this server shares."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionLibrariesBody"
+                  }
+                ],
+                "description": "Body naming which libraries this server shares."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConnectionLibrariesBody"
+                  }
+                ],
+                "description": "Body naming which libraries this server shares."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Connected.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshJoinResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The invite could not be used, and why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such request, or it has expired.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/Downloading": {
       "get": {
         "tags": [
@@ -495,556 +1331,6 @@
           },
           "503": {
             "description": "This node has no id yet, or too many challenges are outstanding."
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/identity/link-requests": {
-      "post": {
-        "tags": [
-          "Identity"
-        ],
-        "summary": "Ask for the server you run to be linked with this one.",
-        "description": "Any member — asking is not deciding. The node being asked about is read from the caller's\r\nown link row, never from the request: what a link holds was proved by a signature, and a\r\nnode id somebody typed is a node id somebody chose.",
-        "operationId": "StingStreamRequestLink",
-        "responses": {
-          "204": {
-            "description": "There is now a request."
-          },
-          "400": {
-            "description": "This account did not arrive from another server, so there is none to link.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IdentityError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      },
-      "get": {
-        "tags": [
-          "Identity"
-        ],
-        "summary": "Which servers have asked to be linked with this one.",
-        "operationId": "StingStreamLinkRequests",
-        "responses": {
-          "200": {
-            "description": "The requests, newest first.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/LinkRequestSummary"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation",
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/identity/link-requests/{issuer}": {
-      "delete": {
-        "tags": [
-          "Identity"
-        ],
-        "summary": "Forget a request, so that server can ask again.",
-        "description": "The way back from a decline, and the only one. A decision is sticky on purpose — the upsert\r\nrefuses to reset a decided row to pending — so without this an administrator who declined by\r\nmistake had shut that server out permanently, with no screen anywhere able to undo it.",
-        "operationId": "StingStreamForgetLinkRequest",
-        "parameters": [
-          {
-            "name": "issuer",
-            "in": "path",
-            "description": "The asking node's id.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Forgotten."
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "There was no request from that server.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation",
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/identity/link-requests/{issuer}/approve": {
-      "post": {
-        "tags": [
-          "Identity"
-        ],
-        "summary": "Let another server into one of this one's groups.",
-        "operationId": "StingStreamApproveLink",
-        "parameters": [
-          {
-            "name": "issuer",
-            "in": "path",
-            "description": "The asking node's id.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "description": "Which group to add them to.",
-          "content": {
-            "application/json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/ApproveLinkRequest"
-                  }
-                ],
-                "description": "An administrator approving one, into a group of their choosing."
-              }
-            },
-            "text/json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/ApproveLinkRequest"
-                  }
-                ],
-                "description": "An administrator approving one, into a group of their choosing."
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/ApproveLinkRequest"
-                  }
-                ],
-                "description": "An administrator approving one, into a group of their choosing."
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": "They can join."
-          },
-          "400": {
-            "description": "There is nowhere to put them, or a choice still to make.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IdentityError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "No such request.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation",
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/identity/link-requests/{issuer}/decline": {
-      "post": {
-        "tags": [
-          "Identity"
-        ],
-        "summary": "Say no to one.",
-        "operationId": "StingStreamDeclineLink",
-        "parameters": [
-          {
-            "name": "issuer",
-            "in": "path",
-            "description": "The asking node's id.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Declined."
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "404": {
-            "description": "No such request, or it was already answered.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation",
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/identity/link-requests/mine": {
-      "get": {
-        "tags": [
-          "Identity"
-        ],
-        "summary": "What this account's own link request is doing.",
-        "description": "Scoped to the caller inside the service rather than by a check in front of it, the way the\r\npasskey routes scope credentials: the only request it can ever describe is the one belonging\r\nto the server the caller signed in from.",
-        "operationId": "StingStreamMyLinkRequest",
-        "responses": {
-          "200": {
-            "description": "The status, and the invite once it is approved.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MyLinkRequest"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/identity/link-requests/start": {
-      "post": {
-        "tags": [
-          "Identity"
-        ],
-        "summary": "Offer the server you run to this one, having just proved you run it.",
-        "description": "Any member, because asking is not deciding: an administrator's own offer is approved as it\r\nis made, and everybody else's waits for one of them. Unlike `link-requests` above,\r\nwhich reads the node being offered out of the caller's link row, this one reads it out of a\r\nsignature, so it works for an account that has always been local. Either way the node id is\r\nproved rather than typed.",
-        "operationId": "StingStreamStartLinkRequest",
-        "requestBody": {
-          "description": "The assertion that server signed, and where it answers.",
-          "content": {
-            "application/json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/StartLinkRequest"
-                  }
-                ],
-                "description": "Somebody already signed in here, offering the server they run."
-              }
-            },
-            "text/json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/StartLinkRequest"
-                  }
-                ],
-                "description": "Somebody already signed in here, offering the server they run."
-              }
-            },
-            "application/*+json": {
-              "schema": {
-                "allOf": [
-                  {
-                    "$ref": "#/components/schemas/StartLinkRequest"
-                  }
-                ],
-                "description": "Somebody already signed in here, offering the server they run."
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Recorded. Approved outright for an administrator, pending otherwise.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LinkStartResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Why it could not be recorded.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IdentityError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
           }
         },
         "security": [
@@ -2343,6 +2629,264 @@
         ]
       }
     },
+    "/stingstream/api/v1/invites/accept/passkey/begin": {
+      "post": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "Start accepting an invite with a passkey instead of a password.",
+        "description": "Creates nothing. The name is checked here so a taken one is reported before the browser's\r\nprompt rather than after it, and the account is only made by `finish` — so a dismissed\r\nprompt leaves the invite exactly as it was.",
+        "operationId": "StingStreamBeginInvitePasskey",
+        "requestBody": {
+          "description": "The token and the name they chose.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInvitePasskeyBeginRequest"
+                  }
+                ],
+                "description": "The start of accepting an invite with a passkey: which invite, and the name chosen."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInvitePasskeyBeginRequest"
+                  }
+                ],
+                "description": "The start of accepting an invite with a passkey: which invite, and the name chosen."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInvitePasskeyBeginRequest"
+                  }
+                ],
+                "description": "The start of accepting an invite with a passkey: which invite, and the name chosen."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The challenge to answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyChallenge"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The name is not usable; the sentence says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No invite has ever had this token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "This server cannot offer passkeys; the sentence says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "There was one, and it cannot be used.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/invites/accept/passkey/finish": {
+      "post": {
+        "tags": [
+          "Invites"
+        ],
+        "summary": "Finish accepting an invite with a passkey: the account is created here.",
+        "description": "\r\nVerify, then create, then save — in that order, so a passkey that fails verification spends\r\n            nothing. `AuthenticateDirect`, as `PasskeysController.FinishLogin` uses, because the\r\n            proof was the ceremony and there is no password to check.\r\n\r\n<b>A save that fails after the account exists still signs them in.</b> The invite is spent by\r\n            then; refusing would leave a person with an account and no way into it. Signed in, they can\r\n            add a passkey from Settings, and the failure is logged as the error it is.",
+        "operationId": "StingStreamFinishInvitePasskey",
+        "requestBody": {
+          "description": "The token, the name, the ceremony id and what the authenticator produced.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInvitePasskeyFinishRequest"
+                  }
+                ],
+                "description": "The end of accepting an invite with a passkey."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInvitePasskeyFinishRequest"
+                  }
+                ],
+                "description": "The end of accepting an invite with a passkey."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptInvitePasskeyFinishRequest"
+                  }
+                ],
+                "description": "The end of accepting an invite with a passkey."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The account exists, and here is a session for it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthenticationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The passkey or the name could not be used; the sentence says which.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No invite has ever had this token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "There was one, and it cannot be used.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
     "/stingstream/api/v1/invites/libraries": {
       "get": {
         "tags": [
@@ -2984,6 +3528,118 @@
             ]
           }
         ]
+      },
+      "post": {
+        "tags": [
+          "Libraries"
+        ],
+        "summary": "Add a library.",
+        "description": "Recordings is a type rather than a name: it holds peers' DVR recordings under a folder this\r\nnode derives, and its one folder a reader picks is where this node's own recordings go. So it\r\ntakes no name, at most one folder, and there is only ever one of it. Adding it back after it\r\nwas switched off turns the row that is already there back on.",
+        "operationId": "PostLibrary",
+        "requestBody": {
+          "description": "Its name, type and folders.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/LibraryCreateRequest"
+                  }
+                ],
+                "description": "A library to add."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/LibraryCreateRequest"
+                  }
+                ],
+                "description": "A library to add."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/LibraryCreateRequest"
+                  }
+                ],
+                "description": "A library to add."
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The library as it now stands.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibrarySettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The name or a folder cannot be used, and the body says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "409": {
+            "description": "Recordings is already one of this node's libraries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
       }
     },
     "/stingstream/api/v1/Libraries/{id}": {
@@ -2991,7 +3647,7 @@
         "tags": [
           "Libraries"
         ],
-        "summary": "Change one library: its folder, or whether this server runs it at all.",
+        "summary": "Change one library: its folders, or whether this server runs it at all.",
         "description": "\r\nThe order is settings, then `config.toml`, then reconcile. A failure to write the\r\n            switch leaves a saved row that reconciliation will honour on the next start, which is the\r\n            less surprising half to lose: the library is where the reader put it, and the manager\r\n            catches up. The reverse order could stop a manager for a library the node then keeps.\r\n\r\nSwitching a library off keeps every file. See StingStream.Core.Data.LibrarySettings.Enabled.",
         "operationId": "PutLibrary",
         "parameters": [
@@ -3052,7 +3708,7 @@
             }
           },
           "400": {
-            "description": "The folder cannot be used, and the body says why.",
+            "description": "A folder cannot be used, and the body says why.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3076,6 +3732,144 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "Libraries"
+        ],
+        "summary": "Remove a library. Its files stay exactly where they are.",
+        "operationId": "DeleteLibrary",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The library's stable id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The library is gone."
+          },
+          "400": {
+            "description": "Movies and TV Shows are built in and cannot be removed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No library has that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Libraries/MediaFolder": {
+      "get": {
+        "tags": [
+          "Libraries"
+        ],
+        "summary": "The node's own media folder, where the folder browser opens.",
+        "operationId": "GetLibraryMediaFolder",
+        "responses": {
+          "200": {
+            "description": "The folder, or a null path when the node cannot say.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaFolderResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
           },
           "503": {
             "description": "The server is currently starting or is temporarily not available.",
@@ -4329,12 +5123,10 @@
         "tags": [
           "Mesh"
         ],
-        "summary": "Run one federated-library materialization pass now.",
-        "description": "The service already runs one every few seconds; this exists so a harness or an impatient\r\nadministrator does not have to wait for the timer, and so a failure has somewhere to report\r\nitself synchronously.",
         "operationId": "RefreshFederated",
         "responses": {
           "200": {
-            "description": "What the pass did.",
+            "description": "OK",
             "content": {
               "application/json": {
                 "schema": {
@@ -4521,8 +5313,8 @@
         "tags": [
           "Mesh"
         ],
-        "summary": "Leave a group.",
-        "description": "The share list goes with it. M:StingStream.Core.Sharing.SharedLibraryStore.RemoveAsync(System.String,System.Threading.CancellationToken) had no\r\ncaller at all, so leaving left the row behind — harmless while a group id was never seen\r\nagain, and not harmless now that one link is one server: the tidy way back from a link that\r\nwent wrong is to leave it and add the server again, and a stale row would decide what the\r\nnew link shares before anybody had been asked.",
+        "summary": "Leave a group, on this server only.",
+        "description": "Silent: the other members are not told. What the Servers page does is\r\nM:StingStream.Core.Controllers.MeshController.Unlink(System.String,System.Threading.CancellationToken); this stays for the harnesses, which leave and re-join on purpose.",
         "operationId": "Leave",
         "parameters": [
           {
@@ -5002,66 +5794,6 @@
         ]
       }
     },
-    "/stingstream/api/v1/Mesh/groups/{group}/rotate": {
-      "post": {
-        "tags": [
-          "Mesh"
-        ],
-        "summary": "Rotate a group's secret, keeping every member.",
-        "description": "For when a code leaked rather than when a person left. Nobody is removed; every invite\r\nminted before now stops working, and every member has to be handed the new secret, which\r\nhappens automatically for the ones that are reachable and on their next dial for the rest.",
-        "operationId": "RotateSecret",
-        "parameters": [
-          {
-            "name": "group",
-            "in": "path",
-            "description": "The group id, hex.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "What the rotation did.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/MeshRotation"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "This node is not in that group.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "503": {
-            "description": "The mesh is not answering."
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation",
-              "DefaultAuthorization"
-            ]
-          }
-        ]
-      }
-    },
     "/stingstream/api/v1/Mesh/groups/{group}/sources/{itemKey}": {
       "get": {
         "tags": [
@@ -5122,6 +5854,87 @@
         "security": [
           {
             "CustomAuthentication": [
+              "DefaultAuthorization"
+            ]
+          }
+        ]
+      }
+    },
+    "/stingstream/api/v1/Mesh/groups/{group}/unlink": {
+      "post": {
+        "tags": [
+          "Mesh"
+        ],
+        "summary": "Remove a connection, on this server and on the other one.",
+        "description": "\r\nDan: <em>\"Deleting a server completely severs the link from BOTH sides\"</em>. The mesh tells\r\n            every member it can reach and keeps a record for the rest, which it delivers when they are\r\n            back. See `MeshNode::unlink`.\r\n\r\nThe share list goes with it, so a server connected again later starts from a fresh choice\r\n            rather than whatever the old connection shared.",
+        "operationId": "Unlink",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The group id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Removed. Lists the members told now and the ones told later.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeshUnlinked"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "This node is not a member of that group.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation",
               "DefaultAuthorization"
             ]
           }
@@ -8712,11 +9525,11 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Every download client the user has added by hand.",
+        "summary": "Every download client the user has added.",
         "operationId": "GetExternalDownloadClients",
         "responses": {
           "200": {
-            "description": "The clients. The embedded engines are not among them.",
+            "description": "The clients.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8880,12 +9693,142 @@
       }
     },
     "/stingstream/api/v1/Settings/downloadclients/{id}": {
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Change an external download client.",
+        "operationId": "UpdateExternalDownloadClient",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The client's id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sync",
+            "in": "query",
+            "description": "Push it into Radarr and Sonarr straight away.",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The client as it should be. Its id is taken from the route.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExternalDownloadClientSettings"
+                  }
+                ],
+                "description": "A download client running somewhere else, registered in both arrs."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExternalDownloadClientSettings"
+                  }
+                ],
+                "description": "A download client running somewhere else, registered in both arrs."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ExternalDownloadClientSettings"
+                  }
+                ],
+                "description": "A download client running somewhere else, registered in both arrs."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stored client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalDownloadClientSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The client is missing a name, implementation or host.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "Settings"
         ],
         "summary": "Remove an external download client, from the settings and from both apps.",
-        "description": "Unlike indexers, this one <em>does</em> remove the provider from Radarr and Sonarr. Sync\r\nnever deletes, because it cannot tell a provider a user created by hand from one StingStream\r\ncreated — but a deletion that came from this UI names the thing to remove, so there is no\r\nguess to get wrong, and leaving a download client registered in both apps after the user\r\ndeleted it means grabs keep going to a client the UI no longer shows.",
+        "description": "The name is retired as well as removed straight away, so an app that is not running now\r\nloses it on its next sync instead of sending grabs to a client the UI no longer shows.",
         "operationId": "DeleteExternalDownloadClient",
         "parameters": [
           {
@@ -8965,6 +9908,7 @@
           "Settings"
         ],
         "summary": "Ask the arrs whether an external download client is reachable.",
+        "description": "Unlike an indexer there is no direct fallback: each client speaks its own protocol, and the\r\napps already know all of them. They run once an indexer exists, so that is what the reader\r\nis told to do.",
         "operationId": "TestExternalDownloadClient",
         "requestBody": {
           "description": "The same shape as add. Need not be stored first.",
@@ -9028,8 +9972,39 @@
           "403": {
             "description": "Forbidden"
           },
+          "409": {
+            "description": "Nothing is running yet to test it with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
           "503": {
-            "description": "No arr this client applies to is configured."
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
           }
         },
         "security": [
@@ -9164,7 +10139,7 @@
             }
           },
           "400": {
-            "description": "The indexer is missing a name or base URL.",
+            "description": "The indexer is missing a name or base URL, or the name is taken.",
             "content": {
               "application/json": {
                 "schema": {
@@ -9214,11 +10189,142 @@
       }
     },
     "/stingstream/api/v1/Settings/indexers/{id}": {
+      "put": {
+        "tags": [
+          "Settings"
+        ],
+        "summary": "Change an indexer.",
+        "description": "A rename retires the old name (StingStream.Core.Data.SharedSettings.RetiredProviders): both apps know\r\nthe indexer by its name, so without that the old entry would stay in them and keep searching.",
+        "operationId": "UpdateIndexer",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The indexer's id.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sync",
+            "in": "query",
+            "description": "Push it into Radarr and Sonarr straight away.",
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "The indexer as it should be. Its id is taken from the route.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/IndexerSettings"
+                  }
+                ],
+                "description": "A Torznab indexer, the only indexer protocol M1 supports."
+              }
+            },
+            "text/json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/IndexerSettings"
+                  }
+                ],
+                "description": "A Torznab indexer, the only indexer protocol M1 supports."
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/IndexerSettings"
+                  }
+                ],
+                "description": "A Torznab indexer, the only indexer protocol M1 supports."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The stored indexer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndexerSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The indexer is missing a name or base URL, or the name is taken.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "No such indexer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
+          }
+        },
+        "security": [
+          {
+            "CustomAuthentication": [
+              "RequiresElevation"
+            ]
+          }
+        ]
+      },
       "delete": {
         "tags": [
           "Settings"
         ],
-        "summary": "Remove an indexer.",
+        "summary": "Remove an indexer, from the settings and from both apps.",
         "operationId": "DeleteIndexer",
         "parameters": [
           {
@@ -9290,8 +10396,8 @@
         "tags": [
           "Settings"
         ],
-        "summary": "Ask the arrs whether an indexer actually works, before storing it.",
-        "description": "\r\n`docs/UI-API-GAPS.md` gap 9. The resource posted to the app's own `indexer/test`\r\n            is built by the same code that builds the one a save posts\r\n            (M:StingStream.Core.Arr.OmniarrSyncService.BuildIndexer(System.Text.Json.Nodes.JsonObject,StingStream.Core.Data.IndexerSettings,StingStream.Core.Arr.ArrKind)), which is the only thing that makes \"the\r\n            test passed\" mean \"the save will work\".\r\n\r\nThe test runs against <em>every</em> configured app rather than one, even though both get\r\n            the same indexer: the two send different category lists, and a Torznab endpoint that has\r\n            films but no TV is a real thing that would otherwise pass here and fail on the first\r\n            series search.",
+        "summary": "Check that an indexer answers, before or after storing it.",
+        "description": "\r\n`docs/UI-API-GAPS.md` gap 9. Where an app it applies to is running, the resource posted\r\n            to the app's own `indexer/test` is built by the same code a save uses\r\n            (M:StingStream.Core.Arr.OmniarrSyncService.BuildIndexer(System.Text.Json.Nodes.JsonObject,StingStream.Core.Data.IndexerSettings,StingStream.Core.Arr.ArrKind)), which is what makes \"the test passed\" mean\r\n            \"the save will work\". The two apps send different category lists, so each running one is\r\n            asked.\r\n\r\nWhere none is running, which is the normal state when the first indexer is added (the apps\r\n            only start once one exists), StingStream.Core.Arr.TorznabProbe asks the indexer directly.",
         "operationId": "TestIndexer",
         "requestBody": {
           "description": "The same shape as add. Need not be stored first.",
@@ -9356,7 +10462,28 @@
             "description": "Forbidden"
           },
           "503": {
-            "description": "No arr is configured or answering."
+            "description": "The server is currently starting or is temporarily not available.",
+            "headers": {
+              "Retry-After": {
+                "description": "A hint for when to retry the operation in full seconds.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "integer",
+                  "format": "int32"
+                }
+              },
+              "Message": {
+                "description": "A short plain-text reason why the server is not available.",
+                "allowEmptyValue": true,
+                "schema": {
+                  "type": "string",
+                  "format": "text"
+                }
+              }
+            },
+            "content": {
+              "text/html": {}
+            }
           }
         },
         "security": [
@@ -9374,6 +10501,7 @@
           "Settings"
         ],
         "summary": "Push the shared settings into Radarr and Sonarr now.",
+        "description": "Nothing in the app calls this any more: StingStream.Core.Arr.SyncRetryWorker keeps both apps in\r\nstep on its own. It stays for the end-to-end harnesses, which want a sync to have finished\r\nbefore they assert on it.",
         "operationId": "Sync",
         "parameters": [
           {
@@ -10780,6 +11908,48 @@
   },
   "components": {
     "schemas": {
+      "AcceptInvitePasskeyBeginRequest": {
+        "type": "object",
+        "properties": {
+          "Token": {
+            "type": "string",
+            "description": "The token out of the link's fragment.",
+            "nullable": true
+          },
+          "Username": {
+            "type": "string",
+            "description": "The name they want. Same rules as the first-run screen.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "The start of accepting an invite with a passkey: which invite, and the name chosen."
+      },
+      "AcceptInvitePasskeyFinishRequest": {
+        "type": "object",
+        "properties": {
+          "Token": {
+            "type": "string",
+            "description": "The token out of the link's fragment.",
+            "nullable": true
+          },
+          "Username": {
+            "type": "string",
+            "description": "The name they want. Must be the one the ceremony was begun for.",
+            "nullable": true
+          },
+          "Ceremony": {
+            "type": "string",
+            "description": "The ceremony id from `accept/passkey/begin`.",
+            "nullable": true
+          },
+          "Credential": {
+            "description": "What the authenticator produced, verbatim."
+          }
+        },
+        "additionalProperties": false,
+        "description": "The end of accepting an invite with a passkey."
+      },
       "AcceptInviteRequest": {
         "type": "object",
         "properties": {
@@ -11258,18 +12428,6 @@
         },
         "additionalProperties": false,
         "description": "What `POST /library/add` decided."
-      },
-      "ApproveLinkRequest": {
-        "type": "object",
-        "properties": {
-          "GroupId": {
-            "type": "string",
-            "description": "The group to let them into, or null to use this node's only one.",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false,
-        "description": "An administrator approving one, into a group of their choosing."
       },
       "ArrEvent": {
         "type": "object",
@@ -13026,6 +14184,161 @@
         "type": "string",
         "description": "Collection type."
       },
+      "ConnectBody": {
+        "type": "object",
+        "properties": {
+          "Code": {
+            "type": "string",
+            "description": "The code from the invite link.",
+            "nullable": true
+          },
+          "Libraries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The libraries this server shares. Absent shares every library.",
+            "nullable": true
+          },
+          "Address": {
+            "type": "string",
+            "description": "The other server's address, from the invite link. Optional.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Body of `POST /connections/connect`."
+      },
+      "ConnectionAddressBody": {
+        "type": "object",
+        "properties": {
+          "Address": {
+            "type": "string",
+            "description": "The address. Empty clears it.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Body of `PUT /connections/groups/{group}/address`."
+      },
+      "ConnectionDetails": {
+        "type": "object",
+        "properties": {
+          "Address": {
+            "type": "string",
+            "description": "Where the other server is reached, or null.",
+            "nullable": true
+          },
+          "ConnectedByName": {
+            "type": "string",
+            "description": "The account here that connected it, or empty."
+          },
+          "ConnectedById": {
+            "type": "string",
+            "description": "That account's id, for linking to it; empty when the account no longer exists."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One connection, as its own page shows it."
+      },
+      "ConnectionInvite": {
+        "type": "object",
+        "properties": {
+          "Code": {
+            "type": "string",
+            "description": "The single-use mesh code."
+          },
+          "Node": {
+            "type": "string",
+            "description": "This node's id, so the page that opens the link can tell whose link it is."
+          },
+          "Server": {
+            "type": "string",
+            "description": "This server's name, for the page that opens the link."
+          },
+          "Group": {
+            "type": "string",
+            "description": "The group the invite joins, so the page that shows the link can cancel it."
+          },
+          "Address": {
+            "type": "string",
+            "description": "The origin to put the link on: the domain when one is set, this machine's LAN address when\r\nnot, null when neither is known and the page falls back to however it reached this server.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "An invite link's contents, as the server that made it hands them out."
+      },
+      "ConnectionLibrariesBody": {
+        "type": "object",
+        "properties": {
+          "Libraries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The libraries. Absent shares every library; empty shares none.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Body naming which libraries this server shares."
+      },
+      "ConnectionRequestBody": {
+        "type": "object",
+        "properties": {
+          "Code": {
+            "type": "string",
+            "description": "The code.",
+            "nullable": true
+          },
+          "Node": {
+            "type": "string",
+            "description": "Node id of the server that made it.",
+            "nullable": true
+          },
+          "ServerName": {
+            "type": "string",
+            "description": "What that server calls itself.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "Body of `POST /connections/requests`: what an invite link carried."
+      },
+      "ConnectionRequestSummary": {
+        "type": "object",
+        "properties": {
+          "Id": {
+            "type": "string",
+            "description": "The id to approve or decline by."
+          },
+          "Node": {
+            "type": "string",
+            "description": "Node id of the server that made the invite."
+          },
+          "ServerName": {
+            "type": "string",
+            "description": "What that server calls itself."
+          },
+          "RequestedByName": {
+            "type": "string",
+            "description": "Who brought it."
+          },
+          "CreatedAt": {
+            "type": "string",
+            "description": "When, ISO 8601."
+          },
+          "Mine": {
+            "type": "boolean",
+            "description": "Whether the caller brought it."
+          }
+        },
+        "additionalProperties": false,
+        "description": "One request, as the Servers page lists it."
+      },
       "ConnectivityTestResult": {
         "type": "object",
         "properties": {
@@ -13042,7 +14355,7 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/ProviderTestResult"
             },
-            "description": "The per-app verdicts."
+            "description": "The per-app verdicts, keyed `radarr`, `sonarr` or `indexer`."
           }
         },
         "additionalProperties": false,
@@ -14337,7 +15650,7 @@
           }
         },
         "additionalProperties": false,
-        "description": "Force keep alive websocket messages."
+        "description": "Force keep alive websocket messages. The data is the timeout in seconds after which the\r\nserver considers the connection lost; clients are expected to answer with a KeepAlive\r\nmessage and to keep sending one at least every half of that timeout."
       },
       "GeneralCommand": {
         "type": "object",
@@ -14951,13 +16264,9 @@
             "description": "An invite token, for the first time only.",
             "nullable": true
           },
-          "RequestLink": {
-            "type": "boolean",
-            "description": "Also ask for the two servers to be linked."
-          },
-          "Address": {
+          "LinkCode": {
             "type": "string",
-            "description": "Where their own server answers a browser, when the client resolved one.",
+            "description": "An invite their own server made for this one, when they administer it.",
             "nullable": true
           },
           "Salt": {
@@ -15599,6 +16908,31 @@
         "additionalProperties": false,
         "description": "Library changed message."
       },
+      "LibraryCreateRequest": {
+        "type": "object",
+        "properties": {
+          "Name": {
+            "type": "string",
+            "description": "What readers call it. Ignored for Recordings, whose name is fixed.",
+            "nullable": true
+          },
+          "Type": {
+            "type": "string",
+            "description": "`movies`, `tvshows`, `homevideos` or `recordings`. The app no longer\r\n            offers `recordings`; the end-to-end harness still posts it.",
+            "nullable": true
+          },
+          "Paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its folders. At least one for a named library; at most one for Recordings.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "A library to add."
+      },
       "LibrarySettings": {
         "type": "object",
         "properties": {
@@ -15763,7 +17097,15 @@
         "properties": {
           "Path": {
             "type": "string",
-            "description": "The folder on this server. Empty means \"follow the supervisor's default\".",
+            "description": "One folder. Superseded by StingStream.Core.Controllers.LibraryUpdateRequest.Paths, and ignored when that is sent.",
+            "nullable": true
+          },
+          "Paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every folder the library holds, in order. Empty means \"follow the supervisor's default\".",
             "nullable": true
           },
           "Enabled": {
@@ -15779,77 +17121,6 @@
         },
         "additionalProperties": false,
         "description": "What a caller wants changed about one library. Omit a property to leave it alone."
-      },
-      "LinkRequestSummary": {
-        "type": "object",
-        "properties": {
-          "IssuerNodeId": {
-            "type": "string",
-            "description": "Node id of the server asking — also the id to approve or decline by."
-          },
-          "IssuerName": {
-            "type": "string",
-            "description": "What it calls itself."
-          },
-          "IssuerAddress": {
-            "type": "string",
-            "description": "Where a browser reaches it, or null. What the finishing link is built from.",
-            "nullable": true
-          },
-          "RequestedByName": {
-            "type": "string",
-            "description": "The name of the account here that asked."
-          },
-          "CreatedAt": {
-            "type": "string",
-            "description": "When they asked, ISO 8601."
-          },
-          "Status": {
-            "type": "string",
-            "description": "`pending`, `approved` or `declined`."
-          },
-          "GroupId": {
-            "type": "string",
-            "description": "The group it was approved into, or null.",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false,
-        "description": "One request in the administrator's list."
-      },
-      "LinkStartResult": {
-        "type": "object",
-        "properties": {
-          "Status": {
-            "type": "string",
-            "description": "`pending` or `approved`."
-          },
-          "IssuerNodeId": {
-            "type": "string",
-            "description": "The asking server's node id, as the assertion gave it."
-          },
-          "IssuerName": {
-            "type": "string",
-            "description": "What that server calls itself."
-          },
-          "IssuerAddress": {
-            "type": "string",
-            "description": "Where it answers a browser, or null.",
-            "nullable": true
-          },
-          "GroupId": {
-            "type": "string",
-            "description": "The link created for it, once there is one.",
-            "nullable": true
-          },
-          "Code": {
-            "type": "string",
-            "description": "The invite to redeem over there, once there is one.",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false,
-        "description": "What came of offering it."
       },
       "LinkedIdentitySummary": {
         "type": "object",
@@ -16210,6 +17481,18 @@
         },
         "additionalProperties": false,
         "description": "Class MediaAttachment."
+      },
+      "MediaFolderResponse": {
+        "type": "object",
+        "properties": {
+          "Path": {
+            "type": "string",
+            "description": "An absolute path, or null when the node cannot say.",
+            "nullable": true
+          }
+        },
+        "additionalProperties": false,
+        "description": "The node's media folder."
       },
       "MediaProtocol": {
         "enum": [
@@ -17493,6 +18776,11 @@
           "SideDoor": {
             "description": "Where a browser can reach this node over HTTPS: the side door's candidate hostnames and the\r\ncoordinator's last reachability verdict. Null on a node with no coordinator or no\r\ncertificate, which is the zero-server default. Passed through from the mesh unchanged --\r\nCore neither builds nor interprets it. See `docs/SIDEDOOR.md`.",
             "nullable": true
+          },
+          "Address": {
+            "type": "string",
+            "description": "The address this server saved for the connection: from the invite link, or typed by an\r\nadministrator. Null when none. Core's own, merged in by `MeshController.Peers`; the mesh\r\nnever sends it. See `Sharing/ConnectionStore`.",
+            "nullable": true
           }
         },
         "additionalProperties": false,
@@ -17810,6 +19098,30 @@
         "additionalProperties": false,
         "description": "`POST /mesh/v1/domains/tunnel` — ask this node to run a tunnel."
       },
+      "MeshUnlinked": {
+        "type": "object",
+        "properties": {
+          "Group": {
+            "type": "string"
+          },
+          "Told": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Members that removed the group before the call returned."
+          },
+          "Pending": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Members that were away. The mesh tells them when they are back."
+          }
+        },
+        "additionalProperties": false,
+        "description": "The answer to `POST /mesh/v1/groups/{group}/unlink`."
+      },
       "MetadataBlob": {
         "type": "object",
         "properties": {
@@ -17989,39 +19301,6 @@
         },
         "additionalProperties": false,
         "description": "A freshly minted invite. The only time the token is ever returned."
-      },
-      "MyLinkRequest": {
-        "type": "object",
-        "properties": {
-          "Exists": {
-            "type": "boolean",
-            "description": "Whether there is a request at all."
-          },
-          "Status": {
-            "type": "string",
-            "description": "`pending`, `approved` or `declined`."
-          },
-          "IssuerNodeId": {
-            "type": "string",
-            "description": "Their own server's node id."
-          },
-          "ServerName": {
-            "type": "string",
-            "description": "This server's name, for the sentence about who they are asking."
-          },
-          "Code": {
-            "type": "string",
-            "description": "The invite to redeem on their own server, once it is approved.",
-            "nullable": true
-          },
-          "IssuerAddress": {
-            "type": "string",
-            "description": "Where their own server answers a browser, or null.",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false,
-        "description": "What the person who asked is told about their own request."
       },
       "NameGuidPair": {
         "type": "object",
@@ -20719,6 +21998,21 @@
         "additionalProperties": false,
         "description": "Restart required."
       },
+      "RetiredProvider": {
+        "type": "object",
+        "properties": {
+          "Resource": {
+            "type": "string",
+            "description": "The arr resource: `indexer` or `downloadclient`."
+          },
+          "Name": {
+            "type": "string",
+            "description": "The name it was registered under."
+          }
+        },
+        "additionalProperties": false,
+        "description": "A provider name StingStream registered once and has since dropped."
+      },
       "RootFolderSettings": {
         "type": "object",
         "properties": {
@@ -21974,6 +23268,13 @@
             },
             "description": "Download clients somebody else runs, registered in both arrs alongside the embedded ones."
           },
+          "RetiredProviders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetiredProvider"
+            },
+            "description": "Names StingStream once registered in the arrs and no longer wants there: an indexer or\r\ndownload client that was removed, or renamed away from this name."
+          },
           "RootFolders": {
             "allOf": [
               {
@@ -22068,23 +23369,6 @@
         },
         "additionalProperties": false,
         "description": "How a client should send a password for one username."
-      },
-      "StartLinkRequest": {
-        "type": "object",
-        "properties": {
-          "Assertion": {
-            "type": "string",
-            "description": "The assertion their own server signed for this one.",
-            "nullable": true
-          },
-          "Address": {
-            "type": "string",
-            "description": "Where that server answers a browser, as the wizard resolved it.",
-            "nullable": true
-          }
-        },
-        "additionalProperties": false,
-        "description": "Somebody already signed in here, offering the server they run."
       },
       "StartWatchRequest": {
         "type": "object",
@@ -24746,6 +26030,9 @@
     }
   },
   "tags": [
+    {
+      "name": "Connections"
+    },
     {
       "name": "Downloading"
     },

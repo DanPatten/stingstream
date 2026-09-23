@@ -77,6 +77,15 @@ public static class StingStreamCoreExtensions
         services.AddSingleton<OmniarrSyncService>();
         services.AddSingleton<ArrEnablementWorker>();
         services.AddHostedService(sp => sp.GetRequiredService<ArrEnablementWorker>());
+        services.AddHostedService<SyncRetryWorker>();
+
+        // Testing an indexer directly, for when neither arr is running to test it through. Off the
+        // machine, so a short timeout: a person is watching the spinner.
+        services.AddHttpClient(TorznabProbe.HttpClientName, client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(20);
+        });
+        services.AddSingleton<TorznabProbe>();
         services.AddSingleton<QualityProfileService>();
         services.AddHostedService<QualityProfileSeedWorker>();
 

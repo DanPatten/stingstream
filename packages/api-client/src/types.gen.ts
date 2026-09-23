@@ -3,6 +3,147 @@
 // Source: packages/api-client/openapi.json (StingStream.Core /stingstream/api/v1/openapi.json).
 // Regenerate: bun run fetch-openapi && bun run generate  (see README.md).
 export interface paths {
+    "/stingstream/api/v1/Connections/connect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Use another server's invite link, sharing the chosen libraries back. */
+        post: operations["Connections_Connect"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Connections/groups/{group}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What this server remembers about one connection. */
+        get: operations["Connections_Details"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Connections/groups/{group}/address": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Change where the other server is reached, for when it moves. */
+        put: operations["Connections_SetAddress"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Connections/invite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make an invite link that shares the chosen libraries. */
+        post: operations["Connections_Invite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Connections/invite/{group}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Show a pending invite's link again, as a fresh code for the same connection. */
+        post: operations["Connections_Reissue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Connections/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Invite links waiting for an administrator. */
+        get: operations["Connections_Requests"];
+        put?: never;
+        /**
+         * Bring an invite link here for an administrator to approve.
+         * @description Any member. Bringing a link decides nothing: the code only works once an administrator here
+         *     approves it, and the other server already chose what it shares when it made the link.
+         */
+        post: operations["Connections_SaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Connections/requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Decline a request, or withdraw your own. */
+        delete: operations["Connections_Decline"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Connections/requests/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve a request, sharing the chosen libraries. */
+        post: operations["Connections_Approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/Downloading": {
         parameters: {
             query?: never;
@@ -115,131 +256,6 @@ export interface paths {
          *     anything about who has an account here.
          */
         post: operations["Identity_StingStreamIdentityChallenge"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/identity/link-requests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Which servers have asked to be linked with this one. */
-        get: operations["Identity_StingStreamLinkRequests"];
-        put?: never;
-        /**
-         * Ask for the server you run to be linked with this one.
-         * @description Any member — asking is not deciding. The node being asked about is read from the caller's
-         *     own link row, never from the request: what a link holds was proved by a signature, and a
-         *     node id somebody typed is a node id somebody chose.
-         */
-        post: operations["Identity_StingStreamRequestLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/identity/link-requests/{issuer}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Forget a request, so that server can ask again.
-         * @description The way back from a decline, and the only one. A decision is sticky on purpose — the upsert
-         *     refuses to reset a decided row to pending — so without this an administrator who declined by
-         *     mistake had shut that server out permanently, with no screen anywhere able to undo it.
-         */
-        delete: operations["Identity_StingStreamForgetLinkRequest"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/identity/link-requests/{issuer}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Let another server into one of this one's groups. */
-        post: operations["Identity_StingStreamApproveLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/identity/link-requests/{issuer}/decline": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Say no to one. */
-        post: operations["Identity_StingStreamDeclineLink"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/identity/link-requests/mine": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * What this account's own link request is doing.
-         * @description Scoped to the caller inside the service rather than by a check in front of it, the way the
-         *     passkey routes scope credentials: the only request it can ever describe is the one belonging
-         *     to the server the caller signed in from.
-         */
-        get: operations["Identity_StingStreamMyLinkRequest"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/identity/link-requests/start": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Offer the server you run to this one, having just proved you run it.
-         * @description Any member, because asking is not deciding: an administrator's own offer is approved as it
-         *     is made, and everybody else's waits for one of them. Unlike `link-requests` above,
-         *     which reads the node being offered out of the caller's link row, this one reads it out of a
-         *     signature, so it works for an account that has always been local. Either way the node id is
-         *     proved rather than typed.
-         */
-        post: operations["Identity_StingStreamStartLinkRequest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -561,6 +577,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stingstream/api/v1/invites/accept/passkey/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start accepting an invite with a passkey instead of a password.
+         * @description Creates nothing. The name is checked here so a taken one is reported before the browser's
+         *     prompt rather than after it, and the account is only made by `finish` — so a dismissed
+         *     prompt leaves the invite exactly as it was.
+         */
+        post: operations["Invites_StingStreamBeginInvitePasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/invites/accept/passkey/finish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finish accepting an invite with a passkey: the account is created here.
+         * @description Verify, then create, then save — in that order, so a passkey that fails verification spends
+         *                 nothing. `AuthenticateDirect`, as `PasskeysController.FinishLogin` uses, because the
+         *                 proof was the ceremony and there is no password to check.
+         *
+         *     <b>A save that fails after the account exists still signs them in.</b> The invite is spent by
+         *                 then; refusing would leave a person with an account and no way into it. Signed in, they can
+         *                 add a passkey from Settings, and the failure is logged as the error it is.
+         */
+        post: operations["Invites_StingStreamFinishInvitePasskey"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stingstream/api/v1/invites/libraries": {
         parameters: {
             query?: never;
@@ -682,7 +746,14 @@ export interface paths {
         /** Every library on this node. */
         get: operations["Libraries_GetLibraries"];
         put?: never;
-        post?: never;
+        /**
+         * Add a library.
+         * @description Recordings is a type rather than a name: it holds peers' DVR recordings under a folder this
+         *     node derives, and its one folder a reader picks is where this node's own recordings go. So it
+         *     takes no name, at most one folder, and there is only ever one of it. Adding it back after it
+         *     was switched off turns the row that is already there back on.
+         */
+        post: operations["Libraries_PostLibrary"];
         delete?: never;
         options?: never;
         head?: never;
@@ -698,7 +769,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * Change one library: its folder, or whether this server runs it at all.
+         * Change one library: its folders, or whether this server runs it at all.
          * @description The order is settings, then `config.toml`, then reconcile. A failure to write the
          *                 switch leaves a saved row that reconciliation will honour on the next start, which is the
          *                 less surprising half to lose: the library is where the reader put it, and the manager
@@ -707,6 +778,24 @@ export interface paths {
          *     Switching a library off keeps every file. See StingStream.Core.Data.LibrarySettings.Enabled.
          */
         put: operations["Libraries_PutLibrary"];
+        post?: never;
+        /** Remove a library. Its files stay exactly where they are. */
+        delete: operations["Libraries_DeleteLibrary"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Libraries/MediaFolder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The node's own media folder, where the folder browser opens. */
+        get: operations["Libraries_GetLibraryMediaFolder"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1025,12 +1114,6 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Run one federated-library materialization pass now.
-         * @description The service already runs one every few seconds; this exists so a harness or an impatient
-         *     administrator does not have to wait for the timer, and so a failure has somewhere to report
-         *     itself synchronously.
-         */
         post: operations["Mesh_RefreshFederated"];
         delete?: never;
         options?: never;
@@ -1067,12 +1150,9 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Leave a group.
-         * @description The share list goes with it. M:StingStream.Core.Sharing.SharedLibraryStore.RemoveAsync(System.String,System.Threading.CancellationToken) had no
-         *     caller at all, so leaving left the row behind — harmless while a group id was never seen
-         *     again, and not harmless now that one link is one server: the tidy way back from a link that
-         *     went wrong is to leave it and add the server again, and a stale row would decide what the
-         *     new link shares before anybody had been asked.
+         * Leave a group, on this server only.
+         * @description Silent: the other members are not told. What the Servers page does is
+         *     M:StingStream.Core.Controllers.MeshController.Unlink(System.String,System.Threading.CancellationToken); this stays for the harnesses, which leave and re-join on purpose.
          */
         delete: operations["Mesh_Leave"];
         options?: never;
@@ -1194,28 +1274,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/stingstream/api/v1/Mesh/groups/{group}/rotate": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Rotate a group's secret, keeping every member.
-         * @description For when a code leaked rather than when a person left. Nobody is removed; every invite
-         *     minted before now stops working, and every member has to be handed the new secret, which
-         *     happens automatically for the ones that are reachable and on their next dial for the rest.
-         */
-        post: operations["Mesh_RotateSecret"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/stingstream/api/v1/Mesh/groups/{group}/sources/{itemKey}": {
         parameters: {
             query?: never;
@@ -1233,6 +1291,31 @@ export interface paths {
         get: operations["Mesh_GetMeshSources"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stingstream/api/v1/Mesh/groups/{group}/unlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Remove a connection, on this server and on the other one.
+         * @description Dan: <em>"Deleting a server completely severs the link from BOTH sides"</em>. The mesh tells
+         *                 every member it can reach and keeps a record for the rest, which it delivers when they are
+         *                 back. See `MeshNode::unlink`.
+         *
+         *     The share list goes with it, so a server connected again later starts from a fresh choice
+         *                 rather than whatever the old connection shared.
+         */
+        post: operations["Mesh_Unlink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1992,7 +2075,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every download client the user has added by hand. */
+        /** Every download client the user has added. */
         get: operations["Settings_GetExternalDownloadClients"];
         put?: never;
         /** Add an external download client, or replace one with the same id. */
@@ -2011,15 +2094,13 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /** Change an external download client. */
+        put: operations["Settings_UpdateExternalDownloadClient"];
         post?: never;
         /**
          * Remove an external download client, from the settings and from both apps.
-         * @description Unlike indexers, this one <em>does</em> remove the provider from Radarr and Sonarr. Sync
-         *     never deletes, because it cannot tell a provider a user created by hand from one StingStream
-         *     created — but a deletion that came from this UI names the thing to remove, so there is no
-         *     guess to get wrong, and leaving a download client registered in both apps after the user
-         *     deleted it means grabs keep going to a client the UI no longer shows.
+         * @description The name is retired as well as removed straight away, so an app that is not running now
+         *     loses it on its next sync instead of sending grabs to a client the UI no longer shows.
          */
         delete: operations["Settings_DeleteExternalDownloadClient"];
         options?: never;
@@ -2036,7 +2117,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask the arrs whether an external download client is reachable. */
+        /**
+         * Ask the arrs whether an external download client is reachable.
+         * @description Unlike an indexer there is no direct fallback: each client speaks its own protocol, and the
+         *     apps already know all of them. They run once an indexer exists, so that is what the reader
+         *     is told to do.
+         */
         post: operations["Settings_TestExternalDownloadClient"];
         delete?: never;
         options?: never;
@@ -2070,9 +2156,14 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /**
+         * Change an indexer.
+         * @description A rename retires the old name (StingStream.Core.Data.SharedSettings.RetiredProviders): both apps know
+         *     the indexer by its name, so without that the old entry would stay in them and keep searching.
+         */
+        put: operations["Settings_UpdateIndexer"];
         post?: never;
-        /** Remove an indexer. */
+        /** Remove an indexer, from the settings and from both apps. */
         delete: operations["Settings_DeleteIndexer"];
         options?: never;
         head?: never;
@@ -2089,16 +2180,15 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Ask the arrs whether an indexer actually works, before storing it.
-         * @description `docs/UI-API-GAPS.md` gap 9. The resource posted to the app's own `indexer/test`
-         *                 is built by the same code that builds the one a save posts
-         *                 (M:StingStream.Core.Arr.OmniarrSyncService.BuildIndexer(System.Text.Json.Nodes.JsonObject,StingStream.Core.Data.IndexerSettings,StingStream.Core.Arr.ArrKind)), which is the only thing that makes "the
-         *                 test passed" mean "the save will work".
+         * Check that an indexer answers, before or after storing it.
+         * @description `docs/UI-API-GAPS.md` gap 9. Where an app it applies to is running, the resource posted
+         *                 to the app's own `indexer/test` is built by the same code a save uses
+         *                 (M:StingStream.Core.Arr.OmniarrSyncService.BuildIndexer(System.Text.Json.Nodes.JsonObject,StingStream.Core.Data.IndexerSettings,StingStream.Core.Arr.ArrKind)), which is what makes "the test passed" mean
+         *                 "the save will work". The two apps send different category lists, so each running one is
+         *                 asked.
          *
-         *     The test runs against <em>every</em> configured app rather than one, even though both get
-         *                 the same indexer: the two send different category lists, and a Torznab endpoint that has
-         *                 films but no TV is a real thing that would otherwise pass here and fail on the first
-         *                 series search.
+         *     Where none is running, which is the normal state when the first indexer is added (the apps
+         *                 only start once one exists), StingStream.Core.Arr.TorznabProbe asks the indexer directly.
          */
         post: operations["Settings_TestIndexer"];
         delete?: never;
@@ -2117,7 +2207,12 @@ export interface paths {
         /** The result of the last sync into each app. */
         get: operations["Settings_SyncStatus"];
         put?: never;
-        /** Push the shared settings into Radarr and Sonarr now. */
+        /**
+         * Push the shared settings into Radarr and Sonarr now.
+         * @description Nothing in the app calls this any more: StingStream.Core.Arr.SyncRetryWorker keeps both apps in
+         *     step on its own. It stays for the end-to-end harnesses, which want a sync to have finished
+         *     before they assert on it.
+         */
         post: operations["Settings_Sync"];
         delete?: never;
         options?: never;
@@ -2439,6 +2534,24 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description The start of accepting an invite with a passkey: which invite, and the name chosen. */
+        AcceptInvitePasskeyBeginRequest: {
+            /** @description The token out of the link's fragment. */
+            Token?: string | null;
+            /** @description The name they want. Same rules as the first-run screen. */
+            Username?: string | null;
+        };
+        /** @description The end of accepting an invite with a passkey. */
+        AcceptInvitePasskeyFinishRequest: {
+            /** @description The token out of the link's fragment. */
+            Token?: string | null;
+            /** @description The name they want. Must be the one the ceremony was begun for. */
+            Username?: string | null;
+            /** @description The ceremony id from `accept/passkey/begin`. */
+            Ceremony?: string | null;
+            /** @description What the authenticator produced, verbatim. */
+            Credential?: unknown;
+        };
         /** @description The account somebody chose on an invite landing page. */
         AcceptInviteRequest: {
             /** @description The token out of the link's fragment. */
@@ -2633,11 +2746,6 @@ export interface components {
             Note?: string;
             /** @description The arr's own response, when one was involved. */
             Arr?: components["schemas"]["JsonNode"] | null;
-        };
-        /** @description An administrator approving one, into a group of their choosing. */
-        ApproveLinkRequest: {
-            /** @description The group to let them into, or null to use this node's only one. */
-            GroupId?: string | null;
         };
         /** @description A recorded webhook delivery. */
         ArrEvent: {
@@ -3358,13 +3466,81 @@ export interface components {
          * @enum {string}
          */
         CollectionType: "unknown" | "movies" | "tvshows" | "music" | "musicvideos" | "trailers" | "homevideos" | "boxsets" | "books" | "photos" | "livetv" | "playlists" | "folders";
+        /** @description Body of `POST /connections/connect`. */
+        ConnectBody: {
+            /** @description The code from the invite link. */
+            Code?: string | null;
+            /** @description The libraries this server shares. Absent shares every library. */
+            Libraries?: string[] | null;
+            /** @description The other server's address, from the invite link. Optional. */
+            Address?: string | null;
+        };
+        /** @description Body of `PUT /connections/groups/{group}/address`. */
+        ConnectionAddressBody: {
+            /** @description The address. Empty clears it. */
+            Address?: string | null;
+        };
+        /** @description One connection, as its own page shows it. */
+        ConnectionDetails: {
+            /** @description Where the other server is reached, or null. */
+            Address?: string | null;
+            /** @description The account here that connected it, or empty. */
+            ConnectedByName?: string;
+            /** @description That account's id, for linking to it; empty when the account no longer exists. */
+            ConnectedById?: string;
+        };
+        /** @description An invite link's contents, as the server that made it hands them out. */
+        ConnectionInvite: {
+            /** @description The single-use mesh code. */
+            Code?: string;
+            /** @description This node's id, so the page that opens the link can tell whose link it is. */
+            Node?: string;
+            /** @description This server's name, for the page that opens the link. */
+            Server?: string;
+            /** @description The group the invite joins, so the page that shows the link can cancel it. */
+            Group?: string;
+            /**
+             * @description The origin to put the link on: the domain when one is set, this machine's LAN address when
+             *     not, null when neither is known and the page falls back to however it reached this server.
+             */
+            Address?: string | null;
+        };
+        /** @description Body naming which libraries this server shares. */
+        ConnectionLibrariesBody: {
+            /** @description The libraries. Absent shares every library; empty shares none. */
+            Libraries?: string[] | null;
+        };
+        /** @description Body of `POST /connections/requests`: what an invite link carried. */
+        ConnectionRequestBody: {
+            /** @description The code. */
+            Code?: string | null;
+            /** @description Node id of the server that made it. */
+            Node?: string | null;
+            /** @description What that server calls itself. */
+            ServerName?: string | null;
+        };
+        /** @description One request, as the Servers page lists it. */
+        ConnectionRequestSummary: {
+            /** @description The id to approve or decline by. */
+            Id?: string;
+            /** @description Node id of the server that made the invite. */
+            Node?: string;
+            /** @description What that server calls itself. */
+            ServerName?: string;
+            /** @description Who brought it. */
+            RequestedByName?: string;
+            /** @description When, ISO 8601. */
+            CreatedAt?: string;
+            /** @description Whether the caller brought it. */
+            Mine?: boolean;
+        };
         /** @description The verdict on a provider, from every app it applies to. */
         ConnectivityTestResult: {
             /** @description True when every app that was asked accepted it. */
             Ok?: boolean;
             /** @description One sentence for a person, folding in every app that refused. */
             Message?: string;
-            /** @description The per-app verdicts. */
+            /** @description The per-app verdicts, keyed `radarr`, `sonarr` or `indexer`. */
             Apps?: {
                 [key: string]: components["schemas"]["ProviderTestResult"];
             };
@@ -3976,7 +4152,11 @@ export interface components {
             Skipped?: boolean;
             readonly Steps?: string[];
         };
-        /** @description Force keep alive websocket messages. */
+        /**
+         * @description Force keep alive websocket messages. The data is the timeout in seconds after which the
+         *     server considers the connection lost; clients are expected to answer with a KeepAlive
+         *     message and to keep sending one at least every half of that timeout.
+         */
         ForceKeepAliveMessage: {
             /**
              * Format: int32
@@ -4189,10 +4369,8 @@ export interface components {
             Assertion?: string | null;
             /** @description An invite token, for the first time only. */
             InviteToken?: string | null;
-            /** @description Also ask for the two servers to be linked. */
-            RequestLink?: boolean;
-            /** @description Where their own server answers a browser, when the client resolved one. */
-            Address?: string | null;
+            /** @description An invite their own server made for this one, when they administer it. */
+            LinkCode?: string | null;
             /** @description The salt their own server derived StingStream.Core.Identity.IdentitySignInRequest.Verifier with. */
             Salt?: string | null;
             /** @description PBKDF2 of their password, which becomes their password here. */
@@ -4427,6 +4605,18 @@ export interface components {
              */
             MessageType: "LibraryChanged";
         };
+        /** @description A library to add. */
+        LibraryCreateRequest: {
+            /** @description What readers call it. Ignored for Recordings, whose name is fixed. */
+            Name?: string | null;
+            /**
+             * @description `movies`, `tvshows`, `homevideos` or `recordings`. The app no longer
+             *                 offers `recordings`; the end-to-end harness still posts it.
+             */
+            Type?: string | null;
+            /** @description Its folders. At least one for a named library; at most one for Recordings. */
+            Paths?: string[] | null;
+        };
         /** @description One library: a name, a type, and the folders on this node that hold it. */
         LibrarySettings: {
             /** @description Stable identity, surviving renames and path changes. */
@@ -4493,44 +4683,14 @@ export interface components {
         };
         /** @description What a caller wants changed about one library. Omit a property to leave it alone. */
         LibraryUpdateRequest: {
-            /** @description The folder on this server. Empty means "follow the supervisor's default". */
+            /** @description One folder. Superseded by StingStream.Core.Controllers.LibraryUpdateRequest.Paths, and ignored when that is sent. */
             Path?: string | null;
+            /** @description Every folder the library holds, in order. Empty means "follow the supervisor's default". */
+            Paths?: string[] | null;
             /** @description Whether this server runs the library at all. */
             Enabled?: boolean | null;
             /** @description Whether readers on this server see it. */
             Hidden?: boolean | null;
-        };
-        /** @description One request in the administrator's list. */
-        LinkRequestSummary: {
-            /** @description Node id of the server asking — also the id to approve or decline by. */
-            IssuerNodeId?: string;
-            /** @description What it calls itself. */
-            IssuerName?: string;
-            /** @description Where a browser reaches it, or null. What the finishing link is built from. */
-            IssuerAddress?: string | null;
-            /** @description The name of the account here that asked. */
-            RequestedByName?: string;
-            /** @description When they asked, ISO 8601. */
-            CreatedAt?: string;
-            /** @description `pending`, `approved` or `declined`. */
-            Status?: string;
-            /** @description The group it was approved into, or null. */
-            GroupId?: string | null;
-        };
-        /** @description What came of offering it. */
-        LinkStartResult: {
-            /** @description `pending` or `approved`. */
-            Status?: string;
-            /** @description The asking server's node id, as the assertion gave it. */
-            IssuerNodeId?: string;
-            /** @description What that server calls itself. */
-            IssuerName?: string;
-            /** @description Where it answers a browser, or null. */
-            IssuerAddress?: string | null;
-            /** @description The link created for it, once there is one. */
-            GroupId?: string | null;
-            /** @description The invite to redeem over there, once there is one. */
-            Code?: string | null;
         };
         /** @description One remote identity holding an account here, for the administrator's list. */
         LinkedIdentitySummary: {
@@ -4663,6 +4823,11 @@ export interface components {
             MimeType?: string | null;
             /** @description Gets or sets the delivery URL. */
             DeliveryUrl?: string | null;
+        };
+        /** @description The node's media folder. */
+        MediaFolderResponse: {
+            /** @description An absolute path, or null when the node cannot say. */
+            Path?: string | null;
         };
         /** @enum {string} */
         MediaProtocol: "File" | "Http" | "Rtmp" | "Rtsp" | "Udp" | "Rtp" | "Ftp";
@@ -5210,6 +5375,12 @@ export interface components {
              *     Core neither builds nor interprets it. See `docs/SIDEDOOR.md`.
              */
             SideDoor?: unknown;
+            /**
+             * @description The address this server saved for the connection: from the invite link, or typed by an
+             *     administrator. Null when none. Core's own, merged in by `MeshController.Peers`; the mesh
+             *     never sends it. See `Sharing/ConnectionStore`.
+             */
+            Address?: string | null;
         };
         /** @description One cast or crew member. */
         MeshPerson: {
@@ -5342,6 +5513,14 @@ export interface components {
             /** @description The Cloudflare API token, used once and never stored. */
             ApiToken?: string | null;
         };
+        /** @description The answer to `POST /mesh/v1/groups/{group}/unlink`. */
+        MeshUnlinked: {
+            Group?: string;
+            /** @description Members that removed the group before the call returned. */
+            Told?: string[];
+            /** @description Members that were away. The mesh tells them when they are back. */
+            Pending?: string[];
+        };
         /** @description Enough metadata for a peer to build a complete `.nfo` without a metadata provider. */
         MetadataBlob: {
             Title?: string;
@@ -5409,21 +5588,6 @@ export interface components {
             UrlIsLan?: boolean;
             /** @description The invite as it now appears in the list. */
             Invite?: components["schemas"]["InviteSummary"];
-        };
-        /** @description What the person who asked is told about their own request. */
-        MyLinkRequest: {
-            /** @description Whether there is a request at all. */
-            Exists?: boolean;
-            /** @description `pending`, `approved` or `declined`. */
-            Status?: string;
-            /** @description Their own server's node id. */
-            IssuerNodeId?: string;
-            /** @description This server's name, for the sentence about who they are asking. */
-            ServerName?: string;
-            /** @description The invite to redeem on their own server, once it is approved. */
-            Code?: string | null;
-            /** @description Where their own server answers a browser, or null. */
-            IssuerAddress?: string | null;
         };
         NameGuidPair: {
             Name?: string | null;
@@ -6451,6 +6615,13 @@ export interface components {
              */
             MessageType: "RestartRequired";
         };
+        /** @description A provider name StingStream registered once and has since dropped. */
+        RetiredProvider: {
+            /** @description The arr resource: `indexer` or `downloadclient`. */
+            Resource?: string;
+            /** @description The name it was registered under. */
+            Name?: string;
+        };
         /** @description Where imported media lands. These are the arrs' root folders and Jellyfin's libraries. */
         RootFolderSettings: {
             /** @description Absolute path. Empty means "use the supervisor's `media/Movies`". */
@@ -6854,6 +7025,11 @@ export interface components {
             /** @description Download clients somebody else runs, registered in both arrs alongside the embedded ones. */
             ExternalDownloadClients?: components["schemas"]["ExternalDownloadClientSettings"][];
             /**
+             * @description Names StingStream once registered in the arrs and no longer wants there: an indexer or
+             *     download client that was removed, or renamed away from this name.
+             */
+            RetiredProviders?: components["schemas"]["RetiredProvider"][];
+            /**
              * @deprecated
              * @description Superseded by StingStream.Core.Data.SharedSettings.Libraries, and kept only so an unmigrated `core.db` still
              *     deserializes.
@@ -6899,13 +7075,6 @@ export interface components {
              * @description The round count to derive it with, when it must be.
              */
             Iterations?: number;
-        };
-        /** @description Somebody already signed in here, offering the server they run. */
-        StartLinkRequest: {
-            /** @description The assertion their own server signed for this one. */
-            Assertion?: string | null;
-            /** @description Where that server answers a browser, as the wizard resolved it. */
-            Address?: string | null;
         };
         /** @description What the app posts to start a session. */
         StartWatchRequest: {
@@ -8031,6 +8200,556 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    Connections_Connect: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The code and the libraries this server shares. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConnectBody"];
+                "text/json": components["schemas"]["ConnectBody"];
+                "application/*+json": components["schemas"]["ConnectBody"];
+            };
+        };
+        responses: {
+            /** @description Connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshJoinResult"];
+                };
+            };
+            /** @description It could not be used, and why. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_Details: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The address and who connected it; both may be empty. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_SetAddress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        /** @description The address; empty clears it. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConnectionAddressBody"];
+                "text/json": components["schemas"]["ConnectionAddressBody"];
+                "application/*+json": components["schemas"]["ConnectionAddressBody"];
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionDetails"];
+                };
+            };
+            /** @description Not a usable address. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_Invite: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The libraries this server shares. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConnectionLibrariesBody"];
+                "text/json": components["schemas"]["ConnectionLibrariesBody"];
+                "application/*+json": components["schemas"]["ConnectionLibrariesBody"];
+            };
+        };
+        responses: {
+            /** @description The invite. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionInvite"];
+                };
+            };
+            /** @description It could not be made, and why. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_Reissue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group the invite created. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invite. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionInvite"];
+                };
+            };
+            /** @description It could not be made, and why. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This server has no such connection. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_Requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every request for an administrator; a member's own for a member. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConnectionRequestSummary"][];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_SaveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description What the link carried. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConnectionRequestBody"];
+                "text/json": components["schemas"]["ConnectionRequestBody"];
+                "application/*+json": components["schemas"]["ConnectionRequestBody"];
+            };
+        };
+        responses: {
+            /** @description Saved. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The link was incomplete. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_Decline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such request, or not yours to remove. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Connections_Approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The request. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The libraries this server shares. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ConnectionLibrariesBody"];
+                "text/json": components["schemas"]["ConnectionLibrariesBody"];
+                "application/*+json": components["schemas"]["ConnectionLibrariesBody"];
+            };
+        };
+        responses: {
+            /** @description Connected. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshJoinResult"];
+                };
+            };
+            /** @description The invite could not be used, and why. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such request, or it has expired. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Downloading_Get: {
         parameters: {
             query?: never;
@@ -8402,404 +9121,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    Identity_StingStreamLinkRequests: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The requests, newest first. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LinkRequestSummary"][];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Identity_StingStreamRequestLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description There is now a request. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description This account did not arrive from another server, so there is none to link. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IdentityError"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Identity_StingStreamForgetLinkRequest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The asking node's id. */
-                issuer: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Forgotten. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description There was no request from that server. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Identity_StingStreamApproveLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The asking node's id. */
-                issuer: string;
-            };
-            cookie?: never;
-        };
-        /** @description Which group to add them to. */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["ApproveLinkRequest"];
-                "text/json": components["schemas"]["ApproveLinkRequest"];
-                "application/*+json": components["schemas"]["ApproveLinkRequest"];
-            };
-        };
-        responses: {
-            /** @description They can join. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description There is nowhere to put them, or a choice still to make. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IdentityError"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description No such request. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Identity_StingStreamDeclineLink: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The asking node's id. */
-                issuer: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Declined. */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description No such request, or it was already answered. */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Identity_StingStreamMyLinkRequest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The status, and the invite once it is approved. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MyLinkRequest"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Identity_StingStreamStartLinkRequest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description The assertion that server signed, and where it answers. */
-        requestBody?: {
-            content: {
-                "application/json": components["schemas"]["StartLinkRequest"];
-                "text/json": components["schemas"]["StartLinkRequest"];
-                "application/*+json": components["schemas"]["StartLinkRequest"];
-            };
-        };
-        responses: {
-            /** @description Recorded. Approved outright for an administrator, pending otherwise. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LinkStartResult"];
-                };
-            };
-            /** @description Why it could not be recorded. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["IdentityError"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
             };
         };
     };
@@ -9660,6 +9981,177 @@ export interface operations {
             };
         };
     };
+    Invites_StingStreamBeginInvitePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The token and the name they chose. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitePasskeyBeginRequest"];
+                "text/json": components["schemas"]["AcceptInvitePasskeyBeginRequest"];
+                "application/*+json": components["schemas"]["AcceptInvitePasskeyBeginRequest"];
+            };
+        };
+        responses: {
+            /** @description The challenge to answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyChallenge"];
+                };
+            };
+            /** @description The name is not usable; the sentence says why. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No invite has ever had this token. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description This server cannot offer passkeys; the sentence says why. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description There was one, and it cannot be used. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Invites_StingStreamFinishInvitePasskey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The token, the name, the ceremony id and what the authenticator produced. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AcceptInvitePasskeyFinishRequest"];
+                "text/json": components["schemas"]["AcceptInvitePasskeyFinishRequest"];
+                "application/*+json": components["schemas"]["AcceptInvitePasskeyFinishRequest"];
+            };
+        };
+        responses: {
+            /** @description The account exists, and here is a session for it. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthenticationResult"];
+                };
+            };
+            /** @description The passkey or the name could not be used; the sentence says which. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No invite has ever had this token. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description There was one, and it cannot be used. */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteError"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Invites_StingStreamInviteLibraries: {
         parameters: {
             query?: never;
@@ -10131,6 +10623,78 @@ export interface operations {
             };
         };
     };
+    Libraries_PostLibrary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Its name, type and folders. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["LibraryCreateRequest"];
+                "text/json": components["schemas"]["LibraryCreateRequest"];
+                "application/*+json": components["schemas"]["LibraryCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The library as it now stands. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibrarySettings"];
+                };
+            };
+            /** @description The name or a folder cannot be used, and the body says why. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Recordings is already one of this node's libraries. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
     Libraries_PutLibrary: {
         parameters: {
             query?: never;
@@ -10159,7 +10723,7 @@ export interface operations {
                     "application/json": components["schemas"]["LibrarySettings"];
                 };
             };
-            /** @description The folder cannot be used, and the body says why. */
+            /** @description A folder cannot be used, and the body says why. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10190,6 +10754,119 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ProblemDetails"];
                 };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Libraries_DeleteLibrary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The library's stable id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The library is gone. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Movies and TV Shows are built in and cannot be removed. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No library has that id. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Libraries_GetLibraryMediaFolder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The folder, or a null path when the node cannot say. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MediaFolderResponse"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {
@@ -11149,7 +11826,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description What the pass did. */
+            /** @description OK */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11639,59 +12316,6 @@ export interface operations {
             };
         };
     };
-    Mesh_RotateSecret: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description The group id, hex. */
-                group: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description What the rotation did. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MeshRotation"];
-                };
-            };
-            /** @description This node is not in that group. */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description The mesh is not answering. */
-            503: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
     Mesh_GetMeshSources: {
         parameters: {
             query?: {
@@ -11738,6 +12362,65 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+        };
+    };
+    Mesh_Unlink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The group id. */
+                group: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed. Lists the members told now and the ones told later. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeshUnlinked"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description This node is not a member of that group. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
             };
         };
     };
@@ -14199,7 +14882,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The clients. The embedded engines are not among them. */
+            /** @description The clients. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -14287,6 +14970,84 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Settings_UpdateExternalDownloadClient: {
+        parameters: {
+            query?: {
+                /** @description Push it into Radarr and Sonarr straight away. */
+                sync?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The client's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The client as it should be. Its id is taken from the route. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ExternalDownloadClientSettings"];
+                "text/json": components["schemas"]["ExternalDownloadClientSettings"];
+                "application/*+json": components["schemas"]["ExternalDownloadClientSettings"];
+            };
+        };
+        responses: {
+            /** @description The stored client. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExternalDownloadClientSettings"];
+                };
+            };
+            /** @description The client is missing a name, implementation or host. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such client. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {
@@ -14410,12 +15171,27 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No arr this client applies to is configured. */
-            503: {
+            /** @description Nothing is running yet to test it with. */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
             };
         };
     };
@@ -14494,7 +15270,7 @@ export interface operations {
                     "application/json": components["schemas"]["IndexerSettings"];
                 };
             };
-            /** @description The indexer is missing a name or base URL. */
+            /** @description The indexer is missing a name or base URL, or the name is taken. */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -14516,6 +15292,84 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description The server is currently starting or is temporarily not available. */
+            503: {
+                headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/html": unknown;
+                };
+            };
+        };
+    };
+    Settings_UpdateIndexer: {
+        parameters: {
+            query?: {
+                /** @description Push it into Radarr and Sonarr straight away. */
+                sync?: boolean;
+            };
+            header?: never;
+            path: {
+                /** @description The indexer's id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** @description The indexer as it should be. Its id is taken from the route. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["IndexerSettings"];
+                "text/json": components["schemas"]["IndexerSettings"];
+                "application/*+json": components["schemas"]["IndexerSettings"];
+            };
+        };
+        responses: {
+            /** @description The stored indexer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IndexerSettings"];
+                };
+            };
+            /** @description The indexer is missing a name or base URL, or the name is taken. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such indexer. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProblemDetails"];
+                };
             };
             /** @description The server is currently starting or is temporarily not available. */
             503: {
@@ -14637,12 +15491,18 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No arr is configured or answering. */
+            /** @description The server is currently starting or is temporarily not available. */
             503: {
                 headers: {
+                    /** @description A hint for when to retry the operation in full seconds. */
+                    "Retry-After"?: number;
+                    /** @description A short plain-text reason why the server is not available. */
+                    Message?: string;
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "text/html": unknown;
+                };
             };
         };
     };

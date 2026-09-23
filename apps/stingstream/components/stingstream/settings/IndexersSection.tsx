@@ -17,10 +17,12 @@ import {
   useDeleteIndexer,
   useIndexers,
   useTestIndexer,
+  useUpdateIndexer,
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
+import { FormSwitch } from "./fields";
 
 const emptyForm: IndexerSettings = {
   Name: "",
@@ -44,6 +46,7 @@ export function IndexersSection() {
   const { t } = useTranslation();
   const { data: indexers, isLoading, error, refetch } = useIndexers();
   const addIndexer = useAddIndexer();
+  const updateIndexer = useUpdateIndexer();
   const deleteIndexer = useDeleteIndexer();
   const testIndexer = useTestIndexer();
   const [formOpen, setFormOpen] = useState(false);
@@ -51,33 +54,60 @@ export function IndexersSection() {
   const [showApiKey, setShowApiKey] = useState(false);
   const [verdict, setVerdict] = useState<ConnectivityTestResult | null>(null);
 
+  // The same form adds and edits. Editing is the one place on this page with a Save button: the
+  // address and key are only right together, and sending a half-typed URL on blur would point
+  // every search at it until the rest was typed.
+  const editing = !!form.Id;
+
+  const close = () => {
+    setForm(emptyForm);
+    setVerdict(null);
+    setShowApiKey(false);
+    setFormOpen(false);
+  };
+
+  const openEdit = (indexer: IndexerSettings) => {
+    setForm({ ...emptyForm, ...indexer });
+    setVerdict(null);
+    setShowApiKey(false);
+    setFormOpen(true);
+  };
+
   const submit = async () => {
     if (!form.Name || !form.BaseUrl) {
       toast.error(t("server_settings.indexers_name_and_url_required"));
       return;
     }
     try {
-      await addIndexer.mutateAsync(form);
-      toast.success(
-        t("server_settings.indexers_added_toast", { name: form.Name }),
-      );
-      setForm(emptyForm);
-      setVerdict(null);
-      setShowApiKey(false);
-      setFormOpen(false);
+      if (form.Id) {
+        await updateIndexer.mutateAsync({ ...form, Id: form.Id });
+        toast.success(
+          t("server_settings.indexers_saved_toast", { name: form.Name }),
+        );
+      } else {
+        await addIndexer.mutateAsync(form);
+        toast.success(
+          t("server_settings.indexers_added_toast", { name: form.Name }),
+        );
+      }
+      close();
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
-          : t("server_settings.indexers_add_error"),
+          : t(
+              editing
+                ? "server_settings.indexers_save_error"
+                : "server_settings.indexers_add_error",
+            ),
       );
     }
   };
 
   /**
    * Gap 9 closed. The verdict is stored rather than toasted: a bad Torznab key
-   * produces a sentence per app naming the field that failed, which is worth
-   * leaving on screen next to the field somebody is about to correct.
+   * produces a sentence naming the field that failed, which is worth leaving on
+   * screen next to the field somebody is about to correct.
    */
   const test = async () => {
     if (!form.Name || !form.BaseUrl) {
@@ -110,6 +140,7 @@ export function IndexersSection() {
     if (!ok) return;
     try {
       await deleteIndexer.mutateAsync(indexer.Id);
+      if (form.Id === indexer.Id) close();
       toast.success(
         t("server_settings.indexers_removed_toast", { name: indexer.Name }),
       );
@@ -131,7 +162,7 @@ export function IndexersSection() {
             variant='secondary'
             size='sm'
             icon={formOpen ? "close" : "add"}
-            onPress={() => setFormOpen((v) => !v)}
+            onPress={() => (formOpen ? close() : setFormOpen(true))}
           >
             {formOpen
               ? t("common.cancel")
@@ -149,9 +180,6 @@ export function IndexersSection() {
             marginBottom: 12,
           }}
         >
-          <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
-            {t("server_settings.indexers_test_explainer")}
-          </Text>
           <Input
             placeholder={t("server_settings.indexers_name_placeholder")}
             value={form.Name}
@@ -192,6 +220,23 @@ export function IndexersSection() {
               </Text>
             </Pressable>
           </View>
+          <FormSwitch
+            title={t("server_settings.indexers_for_movies")}
+            value={form.ForMovies ?? true}
+            onValueChange={(v) => setForm((f) => ({ ...f, ForMovies: v }))}
+          />
+          <FormSwitch
+            title={t("server_settings.indexers_for_series")}
+            value={form.ForSeries ?? true}
+            onValueChange={(v) => setForm((f) => ({ ...f, ForSeries: v }))}
+          />
+          {editing && (
+            <FormSwitch
+              title={t("server_settings.enabled_label")}
+              value={form.Enabled ?? true}
+              onValueChange={(v) => setForm((f) => ({ ...f, Enabled: v }))}
+            />
+          )}
           {verdict && (
             <Text
               variant='caption'
@@ -205,7 +250,7 @@ export function IndexersSection() {
             </Text>
           )}
 
-          <View style={{ flexDirection: "row", gap: 8 }}>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
             <Button
               variant='secondary'
               style={{ flex: 1 }}
@@ -217,10 +262,12 @@ export function IndexersSection() {
             <Button
               variant='primary'
               style={{ flex: 1 }}
-              loading={addIndexer.isPending}
+              loading={addIndexer.isPending || updateIndexer.isPending}
               onPress={() => void submit()}
             >
-              {t("server_settings.indexers_add_indexer_action")}
+              {editing
+                ? t("server_settings.save_changes_action")
+                : t("server_settings.indexers_add_indexer_action")}
             </Button>
           </View>
         </View>
@@ -269,6 +316,19 @@ export function IndexersSection() {
                     tone={indexer.Enabled ? "success" : "neutral"}
                     size='sm'
                   />
+                  <Pressable
+                    onPress={() => openEdit(indexer)}
+                    hitSlop={8}
+                    accessibilityRole='button'
+                    accessibilityLabel={t(
+                      "server_settings.indexers_edit_action",
+                      { name: indexer.Name },
+                    )}
+                  >
+                    <Text tone='accent' weight='semibold'>
+                      {t("server_settings.edit_action")}
+                    </Text>
+                  </Pressable>
                   <Pressable
                     onPress={() => void remove(indexer)}
                     hitSlop={8}

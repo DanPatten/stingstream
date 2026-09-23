@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Common.Api;
@@ -30,17 +31,20 @@ public sealed class SettingsController : StingStreamControllerBase
     private readonly SettingsStore _store;
     private readonly OmniarrSyncService _sync;
     private readonly ArrClientFactory _factory;
+    private readonly TorznabProbe _torznab;
     private readonly TorrentEngine _torrents;
 
     public SettingsController(
         SettingsStore store,
         OmniarrSyncService sync,
         ArrClientFactory factory,
+        TorznabProbe torznab,
         TorrentEngine torrents)
     {
         _store = store;
         _sync = sync;
         _factory = factory;
+        _torznab = torznab;
         _torrents = torrents;
     }
 
@@ -98,38 +102,87 @@ public sealed class SettingsController : StingStreamControllerBase
     /// <param name="indexer">The indexer.</param>
     /// <param name="sync">Push it into Radarr and Sonarr straight away.</param>
     /// <response code="200">The stored indexer.</response>
-    /// <response code="400">The indexer is missing a name or base URL.</response>
+    /// <response code="400">The indexer is missing a name or base URL, or the name is taken.</response>
     [HttpPost("indexers")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<IndexerSettings>> AddIndexer(
+    public Task<ActionResult<IndexerSettings>> AddIndexer(
         [FromBody] IndexerSettings indexer,
         [FromQuery] bool sync,
         CancellationToken cancellationToken)
+        => SaveIndexerAsync(indexer, null, sync, cancellationToken);
+
+    /// <summary>Change an indexer.</summary>
+    /// <param name="id">The indexer's id.</param>
+    /// <param name="indexer">The indexer as it should be. Its id is taken from the route.</param>
+    /// <param name="sync">Push it into Radarr and Sonarr straight away.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The stored indexer.</response>
+    /// <response code="400">The indexer is missing a name or base URL, or the name is taken.</response>
+    /// <response code="404">No such indexer.</response>
+    /// <returns>The stored indexer.</returns>
+    /// <remarks>
+    /// A rename retires the old name (<see cref="SharedSettings.RetiredProviders"/>): both apps know
+    /// the indexer by its name, so without that the old entry would stay in them and keep searching.
+    /// </remarks>
+    [HttpPut("indexers/{id}", Name = "UpdateIndexer")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult<IndexerSettings>> UpdateIndexer(
+        string id,
+        [FromBody] IndexerSettings indexer,
+        [FromQuery] bool sync,
+        CancellationToken cancellationToken)
+        => SaveIndexerAsync(indexer, id, sync, cancellationToken);
+
+    private async Task<ActionResult<IndexerSettings>> SaveIndexerAsync(
+        IndexerSettings? indexer,
+        string? id,
+        bool sync,
+        CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(indexer.Name) || string.IsNullOrWhiteSpace(indexer.BaseUrl))
+        if (indexer is null || string.IsNullOrWhiteSpace(indexer.Name) || string.IsNullOrWhiteSpace(indexer.BaseUrl))
         {
-            return BadRequest("An indexer needs a name and a base URL.");
+            return BadRequest(new { error = "An indexer needs a name and a URL." });
         }
 
-        if (string.IsNullOrWhiteSpace(indexer.Id))
+        indexer.Name = indexer.Name.Trim();
+        indexer.BaseUrl = indexer.BaseUrl.Trim();
+        if (id is not null)
+        {
+            indexer.Id = id;
+        }
+        else if (string.IsNullOrWhiteSpace(indexer.Id))
         {
             indexer.Id = Guid.NewGuid().ToString("N");
         }
 
-        // Both apps reject a Torznab indexer with no categories outright, so an empty list is
-        // filled in rather than posted and rejected later.
-        if (indexer.MovieCategories.Count == 0)
-        {
-            indexer.MovieCategories = new IndexerSettings().MovieCategories;
-        }
-
-        if (indexer.TvCategories.Count == 0)
-        {
-            indexer.TvCategories = new IndexerSettings().TvCategories;
-        }
+        FillCategories(indexer);
 
         var settings = _store.Get();
+        var existing = settings.Indexer(indexer.Id);
+        if (id is not null && existing is null)
+        {
+            return NotFound();
+        }
+
+        // The name is the indexer's identity inside both apps, so two entries sharing one would
+        // overwrite each other on every sync.
+        var clash = settings.Indexers.Any(i =>
+            !string.Equals(i.Id, indexer.Id, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(i.Name, indexer.Name, StringComparison.OrdinalIgnoreCase));
+        if (clash)
+        {
+            return BadRequest(new { error = $"Another indexer is already called \"{indexer.Name}\"." });
+        }
+
+        if (existing is not null && !string.Equals(existing.Name, indexer.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            settings.Retire("indexer", existing.Name);
+        }
+
+        settings.Unretire("indexer", indexer.Name);
         settings.Indexers.RemoveAll(i => string.Equals(i.Id, indexer.Id, StringComparison.OrdinalIgnoreCase));
         settings.Indexers.Add(indexer);
         await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
@@ -142,65 +195,12 @@ public sealed class SettingsController : StingStreamControllerBase
         return indexer;
     }
 
-    /// <summary>Remove an indexer.</summary>
-    /// <param name="id">The indexer's id.</param>
-    /// <response code="204">Removed.</response>
-    /// <response code="404">No such indexer.</response>
-    [HttpDelete("indexers/{id}")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> DeleteIndexer(string id, CancellationToken cancellationToken)
-    {
-        var settings = _store.Get();
-        var removed = settings.Indexers.RemoveAll(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
-        if (removed == 0)
-        {
-            return NotFound();
-        }
-
-        await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
-        // Note: the indexer stays configured inside Radarr and Sonarr until it is removed there
-        // too. Sync only ever adds and updates -- it never deletes a provider a user may have
-        // created by hand.
-        return NoContent();
-    }
-
     /// <summary>
-    /// Ask the arrs whether an indexer actually works, before storing it.
+    /// Both apps reject a Torznab indexer with no categories outright, so an empty list is filled
+    /// in rather than posted and rejected later.
     /// </summary>
-    /// <param name="indexer">The same shape as add. Need not be stored first.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <response code="200">The verdict. <c>ok: false</c> is a successful call with a bad indexer.</response>
-    /// <response code="400">The indexer is missing a name or base URL.</response>
-    /// <response code="503">No arr is configured or answering.</response>
-    /// <returns>The verdict.</returns>
-    /// <remarks>
-    /// <para>
-    /// <c>docs/UI-API-GAPS.md</c> gap 9. The resource posted to the app's own <c>indexer/test</c>
-    /// is built by the same code that builds the one a save posts
-    /// (<see cref="OmniarrSyncService.BuildIndexer"/>), which is the only thing that makes "the
-    /// test passed" mean "the save will work".
-    /// </para>
-    /// <para>
-    /// The test runs against <em>every</em> configured app rather than one, even though both get
-    /// the same indexer: the two send different category lists, and a Torznab endpoint that has
-    /// films but no TV is a real thing that would otherwise pass here and fail on the first
-    /// series search.
-    /// </para>
-    /// </remarks>
-    [HttpPost("indexers/test", Name = "TestIndexer")]
-    [ProducesResponseType(StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
-    public async Task<ActionResult<ConnectivityTestResult>> TestIndexer(
-        [FromBody] IndexerSettings indexer,
-        CancellationToken cancellationToken)
+    private static void FillCategories(IndexerSettings indexer)
     {
-        if (indexer is null || string.IsNullOrWhiteSpace(indexer.Name) || string.IsNullOrWhiteSpace(indexer.BaseUrl))
-        {
-            return BadRequest(new { error = "An indexer needs a name and a base URL." });
-        }
-
         if (indexer.MovieCategories.Count == 0)
         {
             indexer.MovieCategories = new IndexerSettings().MovieCategories;
@@ -210,48 +210,87 @@ public sealed class SettingsController : StingStreamControllerBase
         {
             indexer.TvCategories = new IndexerSettings().TvCategories;
         }
+    }
 
-        var result = new ConnectivityTestResult();
-        var tested = 0;
-
-        foreach (var client in _factory.CreateAll())
+    /// <summary>Remove an indexer, from the settings and from both apps.</summary>
+    /// <param name="id">The indexer's id.</param>
+    /// <response code="204">Removed.</response>
+    /// <response code="404">No such indexer.</response>
+    [HttpDelete("indexers/{id}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> DeleteIndexer(string id, CancellationToken cancellationToken)
+    {
+        var settings = _store.Get();
+        var existing = settings.Indexer(id);
+        if (existing is null)
         {
-            var wanted = client.Kind == ArrKind.Radarr ? indexer.ForMovies : indexer.ForSeries;
-            if (!wanted)
-            {
-                continue;
-            }
-
-            var schema = await client.GetSchemaAsync("indexer", "Torznab", cancellationToken).ConfigureAwait(false);
-            if (schema is null)
-            {
-                result.Apps[client.Name] = new ProviderTestResult
-                {
-                    Ok = false,
-                    Message = "this app has no Torznab implementation",
-                };
-                continue;
-            }
-
-            tested++;
-            try
-            {
-                var resource = OmniarrSyncService.BuildIndexer(schema, indexer, client.Kind);
-                result.Apps[client.Name] = await client
-                    .TestProviderAsync("indexer", resource, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (ArrApiException ex)
-            {
-                result.Apps[client.Name] = new ProviderTestResult { Ok = false, Message = ex.Message };
-            }
+            return NotFound();
         }
 
-        if (tested == 0)
+        settings.Indexers.RemoveAll(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
+        settings.Retire("indexer", existing.Name);
+        await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+
+        // Straight away where the app is up. Where it is not, the retired name is removed by the
+        // next sync, which SyncRetryWorker runs once the app answers.
+        await _sync.RemoveProviderEverywhereAsync("indexer", existing.Name, cancellationToken).ConfigureAwait(false);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Check that an indexer answers, before or after storing it.
+    /// </summary>
+    /// <param name="indexer">The same shape as add. Need not be stored first.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The verdict. <c>ok: false</c> is a successful call with a bad indexer.</response>
+    /// <response code="400">The indexer is missing a name or base URL.</response>
+    /// <returns>The verdict.</returns>
+    /// <remarks>
+    /// <para>
+    /// <c>docs/UI-API-GAPS.md</c> gap 9. Where an app it applies to is running, the resource posted
+    /// to the app's own <c>indexer/test</c> is built by the same code a save uses
+    /// (<see cref="OmniarrSyncService.BuildIndexer"/>), which is what makes "the test passed" mean
+    /// "the save will work". The two apps send different category lists, so each running one is
+    /// asked.
+    /// </para>
+    /// <para>
+    /// Where none is running, which is the normal state when the first indexer is added (the apps
+    /// only start once one exists), <see cref="TorznabProbe"/> asks the indexer directly.
+    /// </para>
+    /// </remarks>
+    [HttpPost("indexers/test", Name = "TestIndexer")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ConnectivityTestResult>> TestIndexer(
+        [FromBody] IndexerSettings indexer,
+        CancellationToken cancellationToken)
+    {
+        if (indexer is null || string.IsNullOrWhiteSpace(indexer.Name) || string.IsNullOrWhiteSpace(indexer.BaseUrl))
         {
-            return StatusCode(
-                StatusCodes.Status503ServiceUnavailable,
-                new { error = "No arr this indexer applies to is configured on this node." });
+            return BadRequest(new { error = "An indexer needs a name and a URL." });
+        }
+
+        FillCategories(indexer);
+
+        var result = new ConnectivityTestResult();
+        var running = await ReachableAsync(indexer.ForMovies, indexer.ForSeries, cancellationToken).ConfigureAwait(false);
+        foreach (var client in running)
+        {
+            result.Apps[client.Name] = await TestInAppAsync(
+                client,
+                async () =>
+                {
+                    var schema = await client.GetSchemaAsync("indexer", "Torznab", cancellationToken).ConfigureAwait(false);
+                    return schema is null ? null : OmniarrSyncService.BuildIndexer(schema, indexer, client.Kind);
+                },
+                "indexer",
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        if (result.Apps.Count == 0)
+        {
+            result.Apps["indexer"] = await _torznab.TestAsync(indexer, cancellationToken).ConfigureAwait(false);
         }
 
         result.Summarize();
@@ -260,8 +299,8 @@ public sealed class SettingsController : StingStreamControllerBase
 
     // --- external download clients -----------------------------------------
 
-    /// <summary>Every download client the user has added by hand.</summary>
-    /// <response code="200">The clients. The embedded engines are not among them.</response>
+    /// <summary>Every download client the user has added.</summary>
+    /// <response code="200">The clients.</response>
     /// <returns>The clients.</returns>
     [HttpGet("downloadclients", Name = "GetExternalDownloadClients")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -278,9 +317,36 @@ public sealed class SettingsController : StingStreamControllerBase
     [HttpPost("downloadclients", Name = "AddExternalDownloadClient")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    public async Task<ActionResult<ExternalDownloadClientSettings>> AddExternalDownloadClient(
+    public Task<ActionResult<ExternalDownloadClientSettings>> AddExternalDownloadClient(
         [FromBody] ExternalDownloadClientSettings client,
         [FromQuery] bool sync,
+        CancellationToken cancellationToken)
+        => SaveExternalDownloadClientAsync(client, null, sync, cancellationToken);
+
+    /// <summary>Change an external download client.</summary>
+    /// <param name="id">The client's id.</param>
+    /// <param name="client">The client as it should be. Its id is taken from the route.</param>
+    /// <param name="sync">Push it into Radarr and Sonarr straight away.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <response code="200">The stored client.</response>
+    /// <response code="400">The client is missing a name, implementation or host.</response>
+    /// <response code="404">No such client.</response>
+    /// <returns>The stored client.</returns>
+    [HttpPut("downloadclients/{id}", Name = "UpdateExternalDownloadClient")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public Task<ActionResult<ExternalDownloadClientSettings>> UpdateExternalDownloadClient(
+        string id,
+        [FromBody] ExternalDownloadClientSettings client,
+        [FromQuery] bool sync,
+        CancellationToken cancellationToken)
+        => SaveExternalDownloadClientAsync(client, id, sync, cancellationToken);
+
+    private async Task<ActionResult<ExternalDownloadClientSettings>> SaveExternalDownloadClientAsync(
+        ExternalDownloadClientSettings? client,
+        string? id,
+        bool sync,
         CancellationToken cancellationToken)
     {
         var invalid = Validate(client);
@@ -289,12 +355,23 @@ public sealed class SettingsController : StingStreamControllerBase
             return BadRequest(new { error = invalid });
         }
 
-        if (string.IsNullOrWhiteSpace(client!.Id))
+        client!.Name = client.Name.Trim();
+        client.Host = client.Host.Trim();
+        if (id is not null)
+        {
+            client.Id = id;
+        }
+        else if (string.IsNullOrWhiteSpace(client.Id))
         {
             client.Id = Guid.NewGuid().ToString("N");
         }
 
         var settings = _store.Get();
+        var existing = settings.ExternalDownloadClient(client.Id);
+        if (id is not null && existing is null)
+        {
+            return NotFound();
+        }
 
         // The name is the provider's identity inside both arrs, so two StingStream entries sharing
         // one would silently overwrite each other on every sync.
@@ -306,6 +383,12 @@ public sealed class SettingsController : StingStreamControllerBase
             return BadRequest(new { error = $"Another download client is already called \"{client.Name}\"." });
         }
 
+        if (existing is not null && !string.Equals(existing.Name, client.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            settings.Retire("downloadclient", existing.Name);
+        }
+
+        settings.Unretire("downloadclient", client.Name);
         settings.ExternalDownloadClients.RemoveAll(c =>
             string.Equals(c.Id, client.Id, StringComparison.OrdinalIgnoreCase));
         settings.ExternalDownloadClients.Add(client);
@@ -328,11 +411,8 @@ public sealed class SettingsController : StingStreamControllerBase
     /// <response code="404">No such client.</response>
     /// <returns>What each app did.</returns>
     /// <remarks>
-    /// Unlike indexers, this one <em>does</em> remove the provider from Radarr and Sonarr. Sync
-    /// never deletes, because it cannot tell a provider a user created by hand from one StingStream
-    /// created — but a deletion that came from this UI names the thing to remove, so there is no
-    /// guess to get wrong, and leaving a download client registered in both apps after the user
-    /// deleted it means grabs keep going to a client the UI no longer shows.
+    /// The name is retired as well as removed straight away, so an app that is not running now
+    /// loses it on its next sync instead of sending grabs to a client the UI no longer shows.
     /// </remarks>
     [HttpDelete("downloadclients/{id}", Name = "DeleteExternalDownloadClient")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -350,6 +430,7 @@ public sealed class SettingsController : StingStreamControllerBase
 
         settings.ExternalDownloadClients.RemoveAll(c =>
             string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
+        settings.Retire("downloadclient", existing.Name);
         await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
 
         var detail = await _sync
@@ -363,12 +444,17 @@ public sealed class SettingsController : StingStreamControllerBase
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <response code="200">The verdict.</response>
     /// <response code="400">The client is missing a name, implementation or host.</response>
-    /// <response code="503">No arr this client applies to is configured.</response>
+    /// <response code="409">Nothing is running yet to test it with.</response>
     /// <returns>The verdict.</returns>
+    /// <remarks>
+    /// Unlike an indexer there is no direct fallback: each client speaks its own protocol, and the
+    /// apps already know all of them. They run once an indexer exists, so that is what the reader
+    /// is told to do.
+    /// </remarks>
     [HttpPost("downloadclients/test", Name = "TestExternalDownloadClient")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
-    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ConnectivityTestResult>> TestExternalDownloadClient(
         [FromBody] ExternalDownloadClientSettings client,
         CancellationToken cancellationToken)
@@ -380,49 +466,85 @@ public sealed class SettingsController : StingStreamControllerBase
         }
 
         var result = new ConnectivityTestResult();
-        var tested = 0;
-
-        foreach (var arr in _factory.CreateAll())
+        var running = await ReachableAsync(client!.ForMovies, client.ForSeries, cancellationToken).ConfigureAwait(false);
+        foreach (var arr in running)
         {
-            var wanted = arr.Kind == ArrKind.Radarr ? client!.ForMovies : client!.ForSeries;
-            if (!wanted)
-            {
-                continue;
-            }
-
-            var resource = await _sync.BuildExternalClientAsync(arr, client, cancellationToken).ConfigureAwait(false);
-            if (resource is null)
-            {
-                result.Apps[arr.Name] = new ProviderTestResult
-                {
-                    Ok = false,
-                    Message = $"this app has no \"{client.Implementation}\" implementation",
-                };
-                continue;
-            }
-
-            tested++;
-            try
-            {
-                result.Apps[arr.Name] = await arr
-                    .TestProviderAsync("downloadclient", resource, cancellationToken)
-                    .ConfigureAwait(false);
-            }
-            catch (ArrApiException ex)
-            {
-                result.Apps[arr.Name] = new ProviderTestResult { Ok = false, Message = ex.Message };
-            }
+            result.Apps[arr.Name] = await TestInAppAsync(
+                arr,
+                () => _sync.BuildExternalClientAsync(arr, client, cancellationToken),
+                "downloadclient",
+                cancellationToken).ConfigureAwait(false);
         }
 
-        if (tested == 0)
+        if (result.Apps.Count == 0)
         {
             return StatusCode(
-                StatusCodes.Status503ServiceUnavailable,
-                new { error = "No arr this download client applies to is configured on this node." });
+                StatusCodes.Status409Conflict,
+                new { error = "Add an indexer, then test this client." });
         }
 
         result.Summarize();
         return result;
+    }
+
+    /// <summary>
+    /// The apps a provider applies to that are answering now.
+    /// </summary>
+    /// <remarks>
+    /// One quick check each, because a test is somebody watching a spinner. An app that is not up
+    /// is left out rather than reported as a failure: it is stopped on purpose until an indexer
+    /// covers it, and "could not reach the movie manager" says nothing about the thing being tested.
+    /// </remarks>
+    private async Task<List<ArrClient>> ReachableAsync(bool forMovies, bool forSeries, CancellationToken cancellationToken)
+    {
+        var list = new List<ArrClient>(2);
+        foreach (var client in _factory.CreateAll())
+        {
+            var wanted = client.Kind == ArrKind.Radarr ? forMovies : forSeries;
+            if (wanted && await client.IsReachableAsync(cancellationToken).ConfigureAwait(false))
+            {
+                list.Add(client);
+            }
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Run one app's own test on a resource, turning every failure into a verdict.
+    /// </summary>
+    /// <remarks>
+    /// The whole exchange is inside the try, the schema fetch included. It used to sit outside it,
+    /// and an app that was not running escaped as Jellyfin's bare 500, which the app could only
+    /// draw as "could not test it".
+    /// </remarks>
+    private static async Task<ProviderTestResult> TestInAppAsync(
+        ArrClient client,
+        Func<Task<JsonObject?>> build,
+        string resource,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var body = await build().ConfigureAwait(false);
+            if (body is null)
+            {
+                return new ProviderTestResult { Ok = false, Message = "This type is not supported." };
+            }
+
+            return await client.TestProviderAsync(resource, body, cancellationToken).ConfigureAwait(false);
+        }
+        catch (ArrApiException ex)
+        {
+            // The exception's own text names the child and the endpoint, which is for a log, not
+            // a screen. What it means to the reader is that the test never got an answer.
+            return new ProviderTestResult
+            {
+                Ok = false,
+                Message = "The test did not finish. Try again in a minute.",
+                Status = ex.Status is null ? null : (int)ex.Status,
+            };
+        }
     }
 
     private static string? Validate(ExternalDownloadClientSettings? client)
@@ -432,12 +554,12 @@ public sealed class SettingsController : StingStreamControllerBase
             || string.IsNullOrWhiteSpace(client.Implementation)
             || string.IsNullOrWhiteSpace(client.Host))
         {
-            return "A download client needs a name, an implementation and a host.";
+            return "A download client needs a name, a type and a host.";
         }
 
         if (client.Port is <= 0 or > 65535)
         {
-            return "A download client needs a port between 1 and 65535.";
+            return "Enter a port between 1 and 65535.";
         }
 
         if (!string.Equals(client.Protocol, "torrent", StringComparison.OrdinalIgnoreCase)
@@ -454,6 +576,11 @@ public sealed class SettingsController : StingStreamControllerBase
     /// <summary>Push the shared settings into Radarr and Sonarr now.</summary>
     /// <param name="waitSeconds">How long to wait for an app that is still starting.</param>
     /// <response code="200">Per-app result.</response>
+    /// <remarks>
+    /// Nothing in the app calls this any more: <see cref="SyncRetryWorker"/> keeps both apps in
+    /// step on its own. It stays for the end-to-end harnesses, which want a sync to have finished
+    /// before they assert on it.
+    /// </remarks>
     [HttpPost("~/stingstream/api/v1/sync")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<List<SyncStatus>>> Sync(
@@ -479,7 +606,8 @@ public sealed class SettingsController : StingStreamControllerBase
 /// <remarks>
 /// Per app rather than one boolean, because the two apps genuinely can disagree — the same Torznab
 /// endpoint is asked about different categories, and a download client is registered with a
-/// different category name in each. A UI that showed one answer would sometimes show the wrong one.
+/// different category name in each. When neither app is running, an indexer's verdict comes from
+/// asking it directly and is keyed <c>indexer</c>.
 /// </remarks>
 public sealed class ConnectivityTestResult
 {
@@ -489,22 +617,38 @@ public sealed class ConnectivityTestResult
     /// <summary>One sentence for a person, folding in every app that refused.</summary>
     public string Message { get; set; } = string.Empty;
 
-    /// <summary>The per-app verdicts.</summary>
+    /// <summary>The per-app verdicts, keyed <c>radarr</c>, <c>sonarr</c> or <c>indexer</c>.</summary>
     public Dictionary<string, ProviderTestResult> Apps { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Roll the per-app verdicts up into <see cref="Ok"/> and <see cref="Message"/>.</summary>
+    /// <remarks>
+    /// The message reaches a screen, so an app is named for what it does for the reader ("Movies",
+    /// "TV shows"), never as Radarr or Sonarr. Two identical failures, which is what a wrong API
+    /// key gives, read as one.
+    /// </remarks>
     public void Summarize()
     {
         Ok = Apps.Count > 0 && Apps.Values.All(a => a.Ok);
-        Message = Ok
-            ? "Both apps accepted it."
-            : string.Join("; ", Apps.Where(a => !a.Value.Ok).Select(a => $"{a.Key}: {a.Value.Message}"));
-        if (Ok && Apps.Count == 1)
+        if (Ok)
         {
-            Message = $"{Apps.Keys.First()} accepted it.";
+            Message = "Connected.";
+            return;
         }
+
+        var failures = Apps.Where(a => !a.Value.Ok).ToList();
+        var distinct = failures.Select(a => a.Value.Message).Distinct(StringComparer.Ordinal).ToList();
+        Message = distinct.Count == 1
+            ? distinct[0]
+            : string.Join(" ", failures.Select(a => $"{Label(a.Key)}: {a.Value.Message}"));
     }
+
+    private static string Label(string app) => app.ToLowerInvariant() switch
+    {
+        "radarr" => "Movies",
+        "sonarr" => "TV shows",
+        _ => "Indexer",
+    };
 }
 
 /// <summary>What removing a provider from both apps did.</summary>

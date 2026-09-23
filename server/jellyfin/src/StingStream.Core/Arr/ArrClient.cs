@@ -424,12 +424,12 @@ public sealed class ArrClient
         using var req = Request(HttpMethod.Post, $"{resource}/test");
         req.Content = new StringContent(desired.ToJsonString(), Encoding.UTF8, "application/json");
 
-        using var res = await _http.SendAsync(req, ct).ConfigureAwait(false);
+        using var res = await SendRawAsync(req, HttpMethod.Post, $"{resource}/test", ct).ConfigureAwait(false);
         var text = await res.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 
         if (res.IsSuccessStatusCode)
         {
-            return new ProviderTestResult { Ok = true, Message = $"{Name} accepted it." };
+            return new ProviderTestResult { Ok = true, Message = "Connected." };
         }
 
         return new ProviderTestResult

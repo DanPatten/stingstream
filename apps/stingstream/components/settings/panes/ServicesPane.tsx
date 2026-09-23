@@ -2,7 +2,6 @@ import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { DownloadClientsSection } from "@/components/stingstream/settings/DownloadClientsSection";
 import { IndexersSection } from "@/components/stingstream/settings/IndexersSection";
-import { SyncStatusBanner } from "@/components/stingstream/settings/SyncStatusBanner";
 import { QueryState } from "@/components/stingstream/shared/ScreenState";
 import { space } from "@/constants/theme";
 import { FocusTarget } from "../FocusTarget";
@@ -18,9 +17,9 @@ import { useSharedSettingsField } from "./useSharedSettingsField";
  * engine that will not start are not the same problem, and the old single
  * "Server settings" page made you find out which by opening six tabs.
  *
- * `SyncStatusBanner` sits above both: everything on this page is pushed into
- * Radarr and Sonarr, and when that push fails the page says so and offers a
- * retry. When it has not failed the banner draws nothing.
+ * Everything on this page is pushed into Radarr and Sonarr by the server, and a
+ * push that fails is retried there (`SyncRetryWorker`), so there is no sync
+ * button or failure card: nothing on this page is the reader's to retry.
  */
 export const ServicesPane: React.FC = () => {
   const { t } = useTranslation();
@@ -37,7 +36,6 @@ export const ServicesPane: React.FC = () => {
         error={query.error}
         onRetry={query.refetch}
       >
-        <SyncStatusBanner />
         <FocusTarget id='indexers'>
           <IndexersSection />
         </FocusTarget>

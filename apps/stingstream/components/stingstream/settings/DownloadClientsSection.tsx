@@ -24,11 +24,12 @@ import {
   useDeleteExternalDownloadClient,
   useExternalDownloadClients,
   useTestExternalDownloadClient,
+  useUpdateExternalDownloadClient,
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { SaveStatus, TextFieldRow, ToggleRow } from "./fields";
+import { FormSwitch, SaveStatus, TextFieldRow, ToggleRow } from "./fields";
 import { useAutosave } from "./useAutosave";
 
 export function DownloadClientsSection({
@@ -160,6 +161,7 @@ function ExternalClients() {
   const { color, accent } = useTheme();
   const clients = useExternalDownloadClients();
   const add = useAddExternalDownloadClient();
+  const update = useUpdateExternalDownloadClient();
   const remove = useDeleteExternalDownloadClient();
   const test = useTestExternalDownloadClient();
   const [open, setOpen] = useState(false);
@@ -172,21 +174,51 @@ function ExternalClients() {
     v: ExternalDownloadClientSettings[K],
   ) => setForm((f) => ({ ...f, [key]: v }));
 
+  // The same form adds and edits, and saves on its button rather than as it is typed: a host and a
+  // port are only right together, and a half-typed one would be pushed to both managers on blur.
+  const editing = !!form.Id;
+
+  const close = () => {
+    setForm(emptyClient);
+    setVerdict(null);
+    setShowPassword(false);
+    setOpen(false);
+  };
+
+  const openEdit = (client: ExternalDownloadClientSettings) => {
+    setForm({ ...emptyClient, ...client });
+    setVerdict(null);
+    setShowPassword(false);
+    setOpen(true);
+  };
+
   const submit = async () => {
     try {
-      await add.mutateAsync(form);
-      toast.success(
-        t("server_settings.external_clients_added_toast", { name: form.Name }),
-      );
-      setForm(emptyClient);
-      setVerdict(null);
-      setShowPassword(false);
-      setOpen(false);
+      if (form.Id) {
+        await update.mutateAsync({ ...form, Id: form.Id });
+        toast.success(
+          t("server_settings.external_clients_saved_toast", {
+            name: form.Name,
+          }),
+        );
+      } else {
+        await add.mutateAsync(form);
+        toast.success(
+          t("server_settings.external_clients_added_toast", {
+            name: form.Name,
+          }),
+        );
+      }
+      close();
     } catch (err) {
       toast.error(
         err instanceof Error
           ? err.message
-          : t("server_settings.external_clients_add_error"),
+          : t(
+              editing
+                ? "server_settings.external_clients_save_error"
+                : "server_settings.external_clients_add_error",
+            ),
       );
     }
   };
@@ -201,7 +233,7 @@ function ExternalClients() {
         Message:
           err instanceof Error
             ? err.message
-            : t("server_settings.indexers_test_error"),
+            : t("server_settings.external_clients_test_error"),
       });
     }
   };
@@ -216,11 +248,9 @@ function ExternalClients() {
     );
     if (!ok) return;
     try {
-      const result = await remove.mutateAsync(client.Id ?? "");
-      toast.success(
-        result?.Detail?.join("; ") ||
-          t("server_settings.external_clients_removed_toast"),
-      );
+      await remove.mutateAsync(client.Id ?? "");
+      if (form.Id === client.Id) close();
+      toast.success(t("server_settings.external_clients_removed_toast"));
     } catch (err) {
       toast.error(
         err instanceof Error
@@ -239,10 +269,7 @@ function ExternalClients() {
             variant='secondary'
             size='sm'
             icon={open ? "close" : "add"}
-            onPress={() => {
-              setVerdict(null);
-              setOpen((v) => !v);
-            }}
+            onPress={() => (open ? close() : setOpen(true))}
           >
             {open
               ? t("common.cancel")
@@ -260,9 +287,6 @@ function ExternalClients() {
             marginBottom: 12,
           }}
         >
-          <Text variant='caption' tone='secondary' style={{ marginBottom: 8 }}>
-            {t("server_settings.external_clients_explainer")}
-          </Text>
           <Input
             placeholder={t("server_settings.external_clients_name_placeholder")}
             value={form.Name ?? ""}
@@ -383,20 +407,28 @@ function ExternalClients() {
               />
             </View>
           </View>
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 12,
-            }}
-          >
-            <Text>{t("server_settings.external_clients_use_ssl_title")}</Text>
-            <SettingSwitch
-              value={form.UseSsl ?? false}
-              onValueChange={(v) => set("UseSsl", v)}
+          <FormSwitch
+            title={t("server_settings.external_clients_use_ssl_title")}
+            value={form.UseSsl ?? false}
+            onValueChange={(v) => set("UseSsl", v)}
+          />
+          <FormSwitch
+            title={t("server_settings.indexers_for_movies")}
+            value={form.ForMovies ?? true}
+            onValueChange={(v) => set("ForMovies", v)}
+          />
+          <FormSwitch
+            title={t("server_settings.indexers_for_series")}
+            value={form.ForSeries ?? true}
+            onValueChange={(v) => set("ForSeries", v)}
+          />
+          {editing && (
+            <FormSwitch
+              title={t("server_settings.enabled_label")}
+              value={form.Enabled ?? true}
+              onValueChange={(v) => set("Enabled", v)}
             />
-          </View>
+          )}
 
           {verdict && (
             <Text
@@ -423,10 +455,12 @@ function ExternalClients() {
             <Button
               variant='primary'
               style={{ flex: 1 }}
-              loading={add.isPending}
+              loading={add.isPending || update.isPending}
               onPress={() => void submit()}
             >
-              {t("server_settings.external_clients_add_client_action")}
+              {editing
+                ? t("server_settings.save_changes_action")
+                : t("server_settings.external_clients_add_client_action")}
             </Button>
           </View>
         </View>
@@ -460,19 +494,47 @@ function ExternalClients() {
                   .filter(Boolean)
                   .join(" • ")}
               >
-                <Pressable
-                  onPress={() => void del(c)}
-                  hitSlop={8}
-                  accessibilityRole='button'
-                  accessibilityLabel={t(
-                    "server_settings.external_clients_remove_action",
-                    { name: c.Name },
-                  )}
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
                 >
-                  <Text tone='danger' weight='semibold'>
-                    {t("common.remove")}
-                  </Text>
-                </Pressable>
+                  {c.Enabled === false ? (
+                    <Pill
+                      label={t("server_settings.disabled_label")}
+                      tone='neutral'
+                      size='sm'
+                    />
+                  ) : null}
+                  <Pressable
+                    onPress={() => openEdit(c)}
+                    hitSlop={8}
+                    accessibilityRole='button'
+                    accessibilityLabel={t(
+                      "server_settings.external_clients_edit_action",
+                      { name: c.Name },
+                    )}
+                  >
+                    <Text tone='accent' weight='semibold'>
+                      {t("server_settings.edit_action")}
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => void del(c)}
+                    hitSlop={8}
+                    accessibilityRole='button'
+                    accessibilityLabel={t(
+                      "server_settings.external_clients_remove_action",
+                      { name: c.Name },
+                    )}
+                  >
+                    <Text tone='danger' weight='semibold'>
+                      {t("common.remove")}
+                    </Text>
+                  </Pressable>
+                </View>
               </ListItem>
             ))}
           </ListGroup>
