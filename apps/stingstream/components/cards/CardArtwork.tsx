@@ -2,6 +2,7 @@ import { useState } from "react";
 import { PixelRatio, View } from "react-native";
 import { Pill } from "@/components/common/Pill";
 import { Image } from "@/components/common/ServerImage";
+import { Skeleton } from "@/components/common/Skeleton";
 import { motion } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import type { CardData } from "./CardData";
@@ -76,6 +77,10 @@ export const CardArtwork: React.FC<Props> = ({
           id={card.id}
           source={{ uri: imageUrl }}
           cachePolicy='memory-disk'
+          // Web only. A home row holds more posters than fit across the window, and the browser
+          // allows six connections to the node. Eager, the posters off to the right queued in
+          // front of the ones on screen.
+          loading='lazy'
           contentFit='cover'
           // No `placeholder`: `card.placeholder` is a content-type glyph for the
           // tile below, not a blurhash, and `CardData` carries no blurhash —
@@ -120,7 +125,19 @@ export const CardArtwork: React.FC<Props> = ({
             bottom: 0,
             backgroundColor: color.bg["2"],
           }}
-        />
+        >
+          {/*
+            A pulse while the poster is on its way, so loading and missing look different. A
+            still, dark box read as "this movie has no poster", which on a first scan is every
+            movie for the second or so the server takes to resize each one. Missing is the
+            placeholder tile, with the type's glyph, and never pulses.
+          */}
+          <Skeleton
+            width='100%'
+            radius={0}
+            style={{ height: "100%", backgroundColor: color.bg["3"] }}
+          />
+        </View>
       ) : null}
 
       {overlay}

@@ -6,6 +6,15 @@
     "wrong_service": "Reachable, but not the expected server",
     "invalid_url": "Enter a valid address"
   },
+  "scan_status": {
+    "scanning": "Scanning…",
+    "scanning_percent": "Scanning, {{percent}}%",
+    "queued": "Waiting to scan",
+    "pill_one": "Scanning {{name}}…",
+    "pill_one_percent": "Scanning {{name}}, {{percent}}%",
+    "pill_all": "Scanning libraries…",
+    "pill_all_percent": "Scanning libraries, {{percent}}%"
+  },
   "login": {
     "add_user": "Add user",
     "add_user_to_login": "Add a user to sign in",

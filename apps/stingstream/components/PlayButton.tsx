@@ -1,7 +1,7 @@
 import { useActionSheet } from "@expo/react-native-action-sheet";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client";
 import { useAtomValue } from "jotai";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type StyleProp, View, type ViewStyle } from "react-native";
 import CastContext, {
@@ -14,10 +14,12 @@ import CastContext, {
   useRemoteMediaClient,
 } from "react-native-google-cast";
 import { toast } from "sonner-native";
-import { formatRemaining } from "@/components/item/metadata";
+import { ResumeChooser } from "@/components/item/ResumeChooser";
+import { radius } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
 import { useHaptic } from "@/hooks/useHaptic";
 import { usePlayMedia } from "@/hooks/usePlayMedia";
+import { useTheme } from "@/hooks/useTheme";
 import { resolveCastStreamUrl } from "@/lib/stingstream/castStreamUrl";
 import { createReceiverUrlRewriter } from "@/lib/stingstream/receiverUrl";
 import { getDownloadedItemById } from "@/providers/Downloads/database";
@@ -33,11 +35,17 @@ import {
 } from "@/utils/jellyfin/subtitleUtils";
 import { logAndCaptureError } from "@/utils/log";
 import type { PlayRequest } from "@/utils/nativePlayer/playRequest";
+import {
+  remainingAfterResume,
+  resumeFraction,
+  resumePositionTicks,
+  shouldAskToResume,
+} from "@/utils/resume";
 import { chromecast } from "../utils/profiles/chromecast";
 import { chromecasth265 } from "../utils/profiles/chromecasth265";
 import { Button } from "./Button";
 import { Dialog } from "./common/Dialog";
-import { ProgressBar } from "./common/ProgressBar";
+import { Text } from "./common/Text";
 import type { SelectedOptions } from "./ItemContent";
 
 interface Props {
@@ -45,6 +53,11 @@ interface Props {
   selectedOptions: SelectedOptions;
   /** Fills the row it sits in — the details page's action row does. */
   fullWidth?: boolean;
+  /**
+   * Press it once, as soon as it can: the home hero's Play lands here rather than playing from
+   * the row, so the version, tracks and the resume question are the page's. Still asks.
+   */
+  autoPlay?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -58,16 +71,18 @@ interface Props {
  * (plan bug 5). Poster color is atmosphere; it belongs behind the header, not
  * on the button you are looking for.
  *
- * The resume state is the label, not a second control: "Resume · 12m left" with
- * a progress rule under the button says both where you are and how much is
- * left, where the old full-width outline bar said "0m" and nothing else.
+ * The resume state is the label, not a second control. "Resume", with a progress rule under the
+ * button and "1h 32m left" under the rule, the way Plex lays it out (Dan, 2026-09-22). The time
+ * used to be packed into the label, "Resume · 1h 32m left", which the button truncated.
  */
 export const PlayButton: React.FC<Props> = ({
   item,
   selectedOptions,
   fullWidth = false,
+  autoPlay = false,
   style,
 }: Props) => {
+  const { color, accent } = useTheme();
   const isOffline = useOfflineMode();
   const { showActionSheetWithOptions } = useActionSheet();
   const client = useRemoteMediaClient();
@@ -476,48 +491,44 @@ export const PlayButton: React.FC<Props> = ({
     [item, playMedia],
   );
 
-  const progressTicks = item?.UserData?.PlaybackPositionTicks ?? 0;
-  const remaining = useMemo(
-    () => formatRemaining(item?.RunTimeTicks, progressTicks),
-    [item?.RunTimeTicks, progressTicks],
-  );
+  const progressTicks = resumePositionTicks(item);
+  const remaining = useMemo(() => remainingAfterResume(item), [item]);
+  const fraction = useMemo(() => resumeFraction(item), [item]);
 
   const onPress = useCallback(() => {
     if (!item) return;
 
     lightHapticFeedback();
 
-    // Same prompt the TV item page shows: an in-progress item asks whether
-    // to resume or restart instead of silently resuming. Users can turn the
-    // prompt off in settings, in which case playback resumes right away.
-    if (progressTicks > 0 && !settings.showResumeDialog) {
-      void startPlayback(progressTicks);
-      return;
-    }
-    if (progressTicks > 0) {
+    // Plex's question, the same one the TV details page asks: a title already begun offers
+    // "Resume from 1:02:33" or "Play from beginning". Turned off under Playback, it resumes.
+    if (shouldAskToResume(item, settings)) {
       setResumePrompt(true);
       return;
     }
 
-    void startPlayback(0);
-  }, [
-    item,
-    lightHapticFeedback,
-    startPlayback,
-    progressTicks,
-    settings.showResumeDialog,
-  ]);
+    void startPlayback(progressTicks);
+  }, [item, lightHapticFeedback, startPlayback, progressTicks, settings]);
 
-  // "Resume · 12m left" when there is something to resume, "Play" otherwise.
-  // Never a bare duration: the old button's whole label was the time remaining,
-  // which said nothing about what pressing it would do.
-  const label =
-    progressTicks > 0 && remaining
-      ? t("item.resume_left", { time: remaining })
-      : t("item.play");
+  // Once per mount, and only once the page has what Play needs.
+  const autoPlayed = useRef(false);
+  useEffect(() => {
+    if (!autoPlay || autoPlayed.current || !item) return;
+    autoPlayed.current = true;
+    onPress();
+  }, [autoPlay, item, onPress]);
+
+  const label = progressTicks > 0 ? t("item.resume") : t("item.play");
 
   return (
-    <View style={[fullWidth ? { flex: 1 } : null, style]}>
+    // Sized to the button on a wide row, so the rule under it is the button's width; the whole
+    // column on a phone, where the button is too.
+    <View
+      style={[
+        { alignSelf: fullWidth ? "flex-start" : "stretch", flexShrink: 0 },
+        style,
+      ]}
+    >
       <Button
         testID='details-play'
         variant='primary'
@@ -530,39 +541,60 @@ export const PlayButton: React.FC<Props> = ({
       >
         {label}
       </Button>
-      {progressTicks > 0 ? (
+      {fraction > 0 ? (
         // The rule sits under the button rather than inside it: a fill that
         // grows across the accent is unreadable at 12 % and indistinguishable
         // from a disabled state at 90 %.
-        <View style={{ marginTop: 6 }}>
-          <ProgressBar item={item} />
+        <View style={{ marginTop: 10 }}>
+          <View
+            accessibilityRole='progressbar'
+            accessibilityValue={{
+              min: 0,
+              max: 100,
+              now: Math.round(fraction * 100),
+            }}
+            style={{
+              height: 4,
+              borderRadius: radius.pill,
+              backgroundColor: color.bg["3"],
+              overflow: "hidden",
+            }}
+          >
+            <View
+              style={{
+                width: `${Math.max(2, fraction * 100)}%`,
+                height: "100%",
+                borderRadius: radius.pill,
+                backgroundColor: accent[500],
+              }}
+            />
+          </View>
+          {remaining ? (
+            <Text
+              variant='caption'
+              tone='secondary'
+              numberOfLines={1}
+              style={{ marginTop: 6 }}
+            >
+              {t("item.time_left", { time: remaining })}
+            </Text>
+          ) : null}
         </View>
       ) : null}
 
-      <Dialog
+      <ResumeChooser
         visible={resumePrompt}
+        title={item?.Name ?? undefined}
+        positionTicks={progressTicks}
         onClose={() => setResumePrompt(false)}
-        title={t("item_card.resume_playback")}
-        description={t("item_card.resume_playback_description")}
-        actions={[
-          {
-            label: t("item_card.play_from_start"),
-            variant: "secondary",
-            onPress: () => {
-              setResumePrompt(false);
-              void startPlayback(0);
-            },
-          },
-          {
-            label: remaining
-              ? t("item.resume_left", { time: remaining })
-              : t("item.resume"),
-            onPress: () => {
-              setResumePrompt(false);
-              void startPlayback(progressTicks);
-            },
-          },
-        ]}
+        onResume={() => {
+          setResumePrompt(false);
+          void startPlayback(progressTicks);
+        }}
+        onRestart={() => {
+          setResumePrompt(false);
+          void startPlayback(0);
+        }}
       />
 
       <Dialog

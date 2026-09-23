@@ -84,14 +84,16 @@ public class LibraryScanTests
         var known = Rooted("data", "media", "Movies");
         var fresh = Rooted("second", "Movies");
         var unplugged = Rooted("usb", "Movies");
+        var emptyTree = Rooted("data", "federated", "movies");
 
         var unscanned = LibraryLayoutPlan.Unscanned(
-            new[] { known, fresh, unplugged },
+            new[] { known, fresh, unplugged, emptyTree },
             hasFolder: p => LibraryLayoutService.SamePath(p, known),
-            existsOnDisk: p => !LibraryLayoutService.SamePath(p, unplugged));
+            hasContent: p => !LibraryLayoutService.SamePath(p, unplugged) && !LibraryLayoutService.SamePath(p, emptyTree));
 
-        // A drive that is not plugged in cannot be scanned in, and asking for a scan on its behalf
-        // would ask on every pass until it came back.
+        // A scan makes no item for a drive that is not plugged in, nor for an empty folder (the
+        // federated tree before any peer has written to it, which is how this was found on node 1).
+        // Counting either would ask for a scan on every pass.
         Assert.Equal(new[] { fresh }, unscanned);
     }
 

@@ -5,6 +5,7 @@ import { toast } from "sonner-native";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { LibraryActionsMenu } from "@/components/library/LibraryActionsMenu";
+import { ScanStatus } from "@/components/library/ScanStatus";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { SettingsPane } from "@/components/settings/panes/SettingsPane";
@@ -112,6 +113,9 @@ function LibraryDetail({ library }: { library: Library }) {
       }
     >
       <View testID='library-detail' style={{ gap: space["6"] }}>
+        {library.enabled ? (
+          <ScanStatus libraryId={library.jellyfinItemId} />
+        ) : null}
         <View>
           <ListGroup>
             <ListItem title={t("libraries.enabled_title")}>

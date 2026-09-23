@@ -26,6 +26,7 @@ import { HomeHeroCarousel } from "@/components/home/HomeHeroCarousel";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList";
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists";
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations";
+import { ScanIndicator } from "@/components/library/ScanStatus";
 import { MediaListSection } from "@/components/medialists/MediaListSection";
 import { useIsStingStreamAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import useRouter from "@/hooks/useAppRouter";
@@ -704,10 +705,14 @@ const HomeMobile = () => {
             {t("home.empty_request")}
           </Button>
         </View>
+        {/* The first scan of a new library lands here, before anything has been found. */}
+        <ScanIndicator inline />
       </PageContainer>
     );
 
+  // The scan pill floats over the rows, so it needs a box that fills the page to sit in.
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView
       ref={scrollRef}
       nestedScrollEnabled
@@ -845,6 +850,8 @@ const HomeMobile = () => {
         })}
       </PageContainer>
     </ScrollView>
+    <ScanIndicator />
+    </View>
   );
 };
 

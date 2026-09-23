@@ -474,7 +474,7 @@ public sealed class LibraryLayoutService
                     ApplyOptions(folder.Name, report);
                 }
 
-                var unscanned = LibraryLayoutPlan.Unscanned(folder.Locations, HasFolder, Directory.Exists);
+                var unscanned = LibraryLayoutPlan.Unscanned(folder.Locations, HasFolder, HasContent);
                 if (unscanned.Count > 0)
                 {
                     report.Steps.Add($"library {desired.Name}: not yet scanned {string.Join(", ", unscanned)}");
@@ -548,6 +548,19 @@ public sealed class LibraryLayoutService
 
         cancellationToken.ThrowIfCancellationRequested();
         return scan;
+    }
+
+    /// <summary>Whether a folder is there and holds anything for a scan to find.</summary>
+    private static bool HasContent(string path)
+    {
+        try
+        {
+            return Directory.Exists(path) && Directory.EnumerateFileSystemEntries(path).Any();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Whether the media server has an item for one of a library's folders.</summary>

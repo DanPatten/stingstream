@@ -1,4 +1,10 @@
-import { type ReactNode, type RefObject, useEffect, useState } from "react";
+import {
+  type ReactNode,
+  type RefObject,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   Modal,
   Platform,
@@ -181,6 +187,11 @@ export interface MenuItemProps {
   disabled?: boolean;
   trailing?: ReactNode;
   testID?: string;
+  /**
+   * Takes keyboard focus when it appears, on the web: the answer most people want, so Enter
+   * gives it. The resume chooser's "Resume from" row.
+   */
+  autoFocus?: boolean;
 }
 
 /** Every row is at least this tall, with or without a `description`, so a menu reads as one column. */
@@ -209,9 +220,20 @@ export const MenuItem: React.FC<MenuItemProps> = ({
   disabled = false,
   trailing,
   testID,
+  autoFocus = false,
 }) => {
   const { accent } = useTheme();
   const states = usePressableStates({ disabled });
+  const pressable = useRef<View>(null);
+
+  useEffect(() => {
+    if (!autoFocus || Platform.OS !== "web") return;
+    // A frame late: the card it sits in is still being portalled in on the first one.
+    const frame = requestAnimationFrame(() =>
+      (pressable.current as unknown as { focus?: () => void } | null)?.focus?.(),
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [autoFocus]);
 
   const body = (
     <>
@@ -282,6 +304,7 @@ export const MenuItem: React.FC<MenuItemProps> = ({
 
   return (
     <Pressable
+      ref={pressable}
       testID={testID}
       accessibilityRole='menuitem'
       accessibilityLabel={description ? `${label}, ${description}` : label}

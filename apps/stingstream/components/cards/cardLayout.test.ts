@@ -427,7 +427,8 @@ describe("card artwork", () => {
       [movie({ ImageTags: { Primary: "abc" }, BackdropImageTags: [] })],
       { api, kind: "portrait", cardWidth: 170 },
     );
-    expect(card.imageUrl).toContain("fillWidth=340");
+    // 2x is 340, rounded up to the ladder's next step.
+    expect(card.imageUrl).toContain("fillWidth=400");
   });
 });
 

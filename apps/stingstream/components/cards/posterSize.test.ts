@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { sizedPosterUrl } from "./posterSize";
+import { serverPosterWidth, sizedPosterUrl } from "./posterSize";
 
 // Pure string work, no react-native import anywhere in the chain, so unlike
 // `cardLayout.test.ts` this needs no stub.
@@ -158,5 +158,30 @@ describe("sizedPosterUrl: nonsense inputs", () => {
   test("a broken pixel ratio is treated as 1x rather than downgrading", () => {
     expect(sizedPosterUrl(TMDB, 300, Number.NaN)).toContain("/t/p/w342/");
     expect(sizedPosterUrl(TMDB, 300, 0)).toContain("/t/p/w342/");
+  });
+});
+
+describe("serverPosterWidth", () => {
+  test("widths come from a short ladder, so screens share the server's resized copies", () => {
+    // Every grid width between 151 and 200 points is two request sizes, not fifty.
+    const sizes = new Set<number | undefined>();
+    for (let width = 151; width <= 200; width++) {
+      sizes.add(serverPosterWidth(width));
+    }
+    expect([...sizes]).toEqual([320, 400]);
+    // A home row's card (150 at medium) and a grid card just wider land on the same size.
+    expect(serverPosterWidth(150)).toBe(320);
+    expect(serverPosterWidth(160)).toBe(320);
+    expect(serverPosterWidth(170)).toBe(400);
+  });
+
+  test("never less than 2x, never past the largest step", () => {
+    for (const width of [60, 118, 170, 300, 777]) {
+      expect(serverPosterWidth(width)!).toBeGreaterThanOrEqual(width * 2);
+    }
+    expect(serverPosterWidth(5000)).toBe(1920);
+    expect(serverPosterWidth(0)).toBeUndefined();
+    expect(serverPosterWidth(undefined)).toBeUndefined();
+    expect(serverPosterWidth(Number.NaN)).toBeUndefined();
   });
 });

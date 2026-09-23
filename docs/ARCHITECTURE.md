@@ -333,7 +333,7 @@ works unchanged. Proven pattern for remote-backed libraries; implemented in `Sti
    files") walks only the folders that already have one. A second folder added with no scan after
    it therefore stayed empty no matter how often that library was scanned, which is what Dan hit
    on the v0.2.1 beta. `LibraryLayoutPlan.NeedsScan` now counts an added folder, a removed one, a
-   created, retyped or withdrawn library, and a folder the library holds that has no item yet
+   created, retyped or withdrawn library, and a folder the library holds that has files but no item yet
    (`Unscanned`, the repair for nodes that took a folder before the fix). The scan is queued with
    `LibraryScanQueue` (`ITaskManager.QueueScheduledTask`), never `ValidateMediaLibrary`, which
    cancels a running scan and starts again: a queued one runs after the current one, and any

@@ -17,6 +17,30 @@
  * node side could not tell those apart.
  */
 
+import { POSTER_REQUEST_WIDTHS } from "@/constants/Library";
+
+/**
+ * The width to ask the media server for, for a card `cardWidth` points wide:
+ * twice that, rounded up to the next step of `POSTER_REQUEST_WIDTHS`.
+ *
+ * Twice, for pixel density, and never more. Rounded up so that every screen
+ * shares a handful of sizes: the server resizes once per distinct size, and a
+ * grid's cards change width with every pixel the window does. See the ladder's
+ * own comment for the numbers.
+ */
+export function serverPosterWidth(
+  cardWidth: number | undefined,
+): number | undefined {
+  if (!cardWidth || !Number.isFinite(cardWidth) || cardWidth <= 0) {
+    return undefined;
+  }
+  const wanted = Math.round(cardWidth * 2);
+  return (
+    POSTER_REQUEST_WIDTHS.find((width) => width >= wanted) ??
+    POSTER_REQUEST_WIDTHS[POSTER_REQUEST_WIDTHS.length - 1]
+  );
+}
+
 /**
  * The TMDB widths worth asking for, ascending.
  *

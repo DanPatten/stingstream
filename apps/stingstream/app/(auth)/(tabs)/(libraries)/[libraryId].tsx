@@ -46,6 +46,7 @@ import { LibraryFilterBar } from "@/components/filters/LibraryFilterBar";
 import { Loader } from "@/components/Loader";
 import { LibraryActionsMenu } from "@/components/library/LibraryActionsMenu";
 import { LibraryEmptyState } from "@/components/library/LibraryEmptyState";
+import { ScanIndicator } from "@/components/library/ScanStatus";
 import {
   useSetScreenTitle,
   useSetScreenTitleAccessory,
@@ -995,6 +996,7 @@ const Page = () => {
               <View style={{ height: grid.rowGap }} />
             )}
           />
+          <ScanIndicator libraryId={libraryId} />
         </View>
         {grid.actionSheet}
       </PageContainer>

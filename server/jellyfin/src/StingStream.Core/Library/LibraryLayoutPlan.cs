@@ -198,24 +198,24 @@ public static class LibraryLayoutPlan
     /// <summary>The folders of a library that no scan has taken in yet.</summary>
     /// <param name="locations">The folders the media server's library holds.</param>
     /// <param name="hasFolder">Whether the media server has an item for a folder.</param>
-    /// <param name="existsOnDisk">Whether a folder is there to scan.</param>
+    /// <param name="hasContent">Whether a folder is there and holds anything to scan.</param>
     /// <returns>The folders that want a scan.</returns>
     /// <remarks>
-    /// A folder that is not on disk is left out. A drive that is unplugged, or a share that is
-    /// down, cannot be scanned in, and counting it would ask for a scan on every pass until it came
-    /// back.
+    /// A folder that is missing or empty is left out, because a scan makes no item for either: an
+    /// unplugged drive, a share that is down, or a federated tree no peer has written to yet.
+    /// Counting one would ask for a scan on every pass, for nothing, until it changed.
     /// </remarks>
     public static IReadOnlyList<string> Unscanned(
         IEnumerable<string>? locations,
         Func<string, bool> hasFolder,
-        Func<string, bool> existsOnDisk)
+        Func<string, bool> hasContent)
     {
         ArgumentNullException.ThrowIfNull(hasFolder);
-        ArgumentNullException.ThrowIfNull(existsOnDisk);
+        ArgumentNullException.ThrowIfNull(hasContent);
 
         return (locations ?? Array.Empty<string>())
             .Where(p => !string.IsNullOrWhiteSpace(p))
-            .Where(p => existsOnDisk(p) && !hasFolder(p))
+            .Where(p => hasContent(p) && !hasFolder(p))
             .ToList();
     }
 

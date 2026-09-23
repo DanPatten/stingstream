@@ -7,10 +7,12 @@ import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import type { IconName } from "@/components/common/Icon";
+import { useLibraryScanLabel } from "@/components/library/ScanStatus";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
 import { space } from "@/constants/theme";
 import useRouter from "@/hooks/useAppRouter";
+import { SCAN_STATUS_QUERY_KEY } from "@/hooks/useScanStatus";
 import {
   isRecordings,
   type Library,
@@ -41,6 +43,7 @@ export function LibrariesSection() {
   const { t } = useTranslation();
   const router = useRouter();
   const libraries = useLibraries();
+  const scanLabel = useLibraryScanLabel();
   const [adding, setAdding] = useState(false);
 
   return (
@@ -75,7 +78,11 @@ export function LibrariesSection() {
               key={library.id}
               testID={`library-${library.name.toLowerCase().replace(/\s+/g, "-")}`}
               title={library.name}
-              value={library.enabled ? null : t("libraries.off")}
+              value={
+                library.enabled
+                  ? scanLabel(library.jellyfinItemId)
+                  : t("libraries.off")
+              }
               icon={iconFor(library)}
               showArrow
               onPress={() =>
@@ -121,6 +128,7 @@ function ScanButton() {
     onSuccess: () => {
       toast.success(t("libraries.scan_success"));
       queryClient.invalidateQueries({ queryKey: ["stingstream", "libraries"] });
+      queryClient.invalidateQueries({ queryKey: SCAN_STATUS_QUERY_KEY });
     },
     onError: (err) =>
       toast.error(

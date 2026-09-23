@@ -8,6 +8,7 @@ import {
 import { type BreakpointName, typeStyle } from "@/constants/theme";
 import { getPortraitImageUrl } from "@/utils/jellyfin/image/getPortraitImageUrl";
 import { getWideImageUrl } from "@/utils/jellyfin/image/getWideImageUrl";
+import { serverPosterWidth } from "./posterSize";
 
 /** One card. Everything is prebuilt here; the card view is presentational. */
 export type CardData = {
@@ -527,9 +528,8 @@ type BuildOptions = {
   cardWidth?: number;
 };
 
-/** Never request more image than 2x the card's own rendered width. */
-const imageRequestWidth = (cardWidth: number | undefined) =>
-  cardWidth ? Math.round(cardWidth * 2) : undefined;
+/** The server-side width for a card this wide. See `serverPosterWidth`. */
+const imageRequestWidth = serverPosterWidth;
 
 /**
  * `BaseItemDto` → card. The one place the labels, image selection and badge
