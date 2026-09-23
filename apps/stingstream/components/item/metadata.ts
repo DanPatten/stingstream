@@ -168,6 +168,24 @@ export const buildBadges = (
   return badges;
 };
 
+/**
+ * One short word for a video's resolution: `4K`, `1080p`, `720p` or `SD`, as Plex labels a version.
+ *
+ * Width or height, whichever says more: a 2.39:1 1080p film is 1920x800, and judging it by height
+ * alone would call it 720p.
+ */
+export const resolutionLabel = (
+  stream: MediaStream | null | undefined,
+): string | null => {
+  const width = stream?.Width ?? 0;
+  const height = stream?.Height ?? 0;
+  if (!width && !height) return null;
+  if (width >= UHD_MIN_WIDTH || height >= UHD_MIN_HEIGHT) return "4K";
+  if (width >= 1800 || height >= 1000) return "1080p";
+  if (width >= 1200 || height >= 700) return "720p";
+  return "SD";
+};
+
 /** The streams a details page should describe: the chosen source, or the item. */
 export const streamsOf = (
   source: MediaSourceInfo | null | undefined,

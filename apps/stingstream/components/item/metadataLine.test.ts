@@ -8,6 +8,7 @@ import {
   buildMetadataLine,
   formatRemaining,
   formatYears,
+  resolutionLabel,
   streamsOf,
 } from "./metadata";
 
@@ -239,5 +240,24 @@ describe("streamsOf", () => {
       stream,
     ]);
     expect(streamsOf(null, null)).toEqual([]);
+  });
+});
+
+describe("resolutionLabel", () => {
+  test("labels a version the way Plex does", () => {
+    expect(resolutionLabel({ Width: 3840, Height: 2160 })).toBe("4K");
+    expect(resolutionLabel({ Width: 1920, Height: 1080 })).toBe("1080p");
+    expect(resolutionLabel({ Width: 1280, Height: 720 })).toBe("720p");
+    expect(resolutionLabel({ Width: 720, Height: 576 })).toBe("SD");
+  });
+
+  test("a letterboxed film is judged by its width", () => {
+    expect(resolutionLabel({ Width: 1920, Height: 800 })).toBe("1080p");
+    expect(resolutionLabel({ Width: 3840, Height: 1600 })).toBe("4K");
+  });
+
+  test("nothing to go on says nothing", () => {
+    expect(resolutionLabel(undefined)).toBeNull();
+    expect(resolutionLabel({})).toBeNull();
   });
 });

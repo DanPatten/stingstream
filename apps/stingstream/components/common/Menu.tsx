@@ -249,7 +249,9 @@ export const MenuItem: React.FC<MenuItemProps> = ({
       <Text
         variant='body'
         numberOfLines={1}
-        style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}
+        // The label never gives way to the value: "Versions and q..." beside a file name was the
+        // wrong way round. The value truncates, and the menu widens to its max for the label.
+        style={{ flexGrow: 1, flexShrink: 0 }}
       >
         {label}
       </Text>

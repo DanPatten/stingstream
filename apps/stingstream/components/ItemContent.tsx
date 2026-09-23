@@ -25,7 +25,7 @@ import { DetailsHeader } from "@/components/item/DetailsHeader";
 import { ItemInfoDialog } from "@/components/item/ItemInfoDialog";
 import { ItemPeopleSections } from "@/components/item/ItemPeopleSections";
 import type { MoreMenuAction } from "@/components/item/MoreMenu";
-import { streamsOf } from "@/components/item/metadata";
+import { resolutionLabel, streamsOf } from "@/components/item/metadata";
 import { MediaSourceButton } from "@/components/MediaSourceButton";
 import { OverviewText } from "@/components/OverviewText";
 import { ParallaxScrollView } from "@/components/ParallaxPage";
@@ -241,7 +241,14 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
         key: "versions",
         icon: "sort",
         label: t("item.versions"),
-        description: selectedOptions.mediaSource?.Name ?? undefined,
+        // The quality, as Plex shows it ("1080p"), not the source's name: that is usually the
+        // file name, which pushed the row's own label off the menu.
+        description:
+          resolutionLabel(
+            selectedOptions.mediaSource?.MediaStreams?.find(
+              (stream) => stream.Type === "Video",
+            ),
+          ) ?? undefined,
         onPress: () => setChoosingVersion(true),
       });
     }
