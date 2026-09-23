@@ -86,7 +86,7 @@ on facts about what ships rather than on a disclaimer:
 |---|---|
 | Sharing scope | Invite-based groups. Nothing leaves a group. A node can belong to several groups. No public directory. |
 | Sharing mechanism | **Federated library inside Jellyfin.** Each node materializes the group index into its own Jellyfin as `.strm` + `.nfo` items in dedicated Shared libraries, enriched in-process by `StingStream.Core`. Replaces the Jellyswarrm proxy (decided 2026-09-04). Jellyswarrm stays vendored only for its Rust `jellyfin-api` crate and as reference; it is not in the request path and may be dropped. |
-| Downloads | **External clients only** (Dan, 2026-09-23, superseding the original "both embedded" decision below). No download client ships with or runs inside StingStream; the user adds their own qBittorrent, Transmission, Deluge, rTorrent, SABnzbd or NZBGet under Settings → Indexers & engines, and `OmniarrSyncService` pushes it into both arr cores the same way it pushes indexers. See M9. |
+| Downloads | **External clients only** (Dan, 2026-09-23, superseding the original "both embedded" decision below). No download client ships with or runs inside StingStream; the user adds their own qBittorrent, Transmission, Deluge, rTorrent, SABnzbd or NZBGet under Settings → Indexers & Downloads, and `OmniarrSyncService` pushes it into both arr cores the same way it pushes indexers. See M9. |
 | Platforms at launch | Web (served by every node), Android, **Google TV / Android TV**. **iOS skipped entirely for now** (Dan, 2026-09-04); Apple tvOS later. |
 | UI | **One codebase for all of them.** Expo app forked from Streamyfin (which already has TV variants), also built to web. The Expo codebase keeps iOS buildable in principle, but no iOS work, builds or accounts until Dan says so. |
 | Node roles | Full nodes on Windows/macOS/Linux/Docker. Phones and TVs are light nodes: stream, phones download for offline and optionally re-share what they hold. |
@@ -274,7 +274,7 @@ download client of its own.
   Same pattern Prowlarr uses.
 - **Downloads**: no embedded client of any kind. The user points Radarr and Sonarr at download
   clients they already run — qBittorrent, Transmission, Deluge, rTorrent, SABnzbd, NZBGet, added
-  under Settings → Indexers & engines — and `OmniarrSyncService` pushes each into both arr cores the
+  under Settings → Indexers & Downloads — and `OmniarrSyncService` pushes each into both arr cores the
   same way it pushes indexers, editable and deletable the same way too. InfiniDysk remains optional
   (SABnzbd-compatible API, streaming mode).
 

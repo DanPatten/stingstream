@@ -21,8 +21,8 @@ import {
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
-import { EmptyState, QueryState } from "../shared/ScreenState";
-import { FormSwitch } from "./fields";
+import { QueryState } from "../shared/ScreenState";
+import { FormSwitch, SectionEmptyState } from "./fields";
 
 /**
  * The download clients this server sends grabs to. Gap 8.
@@ -363,20 +363,10 @@ export function DownloadClientsSection() {
         onRetry={clients.refetch}
       >
         {(clients.data ?? []).length === 0 ? (
-          <EmptyState
+          <SectionEmptyState
             title={t("server_settings.external_clients_empty_title")}
             detail={t("server_settings.external_clients_empty_detail")}
             icon='download'
-            action={
-              open
-                ? undefined
-                : {
-                    label: t(
-                      "server_settings.external_clients_add_client_action",
-                    ),
-                    onPress: () => setOpen(true),
-                  }
-            }
           />
         ) : (
           <ListGroup>

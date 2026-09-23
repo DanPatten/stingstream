@@ -21,8 +21,8 @@ import {
 } from "@/lib/stingstream/hooks";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
-import { EmptyState, QueryState } from "../shared/ScreenState";
-import { FormSwitch } from "./fields";
+import { QueryState } from "../shared/ScreenState";
+import { FormSwitch, SectionEmptyState } from "./fields";
 
 const emptyForm: IndexerSettings = {
   Name: "",
@@ -275,9 +275,10 @@ export function IndexersSection() {
 
       <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
         {!indexers || indexers.length === 0 ? (
-          <EmptyState
+          <SectionEmptyState
             title={t("server_settings.indexers_empty_title")}
             detail={t("server_settings.indexers_empty_detail")}
+            icon='search'
           />
         ) : (
           <ListGroup>

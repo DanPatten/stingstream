@@ -24,7 +24,7 @@ import { useCanApproveRequests } from "@/lib/stingstream/requests";
  * **A node with no indexer at all is deliberately not flagged here.** It used to be, as "No indexers
  * configured", and Dan asked for it gone from this page completely (2026-09-12). Not having set one
  * up is a choice the group can make on purpose: requests still collect on the list and wait, the
- * approvals queue becomes Wanted, and the place to change it is Settings → Indexers & engines.
+ * approvals queue becomes Wanted, and the place to change it is Settings → Indexers & Downloads.
  * `indexerProblem` still tells the cases apart, which is exactly what lets this draw only some.
  *
  * **Indexers with no download client is flagged**, as its own sentence. StingStream stopped running

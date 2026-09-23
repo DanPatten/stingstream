@@ -13,7 +13,7 @@ involve.
 | Screen | Where | Visible on | Admin only? |
 |---|---|---|---|
 | Downloads | new tab `(downloads)` | phone, web | yes |
-| Libraries (what this server holds, whether it runs each one, and where it writes) · Indexers & engines · Quality & formats · Files & naming | Settings → Media, one category each | phone, web | yes |
+| Libraries (what this server holds, whether it runs each one, and where it writes) · Indexers & Downloads · Quality & formats · Files & naming | Settings → Media, one category each | phone, web | yes |
 | Users & access (`/users` redirects) · Remote access (domain, tunnel, ports, proxies, certificate; `/settings/domains` redirects) | Settings → Sharing & access, beside Servers | phone, web | yes |
 | Transcoding & hardware · Notifications · Plugins · Logs & status | Settings → Server, one category each | phone, web | yes |
 | Requests (Find / My requests / Alerts / Approvals / Activity / Policy) | new tab `(requests)` | phone, web, **TV** | **no** — see below |
@@ -44,7 +44,7 @@ restructure is named after them:
    pages, and its subtitle had to list all six. They are five categories with addresses of their
    own now: Media services, Quality & formats, Storage & libraries, Files & naming, Notifications.
 4. **Getting hold of something was filed as maintenance.** The categories that answer "how does
-   something this server does not have get here" — Indexers & engines, Quality & formats, Files &
+   something this server does not have get here" — Indexers & Downloads, Quality & formats, Files &
    naming — sat among eleven server-maintenance rows under *Server administration*. They are their
    own group because they are a subject somebody sits down to configure rather than part of the
    machine.
@@ -70,7 +70,7 @@ restructure is named after them:
 
 5. **The order was a member's, and an administrator read it.** Profile led, Libraries sat among
    server maintenance, and Domains and Network & remote access were two pages answering one
-   question. Since 2026-09-13 an administrator sees **Media** (Libraries, Indexers & engines,
+   question. Since 2026-09-13 an administrator sees **Media** (Libraries, Indexers & Downloads,
    Quality & formats, Files & naming), **Sharing & access** (Users & access, Servers, Remote
    access), **Server** (Transcoding & hardware, Notifications, Plugins, Logs & status) and **You**
    last, since Profile is also one click from their name in the sidebar. A member sees You, then

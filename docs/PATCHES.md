@@ -413,7 +413,7 @@ Both apps are used entirely unmodified. StingStream drives them through:
   built-in ones — their stock qBittorrent client pointed at StingStream's own qBittorrent-compatible
   API subset, and their stock NZBGet client pointed at the supervisor-run NZBGet. Both are gone:
   StingStream registers whatever qBittorrent/Transmission/Deluge/rTorrent/SABnzbd/NZBGet the user
-  adds under Settings → Indexers & engines, built from each app's own `downloadclient/schema`
+  adds under Settings → Indexers & Downloads, built from each app's own `downloadclient/schema`
   response the same way an indexer is (see the bullet above), never a copy of settings classes
   StingStream maintains itself. A provider StingStream no longer wants registered — renamed,
   disabled, or one of the old built-in clients on an upgrading node — is removed from both apps on

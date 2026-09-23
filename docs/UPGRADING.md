@@ -597,7 +597,7 @@ external client registered alongside the built-in ones, there is nothing for you
 only to understand what changed under you.
 
 **Add your own.** Point Radarr and Sonarr at a download client you already run — qBittorrent,
-Transmission, Deluge, rTorrent, SABnzbd or NZBGet — under Settings → Indexers & engines. It is
+Transmission, Deluge, rTorrent, SABnzbd or NZBGet — under Settings → Indexers & Downloads. It is
 registered into both arr cores the same way an indexer is, editable and deletable the same way too.
 A node with an indexer but no download client now says so on the Requests screen, where it used to
 be silently able to grab into the client StingStream ran itself.

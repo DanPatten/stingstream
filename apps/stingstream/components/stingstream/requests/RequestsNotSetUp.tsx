@@ -17,7 +17,7 @@ import { useCanApproveRequests } from "@/lib/stingstream/requests";
  * that a library's switch *is* its manager's switch. Each move was the same correction: send the
  * reader to the control, not to a page that mentions it.
  *
- * Not "Indexers & engines": that page administers indexers and download clients, which are what a
+ * Not "Indexers & Downloads": that page administers indexers and download clients, which are what a
  * manager uses once it exists. It never mentions the managers themselves.
  */
 export const REQUESTS_SETUP_ROUTE = "/settings/libraries?focus=libraries";

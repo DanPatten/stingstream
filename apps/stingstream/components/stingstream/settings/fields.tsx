@@ -1,10 +1,13 @@
 import { useTranslation } from "react-i18next";
 import { type StyleProp, View, type ViewStyle } from "react-native";
+import { EmptyState } from "@/components/common/EmptyState";
+import type { IconName } from "@/components/common/Icon";
 import { Input } from "@/components/common/Input";
 import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListItem } from "@/components/list/ListItem";
 
+import { radius } from "@/constants/theme";
 import { useBreakpointName } from "@/hooks/useBreakpoint";
 import { useTheme } from "@/hooks/useTheme";
 import { commitAutosaves } from "./autosaver";
@@ -163,6 +166,39 @@ export function ToggleRow({
         trackColor={{ true: accent[500] }}
       />
     </ListItem>
+  );
+}
+
+/**
+ * The empty state for one card on a settings page that holds several.
+ *
+ * `EmptyState` is sized for a whole screen: 64 px above and below, and an action button of its own.
+ * Two of those stacked on Indexers & Downloads read as two unrelated pages, one with an icon and a
+ * button and one without, each floating in its own sea of padding. A card's empty state sits inside
+ * a card the way its list would, always carries an icon, and has no button, because the card's
+ * header already has the Add button and a second one said the same thing twice.
+ */
+export function SectionEmptyState({
+  title,
+  detail,
+  icon,
+}: {
+  title: string;
+  detail: string;
+  icon: IconName;
+}) {
+  const { color } = useTheme();
+  return (
+    <EmptyState
+      title={title}
+      detail={detail}
+      icon={icon}
+      style={{
+        paddingVertical: 32,
+        borderRadius: radius.lg,
+        backgroundColor: color.bg["1"],
+      }}
+    />
   );
 }
 

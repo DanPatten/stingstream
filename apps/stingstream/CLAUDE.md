@@ -197,7 +197,7 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   manager: that also needs an enabled indexer covering films (`ArrEnablement`, reconciled in the
   background by `ArrEnablementWorker`). The row is a plain switch with no status on it.
   StingStream runs no download client of its own (removed 2026-09-23): the ones the user runs are
-  added, edited and tested under Settings → Indexers & engines, beside the indexers.
+  added, edited and tested under Settings → Indexers & Downloads, beside the indexers.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across
   navigation.
