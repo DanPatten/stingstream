@@ -48,7 +48,6 @@ import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { logAndCaptureError } from "@/utils/log";
-import { ItemTechnicalDetails } from "./ItemTechnicalDetails";
 import { PlayInRemoteSessionDialog } from "./PlayInRemoteSession";
 
 const Chromecast = !Platform.isTV ? require("./Chromecast") : null;
@@ -356,8 +355,10 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     />
   );
 
-  // Overview first, technical facts last — the order the critique asked for and
-  // the order a person reads a movie in.
+  // Overview, then the people and what is related. The file's technical facts
+  // are not on the page at all: they were a "Details" disclosure at the bottom
+  // until Dan asked for it to go (2026-09-23), and every one of them is in the
+  // "..." menu's Get info, with the rest of what the server knows about the file.
   const body = (
     <PageContainer bleed style={{ paddingTop: 28, gap: SECTION_GAP }}>
       <OverviewText text={item.Overview} gutter />
@@ -372,10 +373,6 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
 
       {item.Type !== "Program" && !isOffline ? (
         <SimilarItems itemId={item.Id} />
-      ) : null}
-
-      {!isOffline && streams.length > 0 ? (
-        <ItemTechnicalDetails source={selectedOptions.mediaSource} />
       ) : null}
     </PageContainer>
   );

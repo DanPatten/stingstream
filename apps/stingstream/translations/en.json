@@ -1263,7 +1263,6 @@
     "get_info": "Get info",
     "refresh_started": "Refreshing metadata. It may take a minute to appear.",
     "refresh_failed": "Could not refresh the metadata.",
-    "details": "Details",
     "cast": "Cast",
     "related": "Related",
     "episodes": "Episodes",

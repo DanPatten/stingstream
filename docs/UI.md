@@ -430,6 +430,19 @@ is materialised as a local item, so marking it is the same local request.
 
 There is no multi-select in a library grid yet, so there is no "mark N items".
 
+**Leaving Continue watching.** A card in the home Continue watching row has Plex's two ways off it
+in its menu. "Mark as watched" finishes it: it leaves the row at once, and for an episode Next up
+moves on to the one after. "Remove from Continue watching" (`hooks/useClearResume.ts`) forgets the
+position and marks nothing: `POST /UserItems/{id}/UserData` with `PlaybackPositionTicks: 0`, since
+the server's resume list is every unwatched item with a position, and `DELETE /UserPlayedItems`
+would also reset the play count. Play then goes back to plain Play. The row is told which it is by
+its query key (`homeRowMenuContext`), and the remove row is offered only for an item with a
+position. The server has no per-user "hide from Next up", and Next up follows the last *watched*
+episode, so a removed episode comes back in the merged row as its show's next episode, from the
+start, whenever an earlier one was watched; the merged row patches it rather than dropping it, so
+it does not blink out and back. The separate Next up row has no remove. The rules are
+`utils/continueWatching.ts`, pinned by its test. TV keeps its one-toggle long press.
+
 ## Web bundle
 
 ```powershell
