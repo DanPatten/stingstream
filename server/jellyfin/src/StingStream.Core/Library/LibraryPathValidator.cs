@@ -218,6 +218,11 @@ public static class LibraryPathValidator
     /// </remarks>
     public static LibraryProblem? EnsureUsable(string path)
     {
+        if (MissingDrive(path, Directory.Exists) is { } missing)
+        {
+            return missing;
+        }
+
         try
         {
             Directory.CreateDirectory(path);
@@ -233,6 +238,47 @@ public static class LibraryPathValidator
                 $"This server cannot write to that folder. {ex.Message}",
                 "path_not_writable");
         }
+    }
+
+    /// <summary>A folder on a drive letter this server does not have.</summary>
+    /// <param name="path">An already-validated absolute path.</param>
+    /// <param name="rootExists">Whether a drive's root (<c>Z:\</c>) is there.</param>
+    /// <returns>The problem, or <see langword="null"/> when the path is not on a missing drive.</returns>
+    /// <remarks>
+    /// <para>
+    /// The installed node runs as a Windows service, as LocalSystem, and a drive letter mapped to a
+    /// network share belongs to the Windows session that mapped it. The service has no such drive,
+    /// so a folder the owner can open in Explorer is not there at all for the server. The write
+    /// probe used to report that as "Could not find a part of the path", which names neither the
+    /// cause nor the fix. The fix is the share's own path, which a service can reach.
+    /// </para>
+    /// <para>
+    /// Parsed by hand rather than with <c>Path.GetPathRoot</c>, which does not see a drive letter
+    /// on Linux, so this rule is testable on both legs of CI.
+    /// </para>
+    /// </remarks>
+    public static LibraryProblem? MissingDrive(string path, Func<string, bool> rootExists)
+    {
+        ArgumentNullException.ThrowIfNull(rootExists);
+
+        if (string.IsNullOrEmpty(path)
+            || path.Length < 3
+            || !char.IsAsciiLetter(path[0])
+            || path[1] != ':'
+            || (path[2] != '\\' && path[2] != '/'))
+        {
+            return null;
+        }
+
+        var drive = char.ToUpperInvariant(path[0]);
+        if (rootExists($"{drive}:\\"))
+        {
+            return null;
+        }
+
+        return new LibraryProblem(
+            $"Your server cannot find drive {drive}:. For a network drive, use its network path, like \\\\server\\share.",
+            "drive_not_found");
     }
 
     /// <summary>Things worth saying yes to, but with a warning.</summary>

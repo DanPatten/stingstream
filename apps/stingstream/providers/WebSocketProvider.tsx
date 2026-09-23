@@ -23,7 +23,9 @@ import { logAndCaptureError, writeErrorLog } from "@/utils/log";
 
 // Query keys that depend on the set of library items and should be refreshed
 // when the server reports that the library changed (items added/removed/updated).
-const LIBRARY_CHANGE_QUERY_KEYS = [
+// Exported for `hooks/useScanStatus.ts`, which refetches the same lists while a
+// scan runs, because the server's own push is held back until the scan ends.
+export const LIBRARY_CHANGE_QUERY_KEYS = [
   ["home"],
   ["library-items"],
   ["nextUp-all"],

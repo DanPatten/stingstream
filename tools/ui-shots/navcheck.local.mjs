@@ -68,7 +68,7 @@ for (const [id, path] of [
   ["settings-nav-servers", "/settings/servers"],
   ["settings-nav-users", "/settings/users"],
   ["settings-nav-playback", "/settings/playback"],
-  ["settings-nav-storage", "/settings/storage"],
+  ["settings-nav-storage", "/settings/libraries"],
 ]) {
   const target = await visible(id);
   if (!target) {

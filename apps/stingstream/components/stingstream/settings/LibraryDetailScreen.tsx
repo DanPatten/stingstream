@@ -82,7 +82,7 @@ function LibraryDetail({ library }: { library: Library }) {
     try {
       await remove.mutateAsync(library.id);
       toast.success(t("libraries.deleted"));
-      router.replace("/settings/storage");
+      router.replace("/settings/libraries");
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : t("libraries.save_error"),

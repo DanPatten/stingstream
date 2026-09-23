@@ -1,200 +1,100 @@
-import { Ionicons } from "@expo/vector-icons";
 import {
   type BaseItemDto,
   PlayCommand,
 } from "@jellyfin/sdk/lib/generated-client/models";
 import { getSessionApi } from "@jellyfin/sdk/lib/utils/api/session-api";
 import { useAtomValue } from "jotai";
-import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
-import {
-  FlatList,
-  Modal,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { View } from "react-native";
+import { Dialog } from "@/components/common/Dialog";
+import { MenuItem } from "@/components/common/Menu";
+import { Text } from "@/components/common/Text";
 import { useAllSessions, type useSessionsProps } from "@/hooks/useSessions";
 import { apiAtom } from "@/providers/JellyfinProvider";
-import { HeaderIcon } from "./common/HeaderIcon";
-import { Text } from "./common/Text";
+import { logAndCaptureError } from "@/utils/log";
 import { Loader } from "./Loader";
-import { RoundButton } from "./RoundButton";
 
-interface Props extends React.ComponentProps<typeof View> {
+interface Props {
   item: BaseItemDto;
-  size?: "default" | "large";
+  visible: boolean;
+  onClose: () => void;
 }
 
-export const PlayInRemoteSessionButton: React.FC<Props> = ({
+/**
+ * "Play on another device": the sessions this server can send a title to.
+ *
+ * Opened by the details page's "..." row itself. It used to be a round badge at the end of that
+ * row, which opened its own React Native `Modal` with hard-coded colours; the row and the badge
+ * said the same thing twice (Dan, 2026-09-22), and the modal was outside the one modal surface.
+ */
+export const PlayInRemoteSessionDialog: React.FC<Props> = ({
   item,
-  ...props
+  visible,
+  onClose,
 }) => {
-  const [modalVisible, setModalVisible] = useState(false);
-  const api = useAtomValue(apiAtom);
-  const { sessions, isLoading } = useAllSessions({} as useSessionsProps);
   const { t } = useTranslation();
-  const handlePlayInSession = async (sessionId: string) => {
-    if (!api || !item.Id) return;
+  return (
+    <Dialog
+      visible={visible}
+      onClose={onClose}
+      title={t("home.sessions.select_session")}
+    >
+      {/* Its own component: on a device the dialog is presented once, with the content it had
+          then, so the list has to hold its own query to stay current. */}
+      <SessionList item={item} onDone={onClose} />
+    </Dialog>
+  );
+};
 
+const SessionList: React.FC<{ item: BaseItemDto; onDone: () => void }> = ({
+  item,
+  onDone,
+}) => {
+  const api = useAtomValue(apiAtom);
+  const { t } = useTranslation();
+  const { sessions, isLoading } = useAllSessions({} as useSessionsProps);
+
+  const play = async (sessionId: string) => {
+    if (!api || !item.Id) return;
+    onDone();
     try {
-      console.log(`Playing ${item.Name} in session ${sessionId}`);
-      getSessionApi(api).play({
+      await getSessionApi(api).play({
         sessionId,
         itemIds: [item.Id],
         playCommand: PlayCommand.PlayNow,
       });
-
-      setModalVisible(false);
     } catch (error) {
-      console.error("Error playing in remote session:", error);
+      logAndCaptureError("Play in remote session failed", error);
     }
   };
 
+  if (isLoading) {
+    return (
+      <View style={{ paddingVertical: 32, alignItems: "center" }}>
+        <Loader />
+      </View>
+    );
+  }
+
+  if (!sessions?.length) {
+    return (
+      <Text tone='secondary' style={{ paddingVertical: 16 }}>
+        {t("home.sessions.no_active_sessions")}
+      </Text>
+    );
+  }
+
   return (
-    <View {...props}>
-      <RoundButton onPress={() => setModalVisible(true)} size={props.size}>
-        <HeaderIcon
-          name='remoteSession'
-          size={props.size === "large" ? undefined : 18}
+    <View style={{ marginHorizontal: -16 }}>
+      {sessions.map((session) => (
+        <MenuItem
+          key={session.Id ?? session.DeviceName ?? ""}
+          icon='devices'
+          label={session.DeviceName ?? session.Client ?? ""}
+          description={session.Client ?? undefined}
+          onPress={() => void play(session.Id ?? "")}
         />
-      </RoundButton>
-
-      <Modal
-        animationType='slide'
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.centeredView}>
-          <View style={styles.modalView}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {t("home.sessions.select_session")}
-              </Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name='close' size={24} color='white' />
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.modalContent}>
-              {isLoading ? (
-                <View style={styles.loadingContainer}>
-                  <Loader />
-                </View>
-              ) : !sessions || sessions.length === 0 ? (
-                <Text style={styles.noSessionsText}>
-                  {t("home.sessions.no_active_sessions")}
-                </Text>
-              ) : (
-                <FlatList
-                  data={sessions}
-                  keyExtractor={(session) => session.Id || "unknown"}
-                  renderItem={({ item: session }) => (
-                    <TouchableOpacity
-                      style={styles.sessionItem}
-                      onPress={() => handlePlayInSession(session.Id || "")}
-                    >
-                      <View style={styles.sessionInfo}>
-                        <Text style={styles.sessionName}>
-                          {session.DeviceName}
-                        </Text>
-                        <Text style={styles.sessionDetails}>
-                          {session.UserName} • {session.Client}
-                        </Text>
-                        {session.NowPlayingItem && (
-                          <Text style={styles.nowPlaying} numberOfLines={1}>
-                            {t("home.sessions.now_playing")}{" "}
-                            {session.NowPlayingItem.SeriesName
-                              ? `${session.NowPlayingItem.SeriesName} :`
-                              : ""}
-                            {session.NowPlayingItem.Name}
-                          </Text>
-                        )}
-                      </View>
-                      <Ionicons name='play-sharp' size={20} color='#888' />
-                    </TouchableOpacity>
-                  )}
-                  contentContainerStyle={styles.listContent}
-                />
-              )}
-            </View>
-          </View>
-        </View>
-      </Modal>
+      ))}
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  centeredView: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-  },
-  modalView: {
-    width: "90%",
-    maxHeight: "80%",
-    backgroundColor: "#1c1c1c",
-    borderRadius: 20,
-    overflow: "hidden",
-    display: "flex",
-    flexDirection: "column",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#333",
-  },
-  modalContent: {
-    flex: 1,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-  },
-  loadingContainer: {
-    padding: 40,
-    alignItems: "center",
-  },
-  noSessionsText: {
-    padding: 40,
-    textAlign: "center",
-    color: "#888",
-  },
-  listContent: {
-    paddingVertical: 8,
-  },
-  sessionItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#333",
-  },
-  sessionInfo: {
-    flex: 1,
-  },
-  sessionName: {
-    fontSize: 16,
-    fontWeight: "500",
-    marginBottom: 4,
-  },
-  sessionDetails: {
-    fontSize: 13,
-    opacity: 0.7,
-    marginBottom: 2,
-  },
-  nowPlaying: {
-    fontSize: 12,
-    opacity: 0.5,
-    fontStyle: "italic",
-  },
-});

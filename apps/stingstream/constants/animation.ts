@@ -19,3 +19,14 @@ import { Platform } from "react-native";
  * Reanimated is unaffected — it has its own web runtime and never warns.
  */
 export const USE_NATIVE_DRIVER = Platform.OS !== "web";
+
+/**
+ * How long a menu's bottom sheet takes to leave, before a row's own sheet can take its place.
+ *
+ * On a device a menu and everything its rows open share the one global sheet
+ * (`GlobalModalProvider`). Handing it over in the same tick lost the new content: the menu's
+ * `hideModal` clears the sheet a frame later, after the row's `showModal` had filled it. A row's
+ * action therefore waits for the menu to finish going. The web's menu is a dropdown with no
+ * animation, and hands over at once.
+ */
+export const MENU_SHEET_HANDOFF_MS = 320;

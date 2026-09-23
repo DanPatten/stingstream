@@ -1,5 +1,5 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { type RefObject, useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Linking, type StyleProp, View, type ViewStyle } from "react-native";
 import { Button } from "@/components/Button";
@@ -34,6 +34,11 @@ interface Props {
   selectedOptions?: SelectedOptions;
   /** Rows for the "…" menu, assembled by the page that owns the data. */
   moreActions?: MoreMenuAction[];
+  /**
+   * The "..." itself, for a picker one of its rows opens: it drops from the same place the menu
+   * did. The page owns the ref when it owns such a picker.
+   */
+  moreAnchorRef?: RefObject<View | null>;
   style?: StyleProp<ViewStyle>;
 }
 
@@ -54,6 +59,7 @@ export const ActionRow: React.FC<Props> = ({
   playItem,
   selectedOptions,
   moreActions = [],
+  moreAnchorRef,
   style,
 }) => {
   const { t } = useTranslation();
@@ -61,7 +67,8 @@ export const ActionRow: React.FC<Props> = ({
   const { accent } = useTheme();
   const { settings } = useSettings();
   const [moreOpen, setMoreOpen] = useState(false);
-  const moreAnchor = useRef<View>(null);
+  const ownAnchor = useRef<View>(null);
+  const moreAnchor = moreAnchorRef ?? ownAnchor;
 
   const { isFavorite, toggleFavorite } = useFavorite(item);
   const togglePlayed = useMarkAsPlayed(useMemo(() => [item], [item]));

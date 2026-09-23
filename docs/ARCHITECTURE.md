@@ -327,6 +327,18 @@ works unchanged. Proven pattern for remote-backed libraries; implemented in `Sti
    arr root folder (`RootFolderResolver.AllLocal`). Movies and TV Shows cannot be removed; any other
    library can, and removing one withdraws it from the media server and keeps its files.
 
+   **A folder change is followed by a whole-server scan** (2026-09-22). `AddMediaPath` only writes
+   the folder into the library's definition; Jellyfin makes an item of it, and so treats it as one
+   of the library's folders, only in a whole-library scan, and a per-library refresh ("Scan library
+   files") walks only the folders that already have one. A second folder added with no scan after
+   it therefore stayed empty no matter how often that library was scanned, which is what Dan hit
+   on the v0.2.1 beta. `LibraryLayoutPlan.NeedsScan` now counts an added folder, a removed one, a
+   created, retyped or withdrawn library, and a folder the library holds that has no item yet
+   (`Unscanned`, the repair for nodes that took a folder before the fix). The scan is queued with
+   `LibraryScanQueue` (`ITaskManager.QueueScheduledTask`), never `ValidateMediaLibrary`, which
+   cancels a running scan and starts again: a queued one runs after the current one, and any
+   number queued during it collapse into one.
+
    **Each library can be switched off** (`LibrarySettings.Enabled`, 2026-09-10), and off means
    the owner saying "not on this server": the library is withdrawn from the media server's view,
    the manager that fills it is stopped through `config.toml`, and the materializer stops writing

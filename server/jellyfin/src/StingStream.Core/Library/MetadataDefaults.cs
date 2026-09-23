@@ -85,6 +85,42 @@ public static class MetadataDefaults
         return changes;
     }
 
+    /// <summary>The TMDb poster size a node downloads when nobody has chosen one.</summary>
+    /// <remarks>
+    /// <para>
+    /// Upstream leaves <c>PosterSize</c> unset, which <c>TmdbClientManager.GetUrl</c> turns into
+    /// <c>original</c>: 1000x1500 to 2000x3000, commonly 0.4 to 3 MB, for a card drawn about 170
+    /// points wide. Every poster on a first scan is fetched at that size, and every card the app
+    /// draws is then resized down from it on the first request. Measured on node 1: a cold
+    /// resize from a 1400x2100 original took 0.70 s, from a 691x1024 one 0.33 s; warm, both
+    /// are about 15 ms. Three sample TMDb posters were 674, 534 and 397 KB at <c>original</c> and
+    /// 318, 319 and 161 KB at <c>w780</c>.
+    /// </para>
+    /// <para>
+    /// <c>w780</c> is still larger than anything the app asks for: the widest poster it draws is
+    /// the details header, 220 points, at 3x. Backdrops are left alone, since a hero is drawn
+    /// across the whole window.
+    /// </para>
+    /// </remarks>
+    public const string DefaultTmdbPosterSize = "w780";
+
+    /// <summary>Give TMDb a poster size when it has none. A size somebody chose is kept.</summary>
+    /// <param name="config">The TMDb plugin's configuration, changed in place.</param>
+    /// <returns>What was changed, one line each; empty when nothing was.</returns>
+    public static IReadOnlyList<string> ApplyTmdbImageSizes(MediaBrowser.Providers.Plugins.Tmdb.PluginConfiguration config)
+    {
+        ArgumentNullException.ThrowIfNull(config);
+        var changes = new List<string>();
+
+        if (string.IsNullOrWhiteSpace(config.PosterSize))
+        {
+            config.PosterSize = DefaultTmdbPosterSize;
+            changes.Add($"TMDb poster size was original, now {DefaultTmdbPosterSize}");
+        }
+
+        return changes;
+    }
+
     private static bool Contains(string[]? list)
         => list is not null && list.Contains(TmdbProviderName, StringComparer.OrdinalIgnoreCase);
 

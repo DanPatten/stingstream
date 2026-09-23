@@ -73,6 +73,7 @@ public sealed class LibraryLayoutService
     private readonly ILibraryMonitor _monitor;
     private readonly INodeRuntimeProvider _runtime;
     private readonly SettingsStore _settings;
+    private readonly LibraryScanQueue _scans;
     private readonly ILogger<LibraryLayoutService> _logger;
 
     /// <summary>
@@ -92,12 +93,14 @@ public sealed class LibraryLayoutService
         ILibraryMonitor monitor,
         INodeRuntimeProvider runtime,
         SettingsStore settings,
+        LibraryScanQueue scans,
         ILogger<LibraryLayoutService> logger)
     {
         _library = library;
         _monitor = monitor;
         _runtime = runtime;
         _settings = settings;
+        _scans = scans;
         _logger = logger;
     }
 
@@ -130,13 +133,13 @@ public sealed class LibraryLayoutService
             return report;
         }
 
-        var removedSomething = false;
+        var changedSomething = false;
         foreach (var desired in LibraryLayoutPlan.Plan(settings, runtime?.Paths, federatedRoot))
         {
             var library = settings.Libraries.FirstOrDefault(
                 l => string.Equals(l.FolderName, desired.FolderName, StringComparison.OrdinalIgnoreCase));
 
-            removedSomething |= await EnsureOneAsync(desired, library, report, cancellationToken)
+            changedSomething |= await EnsureOneAsync(desired, library, report, cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -145,13 +148,22 @@ public sealed class LibraryLayoutService
         // tree is added to its new host first, so it is never briefly attached to nothing.
         foreach (var library in settings.Libraries.Where(l => !l.Enabled))
         {
-            removedSomething |= await WithdrawAsync(library, report).ConfigureAwait(false);
+            changedSomething |= await WithdrawAsync(library, report).ConfigureAwait(false);
         }
 
-        // Once per call, and only when the shape of what is on disk actually changed.
-        // `ValidateMediaLibrary` cancels a scan that is already running, so doing it per library
-        // would starve the scan on a node with several, and doing it on every start would cancel a
-        // scan for no reason at all -- which is what "reconcile on every start" would mean.
+        // Once per call, and only when the shape of what is on disk actually changed: a folder
+        // added or removed, a library created, retyped or withdrawn, or a folder no scan has taken
+        // in yet (LibraryLayoutPlan.NeedsScan). Doing it on every start would scan for no reason at
+        // all, which is what "reconcile on every start" would otherwise mean.
+        //
+        // Queued, never restarted (LibraryScanQueue). It returns at once, so the request that
+        // added a folder answers without waiting for the scan, and a scan already running is
+        // followed by one more rather than thrown away.
+        //
+        // **Adding a folder counts, and leaving it out was the bug Dan hit on 2026-09-22**: a
+        // second folder of movies on Movies stayed empty, and "Scan library files" could not fill
+        // it, because only a whole-library scan makes the media server treat a new folder as part
+        // of the library. See LibraryLayoutPlan.NeedsScan.
         //
         // **Creating counts, and leaving it out was a first-install bug.** On a fresh node the
         // media scan runs before this does: Jellyfin scans at startup, these libraries are created
@@ -160,23 +172,25 @@ public sealed class LibraryLayoutService
         // task happened along -- `e2e-m6` timed out at 420s waiting for exactly that, with one
         // "Scan Media Library Completed" in the whole run, five seconds before the libraries it
         // did not know about. Creation happens once per library, so this does not re-fire.
-        if (removedSomething || report.Created.Count > 0)
+        if (changedSomething || report.Created.Count > 0)
         {
-            await _library.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None)
-                .ConfigureAwait(false);
-            report.Steps.Add(
-                report.Created.Count > 0
-                    ? "libraries: rescan queued (a library was created)"
-                    : "libraries: rescan queued (a folder was removed or a library retyped)");
+            var reason = report.Created.Count > 0
+                ? "a library was created"
+                : "a library's folders changed";
+            _scans.Request(reason);
+            report.Steps.Add($"libraries: rescan queued ({reason})");
         }
 
         // The settings now carry the folder names and ids Jellyfin actually used, plus the
         // locations this node is responsible for. Persisting that is what lets the next run tell
         // its own work from somebody's hand edit.
+        //
+        // Only those fields, merged onto the settings as they are now. Saving the snapshot read at
+        // the top of this pass put back any switch somebody pressed while it ran.
         if (_settingsDirty)
         {
             _settingsDirty = false;
-            await _settings.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+            await _settings.SaveLibraryBookkeepingAsync(settings, cancellationToken).ConfigureAwait(false);
         }
 
         return report;
@@ -196,8 +210,7 @@ public sealed class LibraryLayoutService
         var removed = await WithdrawAsync(library, report).ConfigureAwait(false);
         if (removed)
         {
-            await _library.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None)
-                .ConfigureAwait(false);
+            _scans.Request($"the {library.Name} library was removed");
         }
 
         return removed;
@@ -372,8 +385,8 @@ public sealed class LibraryLayoutService
     /// <param name="report">Accumulates what happened.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>
-    /// <c>true</c> when a location was removed or the library's type was repaired, so the caller
-    /// can queue one rescan.
+    /// <c>true</c> when the library needs a whole-library scan (<see cref="LibraryLayoutPlan.NeedsScan"/>),
+    /// so the caller can queue one.
     /// </returns>
     /// <remarks>
     /// <para>
@@ -407,7 +420,7 @@ public sealed class LibraryLayoutService
             Directory.CreateDirectory(path);
         }
 
-        var removed = false;
+        var scan = false;
 
         try
         {
@@ -461,25 +474,39 @@ public sealed class LibraryLayoutService
                     ApplyOptions(folder.Name, report);
                 }
 
-                return retyped;
+                var unscanned = LibraryLayoutPlan.Unscanned(folder.Locations, HasFolder, Directory.Exists);
+                if (unscanned.Count > 0)
+                {
+                    report.Steps.Add($"library {desired.Name}: not yet scanned {string.Join(", ", unscanned)}");
+                    _logger.LogInformation(
+                        "{Paths} in the {Name} library have not been scanned yet",
+                        string.Join(", ", unscanned),
+                        desired.Name);
+                }
+
+                return LibraryLayoutPlan.NeedsScan(
+                    Array.Empty<string>(), Array.Empty<string>(), retyped, unscanned);
             }
 
-            removed = retyped;
+            scan = retyped;
 
             // Upstream stops the watcher around exactly these calls; a file event fired against a
             // library mid-rewire is read against a location that is on its way in or out.
             _monitor.Stop();
             try
             {
+                // `scan` is set per path rather than once afterwards, so a second add that throws
+                // still leaves the first one scanned.
                 foreach (var path in toAdd)
                 {
                     _library.AddMediaPath(folder.Name, new MediaPathInfo(path));
+                    scan = true;
                 }
 
                 foreach (var path in toRemove)
                 {
                     _library.RemoveMediaPath(folder.Name, path);
-                    removed = true;
+                    scan = true;
                 }
             }
             finally
@@ -520,7 +547,27 @@ public sealed class LibraryLayoutService
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        return removed;
+        return scan;
+    }
+
+    /// <summary>Whether the media server has an item for one of a library's folders.</summary>
+    /// <remarks>
+    /// It makes one only in a whole-library scan, and a per-library scan walks only the folders
+    /// that already have one. A folder in the library's definition without one is therefore a
+    /// folder that no scan of that library will ever fill. See <see cref="LibraryLayoutPlan.NeedsScan"/>.
+    /// </remarks>
+    private bool HasFolder(string path)
+    {
+        try
+        {
+            return _library.FindByPath(path, true) is Folder;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            // Unknown is not "missing": a scan requested on a guess would repeat on every pass.
+            _logger.LogDebug(ex, "Could not look up the folder item for {Path}", path);
+            return true;
+        }
     }
 
     /// <summary>

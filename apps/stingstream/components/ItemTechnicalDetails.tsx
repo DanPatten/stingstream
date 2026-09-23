@@ -1,7 +1,4 @@
-import type {
-  MediaSourceInfo,
-  MediaStream,
-} from "@jellyfin/sdk/lib/generated-client";
+import type { MediaSourceInfo } from "@jellyfin/sdk/lib/generated-client";
 import type React from "react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +10,12 @@ import { radius, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
-import { formatBitrate } from "@/utils/bitrate";
+import {
+  formatBitrateOrNull,
+  formatFileSize,
+  formatFrameRate,
+  formatVideoRange,
+} from "./item/mediaInfo";
 
 interface Props {
   source?: MediaSourceInfo;
@@ -99,12 +101,10 @@ export const ItemTechnicalDetails: React.FC<Props> = ({ source }) => {
                 video.Width && video.Height
                   ? `${video.Width}×${video.Height}`
                   : null,
-                isDolbyVision(video) ? "Dolby Vision" : video.VideoRange,
+                formatVideoRange(video),
                 video.Codec?.toUpperCase(),
-                formatBitrate(video.BitRate),
-                video.AverageFrameRate != null
-                  ? `${video.AverageFrameRate.toFixed(0)} fps`
-                  : null,
+                formatBitrateOrNull(video.BitRate),
+                formatFrameRate(video.RealFrameRate ?? video.AverageFrameRate),
               ]}
             />
           </Group>
@@ -118,7 +118,7 @@ export const ItemTechnicalDetails: React.FC<Props> = ({ source }) => {
                       stream.Language,
                       stream.Codec?.toUpperCase(),
                       stream.ChannelLayout,
-                      formatBitrate(stream.BitRate),
+                      formatBitrateOrNull(stream.BitRate),
                     ]}
                   />
                 </Stream>
@@ -142,11 +142,6 @@ export const ItemTechnicalDetails: React.FC<Props> = ({ source }) => {
     </View>
   );
 };
-
-const isDolbyVision = (stream: MediaStream): boolean =>
-  stream.VideoRangeType === "DOVI" ||
-  stream.DvVersionMajor != null ||
-  stream.DvVersionMinor != null;
 
 const Group: React.FC<React.PropsWithChildren<{ title: string }>> = ({
   title,
@@ -187,23 +182,11 @@ const Stream: React.FC<React.PropsWithChildren<{ title?: string | null }>> = ({
 const Chips: React.FC<{ values: (string | null | undefined)[] }> = ({
   values,
 }) => (
-  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
     {values
       .filter((value): value is string => Boolean(value))
       .map((value) => (
-        <Pill key={value} label={value} size='sm' />
+        <Pill key={value} label={value} />
       ))}
   </View>
 );
-
-const UNITS = ["B", "KB", "MB", "GB", "TB"];
-
-const formatFileSize = (bytes?: number | null): string | null => {
-  if (!bytes || bytes <= 0) return null;
-  const exponent = Math.min(
-    UNITS.length - 1,
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-  );
-  const value = bytes / 1024 ** exponent;
-  return `${value >= 10 || exponent === 0 ? Math.round(value) : value.toFixed(1)} ${UNITS[exponent]}`;
-};

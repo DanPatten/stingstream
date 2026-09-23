@@ -116,6 +116,13 @@ public static class StingStreamCoreExtensions
         // and the materializer, because either can be the first to run on a given start.
         services.AddSingleton<LibraryLayoutService>();
 
+        // Queues a whole-library scan behind any scan already running, rather than restarting it.
+        services.AddSingleton<LibraryScanQueue>();
+
+        // Applies a library edit after the request that saved it, one pass at a time, so a switch
+        // answers at once and two layout passes never race over the same settings.
+        services.AddSingleton<LibraryApplyQueue>();
+
         // Webhooks.
         services.AddSingleton<ArrWebhookService>();
 

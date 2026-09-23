@@ -144,6 +144,9 @@ const WebMenu: React.FC<AnchoredMenuProps> = ({
             position: "absolute",
             top,
             ...horizontal,
+            // Sized to its widest row, between the two bounds. Left to shrink-to-fit, a menu held
+            // by its right edge settled on `minWidth` and squeezed its labels into the controls.
+            width: "max-content" as ViewStyle["width"],
             minWidth,
             maxWidth: Math.min(maxWidth, window.width - EDGE * 2),
             maxHeight: window.height - EDGE * 2,
@@ -171,7 +174,7 @@ export interface MenuItemProps {
   /** Absent for a row whose `trailing` control does the work. */
   onPress?: () => void;
   icon?: IconName;
-  /** A second line under the label, when the label alone is not enough. */
+  /** A short value at the end of the row: the current choice, a profile name. One line. */
   description?: string;
   /** The chosen one of a set, or a setting that is on. Drawn as a check. */
   selected?: boolean;
@@ -180,7 +183,23 @@ export interface MenuItemProps {
   testID?: string;
 }
 
-/** One line of a menu. */
+/** Every row is at least this tall, with or without a `description`, so a menu reads as one column. */
+const ROW_HEIGHT = 40;
+/** The leading icon's column. Fixed, so labels line up whatever each glyph's own width. */
+const ICON_COLUMN = 20;
+/** Between the label and whatever sits at the end of the row. */
+const TRAILING_GAP = 16;
+
+/**
+ * One line of a menu.
+ *
+ * Dan, 2026-09-22, on the details page "...": a description pushed its row taller than the others,
+ * the icons wandered with each glyph's own width, and a label ran straight into the control at the
+ * end of its row, because the label column was `flex: 1` and so gave the menu no width to size to.
+ * Now every row is one height, the icon sits in a fixed column, `description` is a muted value at
+ * the end of the line (where Linear and Plex put a current choice), and the label, the value and
+ * any trailing control keep a gap and truncate rather than collide. The value gives way first.
+ */
 export const MenuItem: React.FC<MenuItemProps> = ({
   label,
   onPress,
@@ -197,28 +216,46 @@ export const MenuItem: React.FC<MenuItemProps> = ({
   const body = (
     <>
       {icon ? (
-        <Icon
-          name={icon}
-          size={18}
-          tone='secondary'
-          style={{ marginRight: 12 }}
-        />
+        <View
+          style={{ width: ICON_COLUMN, alignItems: "center", marginRight: 12 }}
+        >
+          <Icon name={icon} size={18} tone='secondary' />
+        </View>
       ) : null}
-      <View style={{ flex: 1 }}>
-        <Text variant='body'>{label}</Text>
-        {description ? (
-          <Text variant='caption' tone='tertiary' style={{ marginTop: 2 }}>
-            {description}
-          </Text>
-        ) : null}
-      </View>
-      {trailing}
+      <Text
+        variant='body'
+        numberOfLines={1}
+        style={{ flexGrow: 1, flexShrink: 1, minWidth: 0 }}
+      >
+        {label}
+      </Text>
+      {description ? (
+        <Text
+          variant='caption'
+          tone='tertiary'
+          numberOfLines={1}
+          style={{
+            flexShrink: 4,
+            minWidth: 0,
+            maxWidth: 160,
+            marginLeft: TRAILING_GAP,
+            textAlign: "right",
+          }}
+        >
+          {description}
+        </Text>
+      ) : null}
+      {trailing ? (
+        <View style={{ flexShrink: 0, marginLeft: TRAILING_GAP }}>
+          {trailing}
+        </View>
+      ) : null}
       {selected ? (
         <Icon
           name='check'
           size={18}
           color={accent[500]}
-          style={{ marginLeft: 12 }}
+          style={{ marginLeft: TRAILING_GAP }}
         />
       ) : null}
     </>
@@ -227,7 +264,7 @@ export const MenuItem: React.FC<MenuItemProps> = ({
   const box: ViewStyle = {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: 40,
+    minHeight: ROW_HEIGHT,
     paddingHorizontal: 16,
     paddingVertical: 8,
     opacity: disabled ? 0.5 : 1,
@@ -247,7 +284,7 @@ export const MenuItem: React.FC<MenuItemProps> = ({
     <Pressable
       testID={testID}
       accessibilityRole='menuitem'
-      accessibilityLabel={label}
+      accessibilityLabel={description ? `${label}, ${description}` : label}
       accessibilityState={{ selected, disabled }}
       disabled={disabled}
       onPress={onPress}

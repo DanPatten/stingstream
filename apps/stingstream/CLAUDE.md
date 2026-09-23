@@ -188,8 +188,11 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
 - There is no Downloading page either. Whether this node fetches a kind of title is a
   library's own switch, on its page under Settings → Libraries: the list is
   `components/stingstream/settings/LibrariesSection.tsx`, each row opens
-  `settings/storage/[id]` (`LibraryDetailScreen.tsx`) with the switch and the library's folders,
-  all over `lib/stingstream/libraries.ts`. Folders are picked with `FolderBrowserDialog`. A library
+  `settings/libraries/[id]` (`LibraryDetailScreen.tsx`) with the switch and the library's folders,
+  all over `lib/stingstream/libraries.ts`. The list itself is `/settings/libraries`, and the old
+  `/settings/storage` addresses redirect there. The list rows show no folders. The switch is the
+  stored boolean only: the node answers it before doing anything else, and edits not yet answered
+  are laid over every refetch (`lib/stingstream/libraryEdits.ts`) so a poll cannot flip it back. Folders are picked with `FolderBrowserDialog`. A library
   page's "..." (`components/library/LibraryActionsMenu.tsx`) links there. Turning Movies on does not by itself start the movie
   manager: that also needs an enabled indexer covering films (`ArrEnablement`, reconciled in the
   background by `ArrEnablementWorker`). The row is a plain switch with no status on it. Usenet is

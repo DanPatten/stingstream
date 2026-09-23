@@ -440,6 +440,23 @@ public sealed class FirstRunService : BackgroundService
     /// <remarks>See <see cref="StingStream.Core.Library.MetadataDefaults"/>. Saves only when something was actually wrong.</remarks>
     private void EnsureMetadataDefaults(FirstRunReport report)
     {
+        // The TMDb plugin keeps its own configuration file, so it is saved on its own.
+        var tmdb = MediaBrowser.Providers.Plugins.Tmdb.Plugin.Instance;
+        if (tmdb is not null)
+        {
+            var sizes = StingStream.Core.Library.MetadataDefaults.ApplyTmdbImageSizes(tmdb.Configuration);
+            if (sizes.Count > 0)
+            {
+                tmdb.SaveConfiguration();
+                foreach (var change in sizes)
+                {
+                    report.Steps.Add($"metadata: {change}");
+                }
+
+                _logger.LogInformation("Set TMDb image defaults: {Changes}", string.Join("; ", sizes));
+            }
+        }
+
         var changes = StingStream.Core.Library.MetadataDefaults.Apply(_serverConfig.Configuration);
         if (changes.Count == 0)
         {

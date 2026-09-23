@@ -303,4 +303,27 @@ public class LibraryPathValidatorTests
 
         Assert.Equal(code, Check(path)?.Code);
     }
+
+    [Theory]
+    [InlineData(@"Z:\Movies", "drive_not_found")]
+    [InlineData(@"z:/Movies/Action", "drive_not_found")]
+    [InlineData(@"D:\Movies", null)]
+    [InlineData(@"\\nas\media\Movies", null)]
+    [InlineData("/mnt/media/Movies", null)]
+    public void AFolderOnADriveThisServerCannotSeeIsRefusedByName(string path, string? code)
+    {
+        // Dan's beta runs as a Windows service, and a drive letter mapped in somebody's sign-in
+        // session does not exist for a service at all. The write probe used to report that as
+        // "Could not find a part of the path", which does not say what to do.
+        var problem = LibraryPathValidator.MissingDrive(
+            path, root => root[0] != 'Z');
+
+        Assert.Equal(code, problem?.Code);
+        if (problem is not null)
+        {
+            Assert.Contains("Z:", problem.Error, StringComparison.Ordinal);
+            Assert.Contains(@"\\server\share", problem.Error, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u2014", problem.Error, StringComparison.Ordinal);
+        }
+    }
 }

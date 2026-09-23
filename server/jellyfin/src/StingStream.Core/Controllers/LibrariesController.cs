@@ -56,11 +56,12 @@ namespace StingStream.Core.Controllers;
 /// that is meant to be used instead.
 /// </para>
 /// <para>
-/// Every write ends in <see cref="LibraryLayoutService.EnsureAsync"/>, so the answer to "did it
-/// take" is the state this returns rather than something the caller has to poll for. The one thing
-/// it cannot report is the child process: the supervisor notices <c>config.toml</c> within a few
-/// seconds and a cold manager takes minutes to migrate its database, so that answer stays where it
-/// already was, on <c>/healthz</c>.
+/// A folder edit, an add and a remove end in <see cref="LibraryLayoutService.EnsureAsync"/>, so the
+/// answer to "did it take" is the state this returns rather than something the caller has to poll
+/// for. A switch does not wait: it saves the boolean and answers, and <see cref="LibraryApplyQueue"/>
+/// brings <c>config.toml</c> and the media server in line afterwards. The child process is never
+/// reported here either way: the supervisor notices <c>config.toml</c> within a few seconds and a
+/// cold manager takes minutes to migrate its database, so that answer stays on <c>/healthz</c>.
 /// </para>
 /// <para>
 /// <c>RequiresElevation</c> throughout. This decides what the server holds and what it runs.
@@ -76,6 +77,7 @@ public sealed class LibrariesController : StingStreamControllerBase
 
     private readonly SettingsStore _settings;
     private readonly LibraryLayoutService _layout;
+    private readonly LibraryApplyQueue _apply;
     private readonly INodeRuntimeProvider _runtime;
     private readonly IServerConfigurationManager _serverConfig;
     private readonly InviteService _invites;
@@ -84,6 +86,7 @@ public sealed class LibrariesController : StingStreamControllerBase
     public LibrariesController(
         SettingsStore settings,
         LibraryLayoutService layout,
+        LibraryApplyQueue apply,
         INodeRuntimeProvider runtime,
         IServerConfigurationManager serverConfig,
         InviteService invites,
@@ -91,6 +94,7 @@ public sealed class LibrariesController : StingStreamControllerBase
     {
         _settings = settings;
         _layout = layout;
+        _apply = apply;
         _runtime = runtime;
         _serverConfig = serverConfig;
         _invites = invites;
@@ -248,6 +252,11 @@ public sealed class LibrariesController : StingStreamControllerBase
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        if (request.Paths is null && request.Path is null)
+        {
+            return await PutSwitchesAsync(id, request, cancellationToken).ConfigureAwait(false);
+        }
+
         var settings = _settings.Get();
         var library = Find(settings, id);
         if (library is null)
@@ -392,21 +401,74 @@ public sealed class LibrariesController : StingStreamControllerBase
         return NoContent();
     }
 
+    /// <summary>
+    /// A library's switches, and nothing else: save the booleans, answer, and apply them after.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The answer is the stored row with the booleans exactly as they were sent. It never waits for
+    /// the managers or the media server, and nothing it returns is derived from them: whether a
+    /// manager is actually running is <c>/healthz</c>'s to say, and a switch that reported that
+    /// instead would snap back under the reader's finger. Dan, 2026-09-22: "it should literally
+    /// just toggle a boolean on/off, and trigger anything else async after the toggle".
+    /// </para>
+    /// <para>
+    /// Written even when the row already said so. The row and <c>config.toml</c> can disagree (a
+    /// file edited on the server, a node a harness built), and a switch that no-ops because the
+    /// setting already matched would leave the reader with the one control that cannot fix what
+    /// they are looking at. The pass it queues is what brings <c>config.toml</c> back in line.
+    /// </para>
+    /// <para>
+    /// Switching a library off keeps every file. See <see cref="LibrarySettings.Enabled"/>.
+    /// </para>
+    /// </remarks>
+    private async Task<ActionResult<LibrarySettings>> PutSwitchesAsync(
+        string id,
+        LibraryUpdateRequest request,
+        CancellationToken cancellationToken)
+    {
+        LibrarySettings? library = null;
+        await _settings.UpdateAsync(
+            settings =>
+            {
+                library = Find(settings, id);
+                if (library is null)
+                {
+                    return;
+                }
+
+                if (request.Enabled is { } enabled)
+                {
+                    library.Enabled = enabled;
+                }
+
+                if (request.Hidden is { } hidden)
+                {
+                    library.Hidden = hidden;
+                }
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (library is null)
+        {
+            return NotFound($"No library has the id {id}.");
+        }
+
+        // Not awaited: which managers run and what the media server shows follow on their own.
+        _ = _apply.Request();
+        return Resolved(library);
+    }
+
     private async Task CommitAsync(SharedSettings settings, CancellationToken cancellationToken)
     {
         await _settings.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
 
         // Which managers run is a rule over the saved settings rather than an effect of this
         // switch: a library on its own has nowhere to search, so switching one on starts nothing
-        // until an indexer covers it. See ArrEnablement.
-        //
-        // `mayStop` because this is somebody at the Libraries screen. The background worker is the
-        // careful one -- it will not stop a manager on the run that set the node up, since first-run
-        // wiring needs the managers it is configuring -- and by the time a person can press this
-        // switch, that is long over.
-        ArrEnablement.Reconcile(settings, _runtime.DataDirectory, _logger, mayStop: true);
-
-        await _layout.EnsureAsync(cancellationToken).ConfigureAwait(false);
+        // until an indexer covers it. See ArrEnablement. The queue reconciles that and then the
+        // media server's libraries, one pass at a time; see LibraryApplyQueue for why they must
+        // not overlap. Awaited here, because a folder edit's answer is the layout it produced.
+        await _apply.Request().WaitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Validate folders a library is about to hold, then make sure each new one is writable.</summary>

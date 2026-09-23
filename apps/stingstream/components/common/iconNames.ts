@@ -69,6 +69,7 @@ export const ICONS = {
   radioOff: "radio-button-off",
   close: "close",
   link: "link",
+  copy: "copy-outline",
   /** Leaves the app: a box with an arrow going out of it, the web's own "new window". */
   openExternal: "open-outline",
   share: "share-social",

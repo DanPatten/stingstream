@@ -1,5 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  type RefObject,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   Platform,
@@ -61,6 +67,13 @@ export type OptionGroup = {
 
 interface PlatformDropdownProps {
   trigger?: React.ReactNode;
+  /**
+   * Opens from this control instead of drawing a trigger of its own, and only through `open`.
+   * For a picker reached from a menu row: the row is the control, so a second button beside it
+   * would say the same thing twice (the details page "...", Dan 2026-09-22). On a device the
+   * choices are the bottom sheet either way.
+   */
+  anchorRef?: RefObject<View | null>;
   title?: string;
   groups: OptionGroup[];
   disabled?: boolean;
@@ -232,6 +245,7 @@ const BottomSheetContent: React.FC<{
  */
 const WebDropdown: React.FC<PlatformDropdownProps> = ({
   trigger,
+  anchorRef,
   title,
   groups,
   disabled: isDisabled,
@@ -255,18 +269,20 @@ const WebDropdown: React.FC<PlatformDropdownProps> = ({
 
   return (
     <>
-      <Pressable
-        ref={anchor}
-        onPress={() => setOpen(true)}
-        disabled={isDisabled}
-        accessibilityState={{ expanded: open, disabled: isDisabled }}
-      >
-        {trigger || <Text>{t("common.open_menu")}</Text>}
-      </Pressable>
+      {anchorRef ? null : (
+        <Pressable
+          ref={anchor}
+          onPress={() => setOpen(true)}
+          disabled={isDisabled}
+          accessibilityState={{ expanded: open, disabled: isDisabled }}
+        >
+          {trigger || <Text>{t("common.open_menu")}</Text>}
+        </Pressable>
+      )}
       <AnchoredMenu
         visible={open}
         onClose={close}
-        anchorRef={anchor}
+        anchorRef={anchorRef ?? anchor}
         title={title}
       >
         {groups.map((group, groupIndex) => (
@@ -311,6 +327,7 @@ const WebDropdown: React.FC<PlatformDropdownProps> = ({
 
 const PlatformDropdownComponent = ({
   trigger,
+  anchorRef,
   title,
   groups,
   disabled: isDisabled,
@@ -323,9 +340,14 @@ const PlatformDropdownComponent = ({
   const { t } = useTranslation();
   const { showModal, hideModal, isVisible } = useGlobalModal();
 
-  // Handle controlled open state for Android
+  // iOS's native menu can only be opened by pressing its own label, so a dropdown with no trigger
+  // of its own takes the bottom sheet there too.
+  const sheetControlled =
+    Platform.OS === "android" || (Platform.OS === "ios" && Boolean(anchorRef));
+
+  // Handle controlled open state for the bottom sheet
   useEffect(() => {
-    if (Platform.OS === "android" && controlledOpen === true && !isDisabled) {
+    if (sheetControlled && controlledOpen === true && !isDisabled) {
       showModal(
         <BottomSheetContent
           title={title}
@@ -348,12 +370,12 @@ const PlatformDropdownComponent = ({
   // Watch for modal dismissal on Android (e.g., swipe down, backdrop tap)
   // and sync the controlled open state
   useEffect(() => {
-    if (Platform.OS === "android" && controlledOpen === true && !isVisible) {
+    if (sheetControlled && controlledOpen === true && !isVisible) {
       controlledOnOpenChange?.(false);
     }
-  }, [isVisible, controlledOpen, controlledOnOpenChange]);
+  }, [sheetControlled, isVisible, controlledOpen, controlledOnOpenChange]);
 
-  if (Platform.OS === "ios" && !Platform.isTV) {
+  if (Platform.OS === "ios" && !Platform.isTV && !anchorRef) {
     // @expo/ui's <Host> can't size to content, so an in-flow invisible copy of
     // the trigger sizes the wrapper while the Host overlays the real Menu.
     return (
@@ -479,6 +501,7 @@ const PlatformDropdownComponent = ({
     return (
       <WebDropdown
         trigger={trigger}
+        anchorRef={anchorRef}
         title={title}
         groups={groups}
         disabled={isDisabled}
@@ -488,6 +511,9 @@ const PlatformDropdownComponent = ({
       />
     );
   }
+
+  // Opened only through `open`, by the effect above.
+  if (anchorRef) return null;
 
   // Android: Direct modal trigger
   const handlePress = () => {
@@ -527,7 +553,8 @@ export const PlatformDropdown = React.memo(
       prevProps.open === nextProps.open &&
       prevProps.disabled === nextProps.disabled &&
       prevProps.groups === nextProps.groups && // Reference equality (works because we memoize groups in caller)
-      prevProps.trigger === nextProps.trigger // Reference equality
+      prevProps.trigger === nextProps.trigger && // Reference equality
+      prevProps.anchorRef === nextProps.anchorRef
     );
   },
 );

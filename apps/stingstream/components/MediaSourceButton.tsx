@@ -4,7 +4,7 @@ import type {
   MediaSourceInfo,
   MediaStream,
 } from "@jellyfin/sdk/lib/generated-client";
-import { useCallback, useMemo, useState } from "react";
+import { type RefObject, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, TouchableOpacity, View } from "react-native";
 import { BITRATES } from "@/constants/Playback";
@@ -24,6 +24,14 @@ interface Props extends React.ComponentProps<typeof TouchableOpacity> {
     React.SetStateAction<SelectedOptions | undefined>
   >;
   colors?: ThemeColors;
+  /**
+   * Opens from this instead of drawing its own round button, and only through `open`: the
+   * details page's "Versions and quality" row is the control (Dan, 2026-09-22), and a badge
+   * beside it was a second button saying the same thing.
+   */
+  anchorRef?: RefObject<View | null>;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export const MediaSourceButton: React.FC<Props> = ({
@@ -31,11 +39,22 @@ export const MediaSourceButton: React.FC<Props> = ({
   selectedOptions,
   setSelectedOptions,
   colors,
+  anchorRef,
+  open: controlledOpen,
+  onOpenChange,
 }: Props) => {
   const { color } = useTheme();
   const { t } = useTranslation();
   const { settings } = useSettings();
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setUncontrolledOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
 
   // WP5: the fallback used to be the fork's purple, which is the one color
   // `docs/UI-DESIGN.md` rules out — and once the details page stopped tinting
@@ -207,7 +226,8 @@ export const MediaSourceButton: React.FC<Props> = ({
   return (
     <PlatformDropdown
       groups={optionGroups}
-      trigger={trigger}
+      trigger={anchorRef ? undefined : trigger}
+      anchorRef={anchorRef}
       title={t("item_card.media_options")}
       open={open}
       onOpenChange={setOpen}

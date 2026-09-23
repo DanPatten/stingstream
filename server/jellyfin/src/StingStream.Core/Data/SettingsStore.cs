@@ -11,7 +11,7 @@ namespace StingStream.Core.Data;
 /// <summary>
 /// Reads and writes the Omniarr shared settings document and the per-app sync status.
 /// </summary>
-public sealed class SettingsStore
+public sealed class SettingsStore : IDisposable
 {
     private static readonly JsonSerializerOptions _json = new()
     {
@@ -22,6 +22,9 @@ public sealed class SettingsStore
 
     private readonly CoreDatabase _db;
     private readonly ILogger<SettingsStore> _logger;
+
+    /// <summary>Serializes <see cref="UpdateAsync"/>'s read-change-save against itself.</summary>
+    private readonly SemaphoreSlim _gate = new(1, 1);
 
     public SettingsStore(CoreDatabase db, ILogger<SettingsStore> logger)
     {
@@ -102,6 +105,92 @@ public sealed class SettingsStore
 
         return settings;
     }
+
+    /// <summary>
+    /// Read the settings, change them, and save them, with no other gated write in between.
+    /// </summary>
+    /// <param name="change">The edit. Runs against a fresh read, under the gate.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The saved settings.</returns>
+    public async Task<SharedSettings> UpdateAsync(
+        Action<SharedSettings> change,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(change);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var settings = Get();
+            change(settings);
+            return await SaveAsync(settings, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Save what a layout pass learned about each library, and nothing else it happened to read.
+    /// </summary>
+    /// <param name="snapshot">The settings the pass read when it started, with its findings on them.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The saved settings.</returns>
+    /// <remarks>
+    /// <para>
+    /// A layout pass reads the settings, spends seconds talking to the media server, and then has
+    /// three things per library worth keeping: <see cref="LibrarySettings.FolderName"/>,
+    /// <see cref="LibrarySettings.JellyfinItemId"/> and <see cref="LibrarySettings.ManagedLocations"/>.
+    /// It used to save its whole snapshot. When a reader pressed a library's switch during that pass,
+    /// the snapshot still held the old value, and saving it put the switch back where it had been:
+    /// the flip Dan saw on 2026-09-22.
+    /// </para>
+    /// <para>
+    /// So this copies only those three fields, by library id, onto the settings as they are now. A
+    /// library the snapshot has and the store no longer does was removed meanwhile and is skipped.
+    /// </para>
+    /// </remarks>
+    public async Task<SharedSettings> SaveLibraryBookkeepingAsync(
+        SharedSettings snapshot,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var current = Get(out var migrated);
+            if (migrated)
+            {
+                // Nothing has saved the library list yet, so nobody can have pressed a switch
+                // since the pass read it, and the migration's rows carry fresh ids on every read.
+                // The snapshot is the only copy whose ids the pass's findings are attached to.
+                return await SaveAsync(snapshot, cancellationToken).ConfigureAwait(false);
+            }
+
+            foreach (var library in current.Libraries)
+            {
+                var learned = snapshot.Libraries.Find(
+                    l => string.Equals(l.Id, library.Id, StringComparison.OrdinalIgnoreCase));
+                if (learned is null)
+                {
+                    continue;
+                }
+
+                library.FolderName = learned.FolderName;
+                library.JellyfinItemId = learned.JellyfinItemId;
+                library.ManagedLocations = new List<string>(learned.ManagedLocations);
+            }
+
+            return await SaveAsync(current, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose() => _gate.Dispose();
 
     /// <summary>Read an arbitrary JSON document by key.</summary>
     public T? GetDocument<T>(string key)

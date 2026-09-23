@@ -12,6 +12,7 @@ import {
   type LibraryUpdate,
   saveLibrary,
 } from "./librariesApi";
+import { applyLibraryUpdate, PendingLibraryEdits } from "./libraryEdits";
 import { useHealthz } from "./status";
 
 /**
@@ -32,6 +33,14 @@ function useConnection() {
 
 const KEY = ["stingstream", "libraries"] as const;
 
+/** Edits sent and not yet answered. One per app, like the query cache it guards. */
+const pendingEdits = new PendingLibraryEdits();
+
+/** The list itself, and not `media-folder` under it or anything else under `stingstream`. */
+const isLibraryList = (queryKey: readonly unknown[]) =>
+  queryKey.length === KEY.length &&
+  queryKey.every((part, i) => part === KEY[i]);
+
 /** Which manager answers for a library type, when one does. */
 const CHILD_FOR: Record<string, string> = {
   movies: "radarr",
@@ -47,7 +56,9 @@ export function useLibraries(enabled = true) {
   const { base, token } = useConnection();
   return useQuery({
     queryKey: KEY,
-    queryFn: () => fetchLibraries(base!, token),
+    // Whatever triggered the fetch (the poll, a refocus, an invalidation elsewhere), an edit the
+    // node has not answered yet wins over what it sends. See `libraryEdits.ts`.
+    queryFn: async () => pendingEdits.apply(await fetchLibraries(base!, token)),
     enabled: !!base && enabled,
     // The settings can also be edited on the server itself, and reconciliation rewrites parts of
     // each row on every start. Polling slowly means a screen left open does not quietly disagree.
@@ -98,41 +109,70 @@ export function useLibraryHealth(library: Library | undefined): {
 export function useSaveLibrary() {
   const { base, token } = useConnection();
   const queryClient = useQueryClient();
+  // An older edit answered after a newer one already settled (a slow folder change overtaken by a
+  // switch) may have changed something the newer answer did not show yet. Nothing of ours is
+  // waiting, so what the node holds is the answer.
+  const refetchIfSettled = (id: string) => {
+    if (!pendingEdits.has(id)) {
+      queryClient.invalidateQueries({ queryKey: KEY, exact: true });
+    }
+  };
   return useMutation({
     mutationFn: ({ id, update }: { id: string; update: LibraryUpdate }) =>
       saveLibrary(base!, id, update, token),
-    // A switch answers the moment it is pressed. The PUT only returns once the node has reconciled
-    // its libraries and managers, which is seconds, and a switch that waited for that sat faded in
-    // its old position and then jumped. Dan: *"just flip it ... do all work quietly in the
-    // background"*. A refusal puts it back, and the caller toasts why.
+    // A switch answers the moment it is pressed, and stays where it was put. Dan, 2026-09-22: it
+    // "flips randomly. It should literally just toggle a boolean". The cache is the switch, so the
+    // edit goes into it at once and is laid over every list fetched until the node answers this
+    // edit; an older edit's answer changes nothing. A refusal puts the row back and the caller
+    // toasts why. The node answers a switch as soon as the boolean is saved and does the rest
+    // (managers, the media server's libraries) afterwards.
     onMutate: async ({ id, update }) => {
-      await queryClient.cancelQueries({ queryKey: KEY });
-      const previous = queryClient.getQueryData<Library[]>(KEY);
+      const seq = pendingEdits.begin(id, update);
+      await queryClient.cancelQueries({ queryKey: KEY, exact: true });
+      const previous = queryClient
+        .getQueryData<Library[]>(KEY)
+        ?.find((row) => row.id === id);
       queryClient.setQueryData(KEY, (rows: Library[] | undefined) =>
         (rows ?? []).map((row) =>
-          row.id === id
-            ? {
-                ...row,
-                enabled: update.enabled ?? row.enabled,
-                hidden: update.hidden ?? row.hidden,
-                paths: update.paths ?? row.paths,
-              }
-            : row,
+          row.id === id ? applyLibraryUpdate(row, update) : row,
         ),
       );
-      return { previous };
+      return { seq, previous };
     },
-    onError: (_err, _vars, context) => {
-      if (context?.previous) queryClient.setQueryData(KEY, context.previous);
+    onError: async (_err, { id }, context) => {
+      if (!context || !pendingEdits.settle(id, context.seq)) {
+        refetchIfSettled(id);
+        return;
+      }
+      await queryClient.cancelQueries({ queryKey: KEY, exact: true });
+      if (context.previous) {
+        const previous = context.previous;
+        queryClient.setQueryData(KEY, (rows: Library[] | undefined) =>
+          (rows ?? []).map((row) => (row.id === id ? previous : row)),
+        );
+      }
+      // What the node actually holds, now that nothing of ours is waiting.
+      queryClient.invalidateQueries({ queryKey: KEY, exact: true });
     },
-    onSuccess: (saved) => {
-      // The row answers immediately from what the node confirmed it wrote, including the parts
-      // reconciliation filled in. Everything downstream of a library — what the managers are
-      // tracking, what the rail shows — catches up on its own next fetch.
+    onSuccess: async (saved, { id }, context) => {
+      // An answer to an edit that has since been superseded is an echo of the older value.
+      if (!context || !pendingEdits.settle(id, context.seq)) {
+        refetchIfSettled(id);
+        return;
+      }
+      // A fetch that started while this edit was in flight may have read the node before it
+      // saved. Its answer would be the old value, so it goes.
+      await queryClient.cancelQueries({ queryKey: KEY, exact: true });
+      // The row answers from what the node confirmed it wrote, including the parts reconciliation
+      // filled in. Everything downstream of a library (what the managers track, what the rail
+      // shows) catches up on its own next fetch.
       queryClient.setQueryData(KEY, (rows: Library[] | undefined) =>
         (rows ?? []).map((row) => (row.id === saved.id ? saved : row)),
       );
-      queryClient.invalidateQueries({ queryKey: ["stingstream"] });
+      queryClient.invalidateQueries({
+        queryKey: ["stingstream"],
+        predicate: (query) => !isLibraryList(query.queryKey),
+      });
       queryClient.invalidateQueries({ queryKey: ["user-views"] });
     },
   });

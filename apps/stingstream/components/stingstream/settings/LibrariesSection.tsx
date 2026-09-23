@@ -28,6 +28,10 @@ import { AddLibraryDialog } from "./AddLibraryDialog";
  * and a single folder box inline, which had nowhere to put a second folder, a delete, or anything
  * else a library needs. The switch and the folders now live on `LibraryDetailScreen`.
  *
+ * A row is the library's name, its type's icon, and Off when it is switched off. Its folders are
+ * on its own page and not here. Dan, 2026-09-22: "Don't display the path to each library on this
+ * page. Leave that for inside a library."
+ *
  * **The switch says whether this server keeps that kind of library. It does not start a manager on
  * its own.** A manager runs when the library is on *and* an enabled indexer covers the kind, which
  * is the server's rule (`ArrEnablement`) over the saved settings rather than anything this screen
@@ -71,13 +75,12 @@ export function LibrariesSection() {
               key={library.id}
               testID={`library-${library.name.toLowerCase().replace(/\s+/g, "-")}`}
               title={library.name}
-              subtitle={folderSummary(library, t)}
               value={library.enabled ? null : t("libraries.off")}
               icon={iconFor(library)}
               showArrow
               onPress={() =>
                 router.push(
-                  `/settings/storage/${encodeURIComponent(library.id)}`,
+                  `/settings/libraries/${encodeURIComponent(library.id)}`,
                 )
               }
             />
@@ -99,17 +102,6 @@ const iconFor = (library: Library): IconName =>
       : library.type === "homevideos"
         ? "otherVideos"
         : "movies";
-
-function folderSummary(
-  library: Library,
-  t: (key: string, options?: Record<string, unknown>) => string,
-): string | null {
-  const [first, ...rest] = library.paths;
-  if (!first) return null;
-  return rest.length === 0
-    ? first
-    : t("libraries.more_folders", { path: first, count: rest.length });
-}
 
 /**
  * Ask the media server to look at every library's folders again.

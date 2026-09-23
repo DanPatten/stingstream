@@ -1,20 +1,11 @@
-import { useLocalSearchParams } from "expo-router";
-import { SettingsPage } from "@/components/settings/SettingsPage";
-import { LibraryDetailScreen } from "@/components/stingstream/settings/LibraryDetailScreen";
-import { RequiresAdmin } from "@/components/stingstream/shared/RequiresAdmin";
+import { Redirect, useLocalSearchParams } from "expo-router";
 
-/** One library's own page, opened from Settings → Libraries or a library's "..." menu. */
-export default function LibrarySettingsPage() {
+/** One library's page lived at `/settings/storage/<id>` until 2026-09-22. See `../index.tsx`. */
+export default function MovedToLibrary() {
   const { id } = useLocalSearchParams<{ id: string }>();
-
   return (
-    <SettingsPage
-      categoryKey='storage'
-      invalidate={[["stingstream", "libraries"]]}
-    >
-      <RequiresAdmin>
-        <LibraryDetailScreen id={id ?? ""} />
-      </RequiresAdmin>
-    </SettingsPage>
+    <Redirect
+      href={`/settings/libraries/${encodeURIComponent(id ?? "")}` as never}
+    />
   );
 }

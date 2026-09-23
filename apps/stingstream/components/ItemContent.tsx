@@ -5,7 +5,13 @@ import type {
 import { getItemRefreshApi } from "@jellyfin/sdk/lib/utils/api";
 import { useNavigation } from "expo-router";
 import { useAtom } from "jotai";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,6 +22,7 @@ import { PageContainer } from "@/components/common/PageContainer";
 import { DownloadSingleItem } from "@/components/DownloadItem";
 import { ActionRow } from "@/components/item/ActionRow";
 import { DetailsHeader } from "@/components/item/DetailsHeader";
+import { ItemInfoDialog } from "@/components/item/ItemInfoDialog";
 import { ItemPeopleSections } from "@/components/item/ItemPeopleSections";
 import type { MoreMenuAction } from "@/components/item/MoreMenu";
 import { streamsOf } from "@/components/item/metadata";
@@ -42,7 +49,7 @@ import { useOfflineMode } from "@/providers/OfflineModeProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { logAndCaptureError } from "@/utils/log";
 import { ItemTechnicalDetails } from "./ItemTechnicalDetails";
-import { PlayInRemoteSessionButton } from "./PlayInRemoteSession";
+import { PlayInRemoteSessionDialog } from "./PlayInRemoteSession";
 
 const Chromecast = !Platform.isTV ? require("./Chromecast") : null;
 const ItemContentTV = Platform.isTV
@@ -199,6 +206,12 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
     isAdmin && !isOffline && item?.Type === "Movie",
   );
   const [managing, setManaging] = useState(false);
+  // What the "..." rows open. Each is a picker or a dialog of its own, opened by the row rather
+  // than by a badge at the row's end.
+  const moreAnchor = useRef<View>(null);
+  const [choosingVersion, setChoosingVersion] = useState(false);
+  const [choosingDevice, setChoosingDevice] = useState(false);
+  const [showingInfo, setShowingInfo] = useState(false);
 
   const refreshMetadata = useCallback(async () => {
     if (!api || !item?.Id) return;
@@ -225,13 +238,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
         icon: "sort",
         label: t("item.versions"),
         description: selectedOptions.mediaSource?.Name ?? undefined,
-        trailing: (
-          <MediaSourceButton
-            selectedOptions={selectedOptions}
-            setSelectedOptions={setSelectedOptions}
-            item={itemWithSources}
-          />
-        ),
+        onPress: () => setChoosingVersion(true),
       });
     }
 
@@ -251,7 +258,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
         key: "remote",
         icon: "devices",
         label: t("item.play_on_device"),
-        trailing: <PlayInRemoteSessionButton item={item} />,
+        onPress: () => setChoosingDevice(true),
       });
     }
 
@@ -266,6 +273,17 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
         icon: "refresh",
         label: t("item.refresh_metadata"),
         onPress: () => void refreshMetadata(),
+      });
+    }
+
+    // Plex's "Get info". Offline there is only the download record, which has no more to say
+    // than the page does.
+    if (!isOffline) {
+      actions.push({
+        key: "info",
+        icon: "info",
+        label: t("item.get_info"),
+        onPress: () => setShowingInfo(true),
       });
     }
 
@@ -309,6 +327,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
             item={item}
             selectedOptions={selectedOptions}
             moreActions={moreActions}
+            moreAnchorRef={moreAnchor}
           />
           {/* Directly under Play, because it says what Play is about to do. It draws nothing at
               all when only one copy exists, which is most libraries. */}
@@ -369,6 +388,36 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       />
     ) : null;
 
+  // The pickers and dialogs the "..." rows open, mounted once for both layouts.
+  const menuTargets = (
+    <>
+      {!isOffline ? (
+        <MediaSourceButton
+          selectedOptions={selectedOptions}
+          setSelectedOptions={setSelectedOptions}
+          item={itemWithSources}
+          anchorRef={moreAnchor}
+          open={choosingVersion}
+          onOpenChange={setChoosingVersion}
+        />
+      ) : null}
+      {isAdmin && !settings.hideRemoteSessionButton && !isOffline ? (
+        <PlayInRemoteSessionDialog
+          item={item}
+          visible={choosingDevice}
+          onClose={() => setChoosingDevice(false)}
+        />
+      ) : null}
+      {!isOffline ? (
+        <ItemInfoDialog
+          item={itemWithSources ?? item}
+          visible={showingInfo}
+          onClose={() => setShowingInfo(false)}
+        />
+      ) : null}
+    </>
+  );
+
   if (isCompact) {
     return (
       <View
@@ -393,6 +442,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
           {body}
         </ParallaxScrollView>
         {manageSheet}
+        {menuTargets}
       </View>
     );
   }
@@ -407,6 +457,7 @@ const ItemContentMobile: React.FC<ItemContentProps> = ({
       {body}
       {tail}
       {manageSheet}
+      {menuTargets}
     </ScrollView>
   );
 };

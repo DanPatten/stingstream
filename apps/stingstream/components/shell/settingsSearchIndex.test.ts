@@ -115,7 +115,7 @@ describe("buildSettingsSearchIndex", () => {
     // there, which is a property of the keywords rather than of the id.
     const entry = index(admin).find((e) => e.id === "libraries");
     expect(entry?.categoryKey).toBe("storage");
-    expect(entry?.href).toBe("/settings/storage?focus=libraries");
+    expect(entry?.href).toBe("/settings/libraries?focus=libraries");
     expect(entry?.keywords).toContain("downloading");
   });
 

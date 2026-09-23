@@ -165,6 +165,60 @@ public static class LibraryLayoutPlan
         return (toAdd, toRemove);
     }
 
+    /// <summary>Whether a change to an existing library needs the whole library scanned.</summary>
+    /// <param name="added">Folders just added to it.</param>
+    /// <param name="removed">Folders just taken out of it.</param>
+    /// <param name="retyped">Whether its type was just repaired.</param>
+    /// <param name="unscanned">Folders it holds that no scan has taken in yet (<see cref="Unscanned"/>).</param>
+    /// <returns><c>true</c> when a scan has to follow.</returns>
+    /// <remarks>
+    /// <para>
+    /// <b>An added folder counts, and leaving it out was a bug.</b> Dan, 2026-09-22: a second
+    /// folder of movies added to Movies showed nothing, and "Scan library files" afterwards found
+    /// nothing either. <c>AddMediaPath</c> only writes the folder into the library's definition.
+    /// The media server does not know it as one of the library's folders until a whole-library scan
+    /// has made an item of it, and a scan of one library walks only the folders it already knew.
+    /// So nothing but a full scan could ever fill the new folder, and nothing queued one.
+    /// </para>
+    /// <para>
+    /// <paramref name="unscanned"/> is the repair for a node that took a folder before this was
+    /// fixed. Its folder is already in the library, so there is nothing left to add.
+    /// </para>
+    /// </remarks>
+    public static bool NeedsScan(
+        IReadOnlyCollection<string> added,
+        IReadOnlyCollection<string> removed,
+        bool retyped,
+        IReadOnlyCollection<string> unscanned)
+        => retyped
+           || (added?.Count ?? 0) > 0
+           || (removed?.Count ?? 0) > 0
+           || (unscanned?.Count ?? 0) > 0;
+
+    /// <summary>The folders of a library that no scan has taken in yet.</summary>
+    /// <param name="locations">The folders the media server's library holds.</param>
+    /// <param name="hasFolder">Whether the media server has an item for a folder.</param>
+    /// <param name="existsOnDisk">Whether a folder is there to scan.</param>
+    /// <returns>The folders that want a scan.</returns>
+    /// <remarks>
+    /// A folder that is not on disk is left out. A drive that is unplugged, or a share that is
+    /// down, cannot be scanned in, and counting it would ask for a scan on every pass until it came
+    /// back.
+    /// </remarks>
+    public static IReadOnlyList<string> Unscanned(
+        IEnumerable<string>? locations,
+        Func<string, bool> hasFolder,
+        Func<string, bool> existsOnDisk)
+    {
+        ArgumentNullException.ThrowIfNull(hasFolder);
+        ArgumentNullException.ThrowIfNull(existsOnDisk);
+
+        return (locations ?? Array.Empty<string>())
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Where(p => existsOnDisk(p) && !hasFolder(p))
+            .ToList();
+    }
+
     /// <summary>The settings row Recordings' switch lives on, when the node has one.</summary>
     /// <param name="settings">The shared settings.</param>
     /// <returns>The row, or <c>null</c> when the owner has not added Recordings.</returns>

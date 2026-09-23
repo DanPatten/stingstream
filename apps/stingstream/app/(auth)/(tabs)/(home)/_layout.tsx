@@ -344,7 +344,7 @@ export default function IndexLayout() {
       />
       {/* One library's own page, under Libraries. */}
       <Stack.Screen
-        name='settings/storage/[id]'
+        name='settings/libraries/[id]'
         options={{
           title: t("home.settings.nav.storage"),
           headerBlurEffect: "none",
@@ -373,7 +373,7 @@ export default function IndexLayout() {
         options={settingsScreen(t("home.settings.nav.services"))}
       />
       <Stack.Screen
-        name='settings/storage'
+        name='settings/libraries'
         options={settingsScreen(t("home.settings.nav.storage"))}
       />
       <Stack.Screen

@@ -20,7 +20,7 @@ import { useCanApproveRequests } from "@/lib/stingstream/requests";
  * Not "Indexers & engines": that page administers indexers and download clients, which are what a
  * manager uses once it exists. It never mentions the managers themselves.
  */
-export const REQUESTS_SETUP_ROUTE = "/settings/storage?focus=libraries";
+export const REQUESTS_SETUP_ROUTE = "/settings/libraries?focus=libraries";
 
 /**
  * "Requests are not set up on this server."

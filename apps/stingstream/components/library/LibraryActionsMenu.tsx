@@ -90,7 +90,7 @@ export function LibraryActionsMenu({
         type: "action",
         label: t("libraries.manage"),
         onPress: () =>
-          router.push(`/settings/storage/${encodeURIComponent(row.id)}`),
+          router.push(`/settings/libraries/${encodeURIComponent(row.id)}`),
       });
     }
     if (onDelete) {

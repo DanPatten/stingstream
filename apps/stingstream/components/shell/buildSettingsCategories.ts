@@ -107,7 +107,9 @@ export function buildSettingsCategories(
   // still carry `RequiresAdmin` because a URL can be pasted.
   const media: SettingsCategory[] = isAdmin
     ? [
-        category("storage", "/settings/storage", "storage", t),
+        // Keyed "storage" for its translation keys and testIDs; the page and its address are
+        // Libraries. `/settings/storage` redirects here for old bookmarks.
+        category("storage", "/settings/libraries", "storage", t),
         category("services", "/settings/services", "services", t),
         category("quality", "/settings/quality", "quality", t),
         category("files", "/settings/files", "files", t),
