@@ -103,8 +103,15 @@ public sealed class SettingsStore : IDisposable
                 ("$t", settings.UpdatedAt)),
             cancellationToken).ConfigureAwait(false);
 
+        Saved?.Invoke(this, EventArgs.Empty);
         return settings;
     }
+
+    /// <summary>
+    /// Raised after every save, so the background sync can push the change into the managers at
+    /// once instead of on its next poll. The request that saved never waits for that push.
+    /// </summary>
+    public event EventHandler? Saved;
 
     /// <summary>
     /// Read the settings, change them, and save them, with no other gated write in between.

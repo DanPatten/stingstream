@@ -1961,7 +1961,6 @@
     "movie_manager": "a movie",
     "movie_manager_label": "Movies",
     "no_profiles_hint": "No quality profiles yet.",
-    "out_of_sync_suffix": " (out of sync)",
     "profile_error": "Could not change the quality profile",
     "profile_set_toast": "\"{{title}}\" set to {{profile}}",
     "quality_profile_action": "Quality profile",

@@ -44,6 +44,9 @@ public sealed class SyncRetryWorker : BackgroundService
     private readonly SettingsStore _settings;
     private readonly ILogger<SyncRetryWorker> _logger;
 
+    /// <summary>Released by a settings save, to cut the wait between passes short.</summary>
+    private readonly SemaphoreSlim _wake = new(0, 1);
+
     private int _failures;
     private DateTime _notBefore = DateTime.MinValue;
     private long _failedRevision = -1;
@@ -58,6 +61,34 @@ public sealed class SyncRetryWorker : BackgroundService
         _factory = factory;
         _settings = settings;
         _logger = logger;
+
+        // A save is the moment somebody expects the change to take effect. Waking here makes the
+        // push follow the save within a second, without the save waiting for it.
+        _settings.Saved += (_, _) => Nudge();
+    }
+
+    /// <summary>Run a pass now rather than at the end of the current wait.</summary>
+    public void Nudge()
+    {
+        try
+        {
+            _wake.Release();
+        }
+        catch (SemaphoreFullException)
+        {
+            // Already woken; one pass covers every save made before it starts.
+        }
+        catch (ObjectDisposedException)
+        {
+            // Shutting down.
+        }
+    }
+
+    /// <inheritdoc />
+    public override void Dispose()
+    {
+        _wake.Dispose();
+        base.Dispose();
     }
 
     /// <summary>
@@ -110,7 +141,7 @@ public sealed class SyncRetryWorker : BackgroundService
 
             try
             {
-                await Task.Delay(Interval, stoppingToken).ConfigureAwait(false);
+                await _wake.WaitAsync(Interval, stoppingToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {

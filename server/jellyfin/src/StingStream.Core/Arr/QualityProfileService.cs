@@ -530,6 +530,46 @@ public sealed class QualityProfileService
     // --- sync ----------------------------------------------------------------
 
     /// <summary>
+    /// A profile's id inside one manager, pushing it there first when the manager does not have it
+    /// yet.
+    /// </summary>
+    /// <param name="client">The manager.</param>
+    /// <param name="name">The profile's name, or empty for the manager's first.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The id, or null when the manager has no profiles at all.</returns>
+    /// <remarks>
+    /// Profiles are StingStream's and reach the managers by sync, which runs in the background.
+    /// Somebody who creates a profile and assigns it to a title straight away must never find out
+    /// that there was a gap in between: the manager used to fall back to its first profile, and the
+    /// profile picker labelled the new one "out of sync". So a name StingStream holds and the
+    /// manager lacks is pushed there on the spot, and only then resolved.
+    /// </remarks>
+    public async Task<int?> ResolveInAppAsync(ArrClient client, string? name, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+
+        if (!string.IsNullOrWhiteSpace(name)
+            && (await EnsureStoreAsync(ct).ConfigureAwait(false))
+                .Any(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
+        {
+            var present = await client.QualityProfilesAsync(ct).ConfigureAwait(false);
+            if (!present.Any(p => string.Equals(p["name"]?.GetValue<string>(), name, StringComparison.OrdinalIgnoreCase)))
+            {
+                try
+                {
+                    await SyncAsync(client, new SyncStatus { App = client.Name }, ct).ConfigureAwait(false);
+                }
+                catch (ArrApiException ex)
+                {
+                    _logger.LogWarning(ex, "Could not push quality profile {Name} into {App} before using it", name, client.Name);
+                }
+            }
+        }
+
+        return await client.ResolveQualityProfileAsync(name, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// Bring one manager's quality profiles into line with the store.
     /// </summary>
     /// <param name="client">The manager, already known to be answering.</param>

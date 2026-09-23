@@ -222,11 +222,9 @@ public sealed class SettingsController : StingStreamControllerBase
 
         settings.Indexers.RemoveAll(i => string.Equals(i.Id, id, StringComparison.OrdinalIgnoreCase));
         settings.Retire("indexer", existing.Name);
+        // The save wakes SyncRetryWorker, whose pass removes the retired name from every app that
+        // is up, and from the rest as they come up. The request does not wait for any of that.
         await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
-
-        // Straight away where the app is up. Where it is not, the retired name is removed by the
-        // next sync, which SyncRetryWorker runs once the app answers.
-        await _sync.RemoveProviderEverywhereAsync("indexer", existing.Name, cancellationToken).ConfigureAwait(false);
         return NoContent();
     }
 
@@ -403,8 +401,8 @@ public sealed class SettingsController : StingStreamControllerBase
     /// <response code="404">No such client.</response>
     /// <returns>What each app did.</returns>
     /// <remarks>
-    /// The name is retired as well as removed straight away, so an app that is not running now
-    /// loses it on its next sync instead of sending grabs to a client the UI no longer shows.
+    /// The name is retired, and the save wakes the background sync, which removes it from every
+    /// app within seconds, or as each comes up. The request never waits on an app.
     /// </remarks>
     [HttpDelete("downloadclients/{id}", Name = "DeleteExternalDownloadClient")]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -424,11 +422,7 @@ public sealed class SettingsController : StingStreamControllerBase
             string.Equals(c.Id, id, StringComparison.OrdinalIgnoreCase));
         settings.Retire("downloadclient", existing.Name);
         await _store.SaveAsync(settings, cancellationToken).ConfigureAwait(false);
-
-        var detail = await _sync
-            .RemoveProviderEverywhereAsync("downloadclient", existing.Name, cancellationToken)
-            .ConfigureAwait(false);
-        return new ProviderRemovalResult { Name = existing.Name, Detail = detail };
+        return new ProviderRemovalResult { Name = existing.Name };
     }
 
     /// <summary>Ask the arrs whether an external download client is reachable.</summary>

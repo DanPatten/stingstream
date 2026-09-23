@@ -35,6 +35,7 @@ public sealed class LibraryController : StingStreamControllerBase
     private readonly StingStream.Core.Playback.FederatedSourceService _sources;
     private readonly LibraryStateStore _state;
     private readonly StingStream.Core.Inventory.IInventoryService _inventory;
+    private readonly QualityProfileService _quality;
     private readonly ILogger<LibraryController> _logger;
 
     public LibraryController(
@@ -44,8 +45,10 @@ public sealed class LibraryController : StingStreamControllerBase
         StingStream.Core.Playback.FederatedSourceService sources,
         LibraryStateStore state,
         StingStream.Core.Inventory.IInventoryService inventory,
+        QualityProfileService quality,
         ILogger<LibraryController> logger)
     {
+        _quality = quality;
         _factory = factory;
         _settings = settings;
         _runtime = runtime;
@@ -398,8 +401,8 @@ public sealed class LibraryController : StingStreamControllerBase
             }
 
             var shared = _settings.Get();
-            var profileId = await client
-                .ResolveQualityProfileAsync(request.QualityProfileName ?? shared.DefaultQualityProfileName, cancellationToken)
+            var profileId = await _quality
+                .ResolveInAppAsync(client, request.QualityProfileName ?? shared.DefaultQualityProfileName, cancellationToken)
                 .ConfigureAwait(false);
             if (profileId is null)
             {
@@ -492,8 +495,8 @@ public sealed class LibraryController : StingStreamControllerBase
             }
 
             var shared = _settings.Get();
-            var profileId = await client
-                .ResolveQualityProfileAsync(request.QualityProfileName ?? shared.DefaultQualityProfileName, cancellationToken)
+            var profileId = await _quality
+                .ResolveInAppAsync(client, request.QualityProfileName ?? shared.DefaultQualityProfileName, cancellationToken)
                 .ConfigureAwait(false);
             if (profileId is null)
             {
@@ -745,8 +748,8 @@ public sealed class LibraryController : StingStreamControllerBase
 
             if (!string.IsNullOrWhiteSpace(request?.QualityProfileName))
             {
-                var profileId = await client
-                    .ResolveQualityProfileAsync(request.QualityProfileName, cancellationToken)
+                var profileId = await _quality
+                    .ResolveInAppAsync(client, request.QualityProfileName, cancellationToken)
                     .ConfigureAwait(false);
                 if (profileId is null)
                 {

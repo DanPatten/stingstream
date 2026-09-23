@@ -152,7 +152,7 @@ export function useUpdateSharedSettings() {
       const { data, error } = await client!.PUT(
         "/stingstream/api/v1/Settings",
         {
-          params: { query: { sync: true } },
+          params: { query: { sync: false } },
           body: settings,
         },
       );
@@ -185,6 +185,11 @@ export function useIndexers() {
  * screen. They used to rethrow `openapi-fetch`'s error value as it came, which is a parsed body or
  * a string rather than an `Error`, so every screen's `err instanceof Error` check failed and a
  * useful message ("Another indexer is already called ...") became "could not test it".
+ *
+ * `sync: false` on every write: the save wakes the server's background sync, which pushes the
+ * change into the managers within a second or, when they are not up yet, as soon as they are. With
+ * `sync: true` the request waited up to twenty seconds for that push, and a spinner that long on a
+ * save is the sync showing through. Dan: "make syncs seamless - never display that process".
  */
 export function useAddIndexer() {
   const client = useStingStreamClient();
@@ -193,7 +198,7 @@ export function useAddIndexer() {
     mutationFn: async (indexer: IndexerSettings) =>
       unwrap(
         await client!.POST("/stingstream/api/v1/Settings/indexers", {
-          params: { query: { sync: true } },
+          params: { query: { sync: false } },
           body: indexer,
         }),
         "POST /Settings/indexers",
@@ -212,7 +217,7 @@ export function useUpdateIndexer() {
     mutationFn: async (indexer: IndexerSettings & { Id: string }) =>
       unwrap(
         await client!.PUT("/stingstream/api/v1/Settings/indexers/{id}", {
-          params: { path: { id: indexer.Id }, query: { sync: true } },
+          params: { path: { id: indexer.Id }, query: { sync: false } },
           body: indexer,
         }),
         "PUT /Settings/indexers",
@@ -712,7 +717,7 @@ export function useAddExternalDownloadClient() {
     mutationFn: async (external: ExternalDownloadClientSettings) =>
       unwrap(
         await client!.POST("/stingstream/api/v1/Settings/downloadclients", {
-          params: { query: { sync: true } },
+          params: { query: { sync: false } },
           body: external,
         }),
         "POST /Settings/downloadclients",
@@ -733,7 +738,7 @@ export function useUpdateExternalDownloadClient() {
     ) =>
       unwrap(
         await client!.PUT("/stingstream/api/v1/Settings/downloadclients/{id}", {
-          params: { path: { id: external.Id }, query: { sync: true } },
+          params: { path: { id: external.Id }, query: { sync: false } },
           body: external,
         }),
         "PUT /Settings/downloadclients",

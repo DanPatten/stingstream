@@ -61,7 +61,10 @@ export function QualityProfileRow({
           {
             options: (profiles.data ?? []).map((p) => ({
               type: "radio" as const,
-              label: `${p.Name}${p.InSync === false ? t("manage.out_of_sync_suffix") : ""}`,
+              // Never "(out of sync)": profiles reach the managers in the background, and picking
+              // one the manager has not received yet pushes it first (ResolveInAppAsync), so the
+              // gap is not the reader's to know about.
+              label: p.Name ?? "",
               value: p.Name ?? "",
               selected: p.Name === profileName,
               onPress: () => void setProfile(p.Name ?? ""),

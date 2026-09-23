@@ -117,6 +117,7 @@ public sealed class RequestWorker : BackgroundService
     private readonly INodeRuntimeProvider _runtime;
     private readonly FederatedSourceService _sources;
     private readonly Webhooks.ArrWebhookService _webhooks;
+    private readonly QualityProfileService _quality;
     private readonly ILogger<RequestWorker> _logger;
 
     /// <summary>
@@ -152,8 +153,10 @@ public sealed class RequestWorker : BackgroundService
         INodeRuntimeProvider runtime,
         FederatedSourceService sources,
         Webhooks.ArrWebhookService webhooks,
+        QualityProfileService quality,
         ILogger<RequestWorker> logger)
     {
+        _quality = quality;
         _store = store;
         _notifier = notifier;
         _withdrawal = withdrawal;
@@ -978,8 +981,8 @@ public sealed class RequestWorker : BackgroundService
             .LookupAsync("tmdb:" + row.ProviderId.ToString(CultureInfo.InvariantCulture), cancellationToken)
             .ConfigureAwait(false)
             ?? throw new ArrApiException($"The movie manager's lookup found no movie with TMDB id {row.ProviderId}.");
-        var profile = await client
-            .ResolveQualityProfileAsync(settings.DefaultQualityProfileName, cancellationToken)
+        var profile = await _quality
+            .ResolveInAppAsync(client, settings.DefaultQualityProfileName, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new ArrApiException("The movie manager has no quality profiles.");
 
@@ -1029,8 +1032,8 @@ public sealed class RequestWorker : BackgroundService
             .LookupAsync("tvdb:" + row.ProviderId.ToString(CultureInfo.InvariantCulture), cancellationToken)
             .ConfigureAwait(false)
             ?? throw new ArrApiException($"The series manager's lookup found no series with TVDB id {row.ProviderId}.");
-        var profile = await client
-            .ResolveQualityProfileAsync(settings.DefaultQualityProfileName, cancellationToken)
+        var profile = await _quality
+            .ResolveInAppAsync(client, settings.DefaultQualityProfileName, cancellationToken)
             .ConfigureAwait(false)
             ?? throw new ArrApiException("The series manager has no quality profiles.");
 
