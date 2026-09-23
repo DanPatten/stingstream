@@ -15,8 +15,8 @@
          that fails at runtime in ways a build does not catch. Self-contained already gets the
          thing this milestone actually needs: no "install the right .NET runtime first" step for
          whoever downloads the release.
-      3. Fetches jellyfin-ffmpeg and nzbget for the RID's platform via the existing third_party
-         fetch scripts, if not already fetched.
+      3. Fetches jellyfin-ffmpeg for the RID's platform via the existing third_party fetch
+         script, if not already fetched.
       4. Builds the web bundle (`bun run build:web` (= `expo export --platform web`) in apps/stingstream), if
          not already built and -SkipWeb was not passed.
       5. Copies everything into dist/node/<rid>/ per deploy/node/LAYOUT.md, plus LICENSE, NOTICE.md
@@ -46,9 +46,9 @@
     dropped into web/ by hand.
 
 .PARAMETER SkipFetch
-    Do not run the third_party fetch scripts even if their output is missing for this platform.
-    The assembled tree then has no bin/ffmpeg or bin/nzbget, which the supervisor treats as
-    "disabled", not fatal.
+    Do not run the third_party fetch script even if its output is missing for this platform.
+    The assembled tree then has no bin/ffmpeg, which the supervisor treats as "disabled", not
+    fatal.
 
 .PARAMETER Parallel
     Publish Jellyfin, Radarr and Sonarr as three concurrent PowerShell jobs instead of one after
@@ -120,16 +120,15 @@ if ($env:CARGO_HOME) { Write-Host "CARGO_HOME:     $env:CARGO_HOME" }
 if ($env:NUGET_PACKAGES) { Write-Host "NUGET_PACKAGES: $env:NUGET_PACKAGES" }
 
 # --- RID mapping ----------------------------------------------------------------------------
-# One RID drives everything else this script touches: the Rust target triple, the fetch scripts'
+# One RID drives everything else this script touches: the Rust target triple, the fetch script's
 # platform token, and (for Radarr/Sonarr) the "Windows" vs "Posix" build Platform property that
-# selects which of their own conditional source files compile. See deploy/node/LAYOUT.md's table
-# for the nzbget/linux-arm64 gap.
+# selects which of their own conditional source files compile.
 $RidInfo = @{
-    'win-x64'     = @{ RustTriple = 'x86_64-pc-windows-msvc';  FfmpegPlatform = 'win64';      NzbgetPlatform = 'win64';     BuildPlatform = 'Windows'; Exe = '.exe' }
-    'linux-x64'   = @{ RustTriple = 'x86_64-unknown-linux-gnu'; FfmpegPlatform = 'linux64';     NzbgetPlatform = 'linux-x64'; BuildPlatform = 'Posix';   Exe = '' }
-    'linux-arm64' = @{ RustTriple = 'aarch64-unknown-linux-gnu'; FfmpegPlatform = 'linuxarm64'; NzbgetPlatform = $null;       BuildPlatform = 'Posix';   Exe = '' }
-    'osx-x64'     = @{ RustTriple = 'x86_64-apple-darwin';      FfmpegPlatform = 'macos';       NzbgetPlatform = 'macos';    BuildPlatform = 'Posix';   Exe = '' }
-    'osx-arm64'   = @{ RustTriple = 'aarch64-apple-darwin';     FfmpegPlatform = 'macos';       NzbgetPlatform = 'macos';    BuildPlatform = 'Posix';   Exe = '' }
+    'win-x64'     = @{ RustTriple = 'x86_64-pc-windows-msvc';  FfmpegPlatform = 'win64';      BuildPlatform = 'Windows'; Exe = '.exe' }
+    'linux-x64'   = @{ RustTriple = 'x86_64-unknown-linux-gnu'; FfmpegPlatform = 'linux64';     BuildPlatform = 'Posix';   Exe = '' }
+    'linux-arm64' = @{ RustTriple = 'aarch64-unknown-linux-gnu'; FfmpegPlatform = 'linuxarm64'; BuildPlatform = 'Posix';   Exe = '' }
+    'osx-x64'     = @{ RustTriple = 'x86_64-apple-darwin';      FfmpegPlatform = 'macos';       BuildPlatform = 'Posix';   Exe = '' }
+    'osx-arm64'   = @{ RustTriple = 'aarch64-apple-darwin';     FfmpegPlatform = 'macos';       BuildPlatform = 'Posix';   Exe = '' }
 }
 $info = $RidInfo[$Rid]
 
@@ -298,23 +297,12 @@ if (-not (Test-Path (Join-Path $sonarrOut $sonarrPlatformDll))) {
     throw "Sonarr: no $sonarrPlatformDll in $sonarrOut -- Sonarr will crash on startup with a FileNotFoundException. Build it first, or drop -SkipBuild."
 }
 
-# --- 3. third_party: jellyfin-ffmpeg, nzbget -------------------------------------------------
+# --- 3. third_party: jellyfin-ffmpeg ----------------------------------------------------------
 
 $ffmpegSrc = Join-Path $RepoRoot "third_party/ffmpeg/bin/$($info.FfmpegPlatform)"
 if (-not $SkipFetch -and -not (Test-Path (Join-Path $ffmpegSrc 'ffmpeg*'))) {
     Write-Host "-- fetching jellyfin-ffmpeg for $($info.FfmpegPlatform)"
     & pwsh -File (Join-Path $RepoRoot 'third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1') -Platform $info.FfmpegPlatform
-}
-
-$nzbgetSrc = $null
-if ($info.NzbgetPlatform) {
-    $nzbgetSrc = Join-Path $RepoRoot "third_party/nzbget/bin/$($info.NzbgetPlatform)"
-    if (-not $SkipFetch -and -not (Get-ChildItem $nzbgetSrc -Filter 'nzbget*' -File -ErrorAction SilentlyContinue)) {
-        Write-Host "-- fetching nzbget for $($info.NzbgetPlatform)"
-        & pwsh -File (Join-Path $RepoRoot 'third_party/nzbget/fetch-nzbget.ps1') -Platform $info.NzbgetPlatform
-    }
-} else {
-    Write-Warning "No nzbget release for $Rid (nzbgetcom publishes no arm64 Linux asset -- see deploy/node/LAYOUT.md). bin/nzbget/ will be empty; the node still comes up with NZBGet reported as disabled."
 }
 
 # --- 4. web bundle ---------------------------------------------------------------------------
@@ -342,7 +330,6 @@ New-Item -ItemType Directory -Force -Path (Join-Path $OutDir 'bin/radarr') | Out
 New-Item -ItemType Directory -Force -Path (Join-Path $OutDir 'bin/sonarr') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $OutDir 'bin/mesh') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $OutDir 'bin/ffmpeg') | Out-Null
-New-Item -ItemType Directory -Force -Path (Join-Path $OutDir 'bin/nzbget') | Out-Null
 
 Copy-Item $supervisorBin (Join-Path $OutDir "bin/stingstream$($info.Exe)")
 if (Test-Path $meshBin) { Copy-Item $meshBin (Join-Path $OutDir "bin/mesh/stingstream-mesh$($info.Exe)") }
@@ -353,9 +340,6 @@ Copy-Item (Join-Path $sonarrOut '*') (Join-Path $OutDir 'bin/sonarr') -Recurse
 
 if (Test-Path $ffmpegSrc) {
     Copy-Item (Join-Path $ffmpegSrc '*') (Join-Path $OutDir 'bin/ffmpeg') -Recurse -Exclude '*.zip', '*.tar.xz', '*.tar.gz'
-}
-if ($nzbgetSrc -and (Test-Path $nzbgetSrc)) {
-    Copy-Item (Join-Path $nzbgetSrc '*') (Join-Path $OutDir 'bin/nzbget') -Recurse -Exclude '*-setup.exe', '*.run', 'Uninstall.exe'
 }
 
 if (Test-Path (Join-Path $webDist 'index.html')) {

@@ -219,7 +219,7 @@ function Write-M4NodeConfig {
     .SYNOPSIS
         Write one node's config.toml and mesh.toml.
     .DESCRIPTION
-        The arrs and NZBGet are off on every node. B and C are pure holders -- their media is placed
+        The arrs are off on every node. B and C are pure holders -- their media is placed
         on disk directly, which is both faster and more deterministic than driving the whole grab
         pipeline three times -- and A's only add is one the group already satisfies, which never
         reaches an arr at all. That takes the run from twelve child processes to six.
@@ -254,7 +254,6 @@ expose_child_uis_in_dev = true
 jellyfin = true
 radarr = false
 sonarr = false
-nzbget = false
 mesh = true
 infinidysk = false
 

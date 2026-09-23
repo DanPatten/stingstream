@@ -32,16 +32,12 @@ mesh/jellyswarrm/
 **/node_modules/
 
 !third_party/ffmpeg/bin/**
-!third_party/nzbget/bin/**
-# The archives fetch-jellyfin-ffmpeg.ps1 leaves alongside the extracted binaries, and the
-# installer/uninstaller nzbget's own Windows fetch leaves (irrelevant to the Linux platforms this
-# image ships, and the Dockerfile's `thirdparty` stage does not look for them).
+# The archives fetch-jellyfin-ffmpeg.ps1 leaves alongside the extracted binaries (irrelevant to
+# the Linux platforms this image ships, and the Dockerfile's `thirdparty` stage does not look for
+# them).
 third_party/ffmpeg/bin/*/*.zip
 third_party/ffmpeg/bin/*/*.tar.xz
 third_party/ffmpeg/bin/*/*.tar.gz
-third_party/nzbget/bin/*/*-setup.exe
-third_party/nzbget/bin/*/*.run
-third_party/nzbget/bin/*/Uninstall.exe
 
 !apps/stingstream/dist/**
 

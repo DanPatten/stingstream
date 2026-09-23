@@ -230,6 +230,10 @@ next/previous pager rather than infinite scroll specifically so the approximatio
 
 ## 7. Unified per-download item list (progress, speed, pause/resume/remove)
 
+**Superseded 2026-09-23 — see below the M4.5 write-up.** The embedded engines this gap and its
+resolution describe (the qBittorrent shim, MonoTorrent, the bundled NZBGet) are deleted outright.
+The rest of this entry is left as the M4.5 record; do not read it as the current API shape.
+
 **Screen:** Downloads (the aggregate engine health panel — running state, active count, aggregate
 rates from `TorrentEngineStatus`, NZBGet's `/healthz` state — is real; the per-item list below it is
 the gap).
@@ -285,9 +289,27 @@ Ids are stable across polls and restarts for the two real engines (an info hash 
 survive one); an arr-only row is marked `ephemeral`, because its id is the arr's queue id and does
 not.
 
+**The current shape, since 2026-09-23.** StingStream runs no download client of its own any more —
+every download lives in a client the user runs — so "four engines, not two" above is now simply
+"two engines" (`radarr`, `sonarr`), and there is nothing left to merge: the arr's own queue row *is*
+the download, not something folded onto a `torrent`/`usenet` engine row. `GET
+/stingstream/api/v1/downloads` still answers a `DownloadsView`, but `DownloadItem.Engine` is only
+ever `"radarr"` or `"sonarr"`, and `pause`/`resume` are gone entirely rather than 409ing — the arrs
+never had an API for them, which is exactly why the old rows for the two real engines existed to
+carry those verbs in the first place. `DELETE .../downloads/{engine}/{id}` is the only removal path
+now, and it always goes through the owning arr, which is what "a removal goes through the arr when
+one is waiting" above already recommended as the tidy path — that recommendation is now simply the
+only path there is. See `Controllers/DownloadsController.cs` and `Downloads/DownloadsService.cs`.
+
 ---
 
 ## 8. Adding an external download client
+
+**Superseded 2026-09-23 — see below the M4.5 write-up.** `DownloadClientSettings`, the embedded
+`TorrentsEnabled`/`UsenetEnabled` toggles it describes, and the "alongside the embedded engines"
+question this gap was originally weighing are all gone: StingStream runs no download client of its
+own any more, so external clients are not an addition alongside something built in, they are the
+entire download-client story. The rest of this entry is left as the M4.5 record.
 
 **Screen:** Server settings → Download clients.
 
@@ -328,13 +350,22 @@ Radarr's qBittorrent declares an `apiKey` field, and setting all three is refuse
 pasted its key into the password box, which is what a SABnzbd user does anyway. Found by pressing
 the test button.
 
+**The current shape, since 432ddb5 (2026-09-23) and the removal alongside it.** Add and delete were
+the whole story here at M4.5; `PUT /Settings/downloadclients/{id}` now lets an existing row be
+edited in place — fixing a changed password or port no longer means deleting the row and losing
+whatever else referenced it. Renamed, disabled or removed providers — including, on an upgrading
+node, the two old built-in registrations this gap's proposal explicitly reasoned about avoiding —
+are now reconciled automatically on every sync via `SharedSettings.RetiredProviders` and
+`OmniarrSyncService.IsRetiredBuiltIn`, rather than only at add/delete time.
+
 ---
 
 ## 9. Indexer test
 
 **Screen:** Server settings → Indexers add form.
 
-Add/edit (`POST`)/delete (`DELETE /Settings/indexers/{id}`) are real and used as-is. There's no
+Add (`POST`)/delete (`DELETE /Settings/indexers/{id}`) are real and used as-is (edit, as
+`PUT /Settings/indexers/{id}`, followed in 432ddb5 — see below). There's no
 `POST /Settings/indexers/test` equivalent to Radarr's/Sonarr's own indexer test button, so a bad
 Torznab URL or key is only discovered when a search actually runs.
 
@@ -361,6 +392,15 @@ status is the *answer*, not an error to propagate, and the reasons are folded in
 that names the field — "ApiKey: Unauthorized" says which half of a Torznab URL is wrong where
 "Unauthorized" does not.
 
+**The current shape, since 432ddb5 (2026-09-23).** The M4.5 test above still had a gap of its own:
+Radarr and Sonarr only start once an indexer already exists, so the very first test on a fresh node
+called a stopped app and the schema fetch — sitting outside the per-app try — escaped as a bare 500,
+"could not test it," with no relation to whether the Torznab URL and key were actually right. The
+test now runs inside one try per app, skips an app that is not up, and falls back to
+`Arr/TorznabProbe.cs` asking the Torznab endpoint directly when neither app can answer — so a bad
+URL or key is caught even on the very first indexer a node ever gets, before either app has a reason
+to be running yet.
+
 ---
 
 ## 10. Per-child version numbers
@@ -368,26 +408,30 @@ that names the field — "ApiKey: Unauthorized" says which half of a Torznab URL
 **Screen:** Node status → Children.
 
 `/healthz` reports `{ name, enabled, state, port, pid, restarts, base_url, healthy_since }` per
-child — accurate and live, but no version string for Jellyfin/Radarr/Sonarr/NZBGet/mesh, so the
-screen can't show "which build is this node running."
+child — accurate and live, but no version string for Jellyfin/Radarr/Sonarr/NZBGet/mesh (the child
+list this gap was written against; NZBGet stopped being one of them on 2026-09-23), so the screen
+can't show "which build is this node running."
 
 **Proposed:** add `version: string | null` to each child's `/healthz` entry — the supervisor already
 knows which binary it launched and most children answer their own version over their local API
-(Jellyfin's `/System/Info`, the arrs' `/api/v3/system/status`, NZBGet's `version` RPC method); this
-is a small addition, not a design question, unlike most items above.
+(Jellyfin's `/System/Info`, the arrs' `/api/v3/system/status`, NZBGet's `version` RPC method, when
+NZBGet still ran as a child); this is a small addition, not a design question, unlike most items
+above.
 
 **Closed (M4.5), from both ends.** `/healthz` children gained `version`, and
 `NodeStatus.Children[].Version` carries the same numbers from Core. The Node status screen prefers
 the supervisor's, because that is the one that keeps working when Jellyfin is the child that is
 down.
 
-Four children, four dialects, so `ChildDef` carries a small `VersionProbe` — a URL, an optional POST
-body, optional Basic auth, optional headers and a JSON pointer — rather than four bespoke probes.
-Jellyfin's is `/System/Info/`**`Public`** rather than `/System/Info`, because the public one needs
-no token and the supervisor has none and should not need one to answer "which build". The arrs take
-their generated API key. NZBGet's is the JSON-RPC `version` call the health probe already makes. The
-mesh is the exception: it runs *inside* the supervisor's process by default, so its version is a
-constant (`stingstream_mesh::VERSION`) rather than a request to a listener in the same process.
+Several children, several dialects, so `ChildDef` carries a small `VersionProbe` — a URL, an
+optional POST body, optional Basic auth, optional headers and a JSON pointer — rather than a bespoke
+probe per child. Jellyfin's is `/System/Info/`**`Public`** rather than `/System/Info`, because the
+public one needs no token and the supervisor has none and should not need one to answer "which
+build". The arrs take their generated API key. (NZBGet's was the JSON-RPC `version` call the health
+probe already made, until NZBGet stopped being a child at all on 2026-09-23 and took its `VersionProbe`
+with it.) The mesh is the exception: it runs *inside* the supervisor's process by default, so its
+version is a constant (`stingstream_mesh::VERSION`) rather than a request to a listener in the same
+process.
 
 Probed once, when a child first becomes healthy, and cleared on restart — the one moment a version
 can have changed under it. Every failure path answers the same way: the field is absent, and the

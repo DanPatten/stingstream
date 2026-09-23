@@ -18,7 +18,7 @@
 # likely required before that submission would be accepted, not just recommended).
 
 class Stingstream < Formula
-  desc "Jellyfin + Radarr + Sonarr + NZBGet + a peer mesh, behind one login"
+  desc "Jellyfin + Radarr + Sonarr + a peer mesh, behind one login"
   homepage "https://github.com/DanPatten/stingstream"
   license "GPL-3.0-or-later"
   version "0.0.0" # PLACEHOLDER -- set by the release process; see docs/RELEASING.md
@@ -37,8 +37,8 @@ class Stingstream < Formula
   def install
     # The tarball is deploy/node/LAYOUT.md's tree as-is (bin/, web/, LICENSE, NOTICE.md, VERSION).
     # libexec, not bin, because bin/ here holds a whole install tree (Jellyfin, Radarr, Sonarr,
-    # ffmpeg, nzbget alongside the supervisor itself), not one standalone executable -- exactly
-    # the case Homebrew's own formula cookbook calls out libexec for.
+    # ffmpeg alongside the supervisor itself), not one standalone executable -- exactly the case
+    # Homebrew's own formula cookbook calls out libexec for.
     libexec.install Dir["*"]
     # --install-root explicit, same reasoning as every other launcher in this milestone (see
     # deploy/node/LAYOUT.md): a `brew services`-launched process should never depend on the

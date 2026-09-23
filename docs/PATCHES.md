@@ -70,8 +70,9 @@ exists and `SwaggerGenOptions` can be extended) and after `AddJellyfinApiAuthori
 controllers can use Jellyfin's own policies). The middleware has to be *inside* the `Map` lambda,
 because Jellyfin maps its entire pipeline under its configured `BaseUrl` — which is why, on a
 supervisor-run node with `BaseUrl=/stingstream`, StingStream's routes really live at
-`/stingstream/stingstream/...` and the gateway rewrites `/stingstream/api/...` and
-`/stingstream/qbt/...` onto them.
+`/stingstream/stingstream/...` and the gateway rewrites `/stingstream/api/...` onto them. (Until
+2026-09-23 it also rewrote `/stingstream/qbt/...`, onto the qBittorrent-compatible shim in front of
+the now-deleted in-process torrent engine; that route is gone with the shim.)
 
 ### 4. `Jellyfin.Server/Filters/CachingOpenApiProvider.cs` — key the cache on the document name
 
@@ -90,11 +91,13 @@ is harmless; StingStream registers a second (named `openapi`, served at
 document is requested first is cached and then returned at *both* URLs. This is an upstream bug
 rather than a StingStream-specific need, and a good candidate to send upstream.
 
-### 5. `Directory.Packages.props` — three package versions
+### 5. `Directory.Packages.props` — two package versions
 
-`MonoTorrent` 3.0.2 (the in-process torrent engine), `Blake3` 3.0.2 (file hashing for the inventory
-record) and `Fido2` 4.0.1 (passkeys). Central package management means a new dependency has to be
-declared there; all three entries carry a comment marking them as StingStream's.
+`Blake3` 3.0.2 (file hashing for the inventory record) and `Fido2` 4.0.1 (passkeys). Central package
+management means a new dependency has to be declared there; both entries carry a comment marking
+them as StingStream's. A third, `MonoTorrent` 3.0.2 (the in-process torrent engine), was added here
+too, until the engine it backed was deleted outright on 2026-09-23 (`ARCHITECTURE.md`, M9) and its
+package reference removed along with it — this file no longer references MonoTorrent at all.
 
 **Upstream-pull risk:** a guaranteed textual conflict whenever upstream bumps a neighbouring
 package (the 2026-09-23 pull hit it on `BitFaster.Caching`). Take upstream's version and keep ours.
@@ -406,8 +409,15 @@ Both apps are used entirely unmodified. StingStream drives them through:
   notifications, and adding titles. Provider resources are built from each app's own
   `/api/v3/<resource>/schema` response rather than from a copy of its settings classes, so field
   names, types and defaults come from the running app and survive upstream churn.
-- **Their stock qBittorrent and NZBGet download clients**, pointed at StingStream's own
-  qBittorrent-compatible API subset and at the supervisor-run NZBGet.
+- **Their download clients, entirely the user's own.** Until 2026-09-23 this bullet named two
+  built-in ones — their stock qBittorrent client pointed at StingStream's own qBittorrent-compatible
+  API subset, and their stock NZBGet client pointed at the supervisor-run NZBGet. Both are gone:
+  StingStream registers whatever qBittorrent/Transmission/Deluge/rTorrent/SABnzbd/NZBGet the user
+  adds under Settings → Indexers & engines, built from each app's own `downloadclient/schema`
+  response the same way an indexer is (see the bullet above), never a copy of settings classes
+  StingStream maintains itself. A provider StingStream no longer wants registered — renamed,
+  disabled, or one of the old built-in clients on an upgrading node — is removed from both apps on
+  the next sync, tracked in `SharedSettings.RetiredProviders`.
 
 ## mesh/jellyswarrm (Jellyswarrm)
 
@@ -488,6 +498,8 @@ The security review touched Jellyfin's process in four places, and all four are 
   nothing else, so a query string added at the server survives the trip.
 * **The arr webhook's shared secret**, the qBittorrent shim failing closed, and the save-path
   containment check: `WebhooksController`, `QbtController` and `OmniarrSyncService`, all ours.
+  (`QbtController` itself is gone as of 2026-09-23 — the whole shim it belonged to was deleted, not
+  merely patched further — but the point stands unchanged: none of this ever touched vendored code.)
 * **The authorization fixes** (one `IsSelf` on `StingStreamControllerBase`, the missing self-check
   on the playback-policy getter, 404-instead-of-403 on requests): all in our controllers.
 * **`CorsHosts`** changed from `["*"]` to empty, and that is a *configuration* change written by

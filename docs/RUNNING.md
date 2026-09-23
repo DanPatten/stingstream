@@ -3,9 +3,11 @@
 This is the practical companion to [`ARCHITECTURE.md`](ARCHITECTURE.md): how to build a node from
 a clean checkout, run it, and find your way around it when something is wrong.
 
-A node is one command and five processes. The command is `stingstream`; the processes are the
-supervisor itself plus Jellyfin, Radarr, Sonarr and NZBGet, all bound to loopback behind a single
-gateway port.
+A node is one command and four processes. The command is `stingstream`; the processes are the
+supervisor itself plus Jellyfin, Radarr and Sonarr, all bound to loopback behind a single gateway
+port. StingStream runs no download client of its own — point Radarr and Sonarr at one you already
+run (qBittorrent, Transmission, Deluge, rTorrent, SABnzbd, NZBGet) under Settings → Indexers &
+engines once the node is up.
 
 ---
 
@@ -20,20 +22,16 @@ gateway port.
 
 Install the SDKs side by side; that is supported, and no single version covers all three.
 
-Two binaries are fetched rather than vendored, and a node will not do much without them:
+One binary is fetched rather than vendored, and a node will not transcode, probe media or extract
+images without it:
 
 ```powershell
 # ffmpeg for Jellyfin: without it there is no transcoding, no media probing and no images.
 pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1
-
-# NZBGet, the usenet download client.
-pwsh third_party/nzbget/fetch-nzbget.ps1
 ```
 
-Both default to the current platform and drop their output into gitignored `bin/` directories that
-the supervisor discovers on its own. On Windows, installing 7-Zip lets the NZBGet script unpack the
-vendor's NSIS installer without running it; without 7-Zip it falls back to a silent install into
-that same directory.
+It defaults to the current platform and drops its output into a gitignored `bin/` directory that
+the supervisor discovers on its own.
 
 ---
 
@@ -77,7 +75,7 @@ StingStream "attic" is up.
   Sharing      http://127.0.0.1:8790/stingstream/mesh/v1/status
   Data         C:\Users\dan\AppData\Local\StingStream
   On this LAN  http://192.168.0.16:8790
-  Mode         --dev (child UIs proxied at /radarr/, /sonarr/, /nzbget/)
+  Mode         --dev (child UIs proxied at /radarr/, /sonarr/)
 
   First run: open http://192.168.0.16:8790 (or http://127.0.0.1:8790 on this computer)
   to create your account.
@@ -254,7 +252,7 @@ from `:8081` could not call the node's API at all. Served through the node it is
 marker above is spliced into what Metro returns, and `/hot` and `/message` upgrade to WebSockets
 through the same splice `/jellyfin/socket` uses, so fast refresh works. Every route the gateway
 already claims — `/jellyfin`, `/stingstream`, `/healthz`, `/stream`, `/sidedoor`, and `/radarr`,
-`/sonarr`, `/nzbget` in `--dev` — is untouched.
+`/sonarr` in `--dev` — is untouched.
 
 `gateway.web_dev_server` in `config.toml` does the same and is **ignored outside `--dev`**: an
 installed server proxying its front page to somebody's laptop because of a stale config file is
@@ -330,7 +328,6 @@ port = $($n.Port)
 jellyfin = 0
 radarr = 0
 sonarr = 0
-nzbget = 0
 mesh = 0
 "@ | Set-Content -Path "$dir\config.toml" -Encoding utf8
 
@@ -397,7 +394,6 @@ logs/
   jellyfin.jsonl       everything Jellyfin wrote to stdout/stderr, wrapped per line
   radarr.jsonl         likewise
   sonarr.jsonl
-  nzbget.jsonl
 tls/
   cert.pem             the node's own certificate chain, and its key next to it
   key.pem              generated here, never sent anywhere (see SIDEDOOR.md)
@@ -405,10 +401,11 @@ tls/
 jellyfin/{config,data,cache,log}/
 radarr/                Radarr's data directory, including its config.xml
 sonarr/
-nzbget/                nzbget.conf
 downloads/
-  torrents/<category>/ where the in-process engine puts things
-  usenet/              NZBGet's MainDir
+  torrents/<category>/ historical: where the in-process engine put things until the node stopped
+                        bundling a download client (2026-09-23). Still created and still excluded
+                        from library-path validation, in case an upgraded node has old files here.
+  usenet/               historical, same reason: the bundled NZBGet's old MainDir.
 media/
   Movies/              Radarr's root folder, and Jellyfin's "Movies" library
   TV/                  Sonarr's root folder, and Jellyfin's "TV Shows" library
@@ -431,11 +428,15 @@ port = 8790
 jellyfin = 8096     # and 0 always means "pick one"
 radarr = 7878
 sonarr = 8989
-nzbget = 6789
 
 [children]
 infinidysk = false  # a later milestone
 ```
+
+A `config.toml` written before 2026-09-23 may still have an `nzbget = ...` line under `[ports]` or
+`[children]`, left over from when the node ran a bundled NZBGet. The parser still accepts it — a
+retired field, kept only so an old file does not fail to start a node — but it does nothing, and a
+freshly-written `config.toml` never has one.
 
 `radarr` and `sonarr` are also written from the app, but not by any one switch.
 `ArrEnablementWorker` keeps them in line with a rule over the saved settings (`ArrEnablement`): a
@@ -450,9 +451,20 @@ way out.
 ### `runtime.json`
 
 The supervisor's contract with everything else on the node, rewritten on every start: the ports
-that were really assigned, the generated arr API keys, the NZBGet and qBittorrent-shim credentials,
-the Jellyfin bootstrap administrator, and the resolved paths. `StingStream.Core` reads it to reach
-the arrs; `tools/e2e-m1.ps1` reads it to drive the node; you read it when you need an API key.
+that were really assigned, the generated arr API keys, the Jellyfin bootstrap administrator, and the
+resolved paths. `StingStream.Core` reads it to reach the arrs; `tools/e2e-m1.ps1` reads it to drive
+the node; you read it when you need an API key.
+
+It still carries a `qbittorrent` block (`username`, `password`, `url_base`), kept by name from when
+it really was the bundled qBittorrent-compatible shim's login. Nothing answers at `url_base` any
+more — the shim is gone — but `password` is now this node's own secret, seeding the signed
+stream-URL key (`gateway::streamurl`) and the arr webhook's shared secret, both added after the shim
+existed for its original reason. Renaming or regenerating it would break every signed stream URL and
+every arr webhook delivery on the node, so it stays under its old name in its old shape rather than
+being reinvented under a new one. A file written before 2026-09-23 may also carry a per-child
+`nzbget` secrets entry; it is read like any other entry and silently dropped and regenerated at the
+next start, because startup rebuilds that map from the supervisor's own current list of children,
+which no longer names it.
 
 It holds secrets, so it is written owner-only where the OS supports it. Generated values are
 carried forward across restarts — a restart never invalidates configuration that has already been
@@ -490,7 +502,7 @@ Invoke-RestMethod http://127.0.0.1:8790/stingstream/api/v1/inventory -Headers $h
 
 The API describes itself at `/stingstream/api/v1/openapi.json`.
 
-In `--dev`, the children's own UIs are proxied for debugging — `/radarr/`, `/sonarr/`, `/nzbget/`.
+In `--dev`, the children's own UIs are proxied for debugging — `/radarr/`, `/sonarr/`.
 An installed node never routes those; they are not StingStream's front door.
 
 ### Reading the logs
@@ -517,9 +529,10 @@ the child's name — one view of the whole node.
 `tools/e2e-m1.ps1` is the test that decides whether M1 works. It builds everything, generates two
 test media files with the fetched ffmpeg, seeds them from a self-hosted BitTorrent tracker, serves
 them from a Torznab stub, starts a node on a throwaway data directory, adds a movie and a series
-through the StingStream API, and waits for each to travel the whole path — grab, download through
-the qBittorrent-compatible API, import, webhook, Jellyfin item — then plays them and restarts the
-node to prove it all comes back.
+through the StingStream API, and waits for each to travel the whole path — grab, download through a
+real qBittorrent instance the harness starts and configures as an ordinary external download client
+(StingStream runs none of its own; `tools/e2e-common.ps1` §"external qBittorrent"), import, webhook,
+Jellyfin item — then plays them and restarts the node to prove it all comes back.
 
 ```powershell
 pwsh tools/e2e-m1.ps1                                          # the whole thing
@@ -533,6 +546,18 @@ node you already have running. Its work directory lives beside the repository, n
 it runs the node's children at `debug` — the arrs say nothing useful at `info` about why an import
 was rejected, and the logs it leaves behind are the whole point when a step fails.
 
+**qBittorrent has to be installed** for `e2e-m1`, `e2e-m3` and `e2e-m6`, the three harnesses that
+download something: `winget install --id qBittorrent.qBittorrent -e` on Windows,
+`qbittorrent-nox` on Linux, or `$env:QBITTORRENT_EXE` pointing at the binary. `Start-Qbittorrent`
+writes a fresh profile to `.local\e2e\qbt\<harness>` on every run (Web UI on a free loopback
+port, login `e2e` / `e2e-qbittorrent` stored as the PBKDF2 hash qBittorrent itself writes, the
+legal notice, update check and file-association prompt pre-answered, DHT/PeX/LSD/UPnP off, TCP
+only, every listener on 127.0.0.1) and starts the Windows GUI build minimized to the tray. The
+harness registers it through `POST /stingstream/api/v1/settings/downloadclients?sync=true` with
+the categories `radarr` and `sonarr`, and reads `/api/v2/torrents/info` to see what the arrs sent
+it. `Stop-Qbittorrent` stops it by process id and profile path, never by name, so a qBittorrent of
+your own is left alone. Its log is `.local\e2e\qbt\<harness>\logs\qbittorrent.log`.
+
 > **Use `-PrivateCopy <dir>`**, which this harness has had since M8b (it calls
 > `New-PrivateInstallRoot -WithArrs` from `tools/e2e-common.ps1`, so the arrs are copied too).
 > Without it the node runs straight out of the repository's build outputs, and while it is up (and
@@ -540,10 +565,10 @@ was rejected, and the logs it leaves behind are the whole point when a step fail
 > on Windows: stopping the *supervisor* by name orphans its children rather than taking them with
 > it (see "Known limitations in M1"), so a node you believe you have stopped can still be holding
 > `StingStream.Core.dll`. If a build fails with `MSB3027 … locked by: Jellyfin.Server`, look for
-> orphaned `jellyfin.exe`, `Radarr.Console.exe` and `nzbget.exe` whose *paths* are under `server/**`
-> and `third_party/**` and stop those too.
+> orphaned `jellyfin.exe` and `Radarr.Console.exe` whose *paths* are under `server/**` and stop
+> those too.
 >
-> `tools/e2e-m6.ps1` and `tools/e2e-m7.ps1` have it as well. `e2e-m3`, `e2e-m8` and
+> `tools/e2e-m3.ps1`, `tools/e2e-m6.ps1` and `tools/e2e-m7.ps1` have it as well. `e2e-m8` and
 > `e2e-invite` do not — see each one's own section for whether that matters.
 >
 > **The same trap catches `tools/seeder` and `tools/torznab-stub`, and it is nastier**, because
@@ -655,8 +680,8 @@ for another reason, that is when its helpers move.
 pwsh tools/e2e-m7.ps1 -SkipBuild -PrivateCopy E:\stingstream-e2e-m7-bin
 ```
 
-Three nodes, no arrs and no NZBGet -- nothing here grabs anything, and B's and C's media is placed
-on disk with an NFO carrying the TMDB id, so the run needs no metadata provider to be reachable.
+Three nodes, no arrs -- nothing here grabs anything, and B's and C's media is placed on disk with an
+NFO carrying the TMDB id, so the run needs no metadata provider to be reachable.
 
 | | |
 |---|---|
@@ -772,8 +797,8 @@ powershell tools\e2e-m4.ps1 -SkipBuild `
     -WorkDir     E:\Dan\Documents\Repos\StingStream\.local\scratch\m4-work
 ```
 
-**`e2e-m1`, `e2e-m4`, `e2e-m6` and `e2e-m7` all take it**, and on a shared checkout you should
-always pass it. `e2e-m3` and `e2e-sidedoor` do not have it yet; `e2e-m8` has nothing to copy
+**`e2e-m1`, `e2e-m3`, `e2e-m4`, `e2e-m6` and `e2e-m7` all take it**, and on a shared checkout you
+should always pass it. `e2e-sidedoor` does not have it yet; `e2e-m8` has nothing to copy
 (standalone mesh nodes, no Jellyfin).
 
 The copy is a delta. Every component is compared against its source by size and write time, and

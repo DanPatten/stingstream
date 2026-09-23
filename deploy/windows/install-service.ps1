@@ -51,7 +51,7 @@ Write-Host "Creating $ServiceName service..."
 New-Service -Name $ServiceName `
     -BinaryPathName $binPath `
     -DisplayName 'StingStream' `
-    -Description 'Jellyfin, Radarr, Sonarr, NZBGet and the StingStream mesh, behind one gateway port (8790). See http://localhost:8790.' `
+    -Description 'Jellyfin, Radarr, Sonarr and the StingStream mesh, behind one gateway port (8790). See http://localhost:8790.' `
     -StartupType Automatic | Out-Null
 
 # Best-effort: a firewall rule failing is not worth aborting the install over. Loopback access

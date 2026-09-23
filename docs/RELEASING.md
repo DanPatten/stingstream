@@ -188,14 +188,13 @@ the resulting numbers and run ids, the same way the table above was built.
   pre-computed key cannot. The Android SDK/NDK themselves are **not** cached because this job never
   installs them -- it uses whatever `ubuntu-latest` already has preinstalled (`ANDROID_NDK_LATEST_HOME`/
   `$ANDROID_HOME`), so there is nothing to cache.
-- **Third-party binaries** (jellyfin-ffmpeg, nzbget; `ci.yml`'s e2e jobs, all three of
-  `release.yml`'s packaging jobs, `images.yml`'s `build`): both fetch scripts gained
-  `-PrintVersionOnly` (resolve the release tag with one API call, print it / write it to
-  `$GITHUB_OUTPUT`, exit) and `fetch-nzbget.ps1` gained `-Tag` (fetch-jellyfin-ffmpeg.ps1 already had
-  it) so a workflow can resolve the version once, use it as an `actions/cache` key
-  (`jellyfin-ffmpeg-<tag>-<platform>` / `nzbget-<tag>-<platform>`), and only re-run the real fetch on
-  a miss, pinned to that exact tag rather than re-querying "latest" a second time. A cache hit skips
-  the download outright, not just a rebuild. `coordinator.yml`'s pre-existing Pebble cache
+- **Third-party binaries** (jellyfin-ffmpeg; `ci.yml`'s e2e jobs, all three of `release.yml`'s
+  packaging jobs, `images.yml`'s `build`): `fetch-jellyfin-ffmpeg.ps1` gained `-PrintVersionOnly`
+  (resolve the release tag with one API call, print it / write it to `$GITHUB_OUTPUT`, exit), adding
+  to the `-Tag` it already had, so a workflow can resolve the version once, use it as an
+  `actions/cache` key (`jellyfin-ffmpeg-<tag>-<platform>`), and only re-run the real fetch on a miss,
+  pinned to that exact tag rather than re-querying "latest" a second time. A cache hit skips the
+  download outright, not just a rebuild. `coordinator.yml`'s pre-existing Pebble cache
   (`pebble-v2.10.1-${{ runner.os }}`) already did the equivalent for a version that is hardcoded
   rather than "latest", and was left as-is.
 - **Docker images** (`images.yml`, `coordinator.yml`): already using
@@ -278,11 +277,6 @@ Rust cache self-heals without intervention.
   at the cost of a larger download than trimming would produce. Sizes as packaged locally for
   `win-x64` (self-contained, unstripped `.pdb`s included): Jellyfin ≈ 280 MB, Radarr ≈ 156 MB,
   Sonarr ≈ 167 MB.
-- **No linux-arm64 NZBGet.** `nzbgetcom/nzbget`'s releases have no arm64 Linux asset as of this
-  writing (`third_party/nzbget/fetch-nzbget.ps1`'s own `$PlatformPatterns` only knows `win64`,
-  `linux-x64`, `macos`). A linux-arm64 node ships with `bin/nzbget/` empty and NZBGet reported
-  `Disabled` in `/healthz` — not a packaging bug, a real upstream gap. Fixed by either a future
-  nzbgetcom release or building it from source for arm64, neither in scope here.
 - **A `set -e` footgun in every shell script the pipeline runs.** A bare, standalone `[[ cond ]] &&
   cmd` statement is not safe under `set -e` for the ordinary case where `cond` is false — the
   common advice that `&&`/`||` "exempt" a command from triggering `errexit` only reliably holds
@@ -413,8 +407,8 @@ fields name.
   not-yet-done piece of work needing Dan's own developer account.
 - **macOS full-boot verification.** Nobody has started all five child processes together on macOS
   — only the binary launching and resolving its own config has been proven, on real CI hardware.
-  The first real macOS user is, today, the first person to find out whether Jellyfin/Radarr/Sonarr/
-  NZBGet actually come up together there.
+  The first real macOS user is, today, the first person to find out whether Jellyfin/Radarr/Sonarr
+  actually come up together there.
 - **Windows upgrades.** The `windows-installer` job installs onto a clean runner, so it proves a
   first install and nothing about installing over an existing data directory. v0.2.0 over a v0.1.0
   data directory failed exactly there: the old `config.toml` has sections v0.2 rejects, and the

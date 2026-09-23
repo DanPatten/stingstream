@@ -3,7 +3,7 @@
 # Its own workflow so an image change does not queue behind, or race, an unrelated one: this cares
 # only about deploy/node/** and the three server subtrees' publishable projects.
 #
-#   * `build` (matrix: amd64, arm64) — each leg fetches ffmpeg/nzbget for its own platform, builds
+#   * `build` (matrix: amd64, arm64) — each leg fetches ffmpeg for its own platform, builds
 #     the web bundle, and does a *single-platform* `docker buildx build`, pushed under its own
 #     `:<sha>-<arch>` tag. **Not one multi-platform `buildx build` for both architectures at once**
 #     -- that was tried first and blew through a 90-minute job timeout on a cold cache: QEMU-
@@ -33,7 +33,6 @@ on:
       - "server/radarr/**"
       - "server/sonarr/**"
       - "third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1"
-      - "third_party/nzbget/fetch-nzbget.ps1"
       - ".github/workflows/images.yml"
   pull_request:
     paths:
@@ -78,14 +77,10 @@ jobs:
             platform: linux/amd64
             runner: ubuntu-latest
             ffmpeg_platform: linux64
-            fetch_nzbget: true
           - arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
             ffmpeg_platform: linuxarm64
-            # No linux-arm64 nzbget asset upstream -- see deploy/node/LAYOUT.md. The Dockerfile's
-            # `thirdparty` stage already handles a missing nzbget for this arch gracefully.
-            fetch_nzbget: false
     steps:
       # submodules: true -- apps/stingstream/utils/jellyseerr is a real submodule and its
       # imports must resolve for bun run build:web below to bundle at all (same reasoning as
@@ -115,41 +110,6 @@ jobs:
       - name: Fetch jellyfin-ffmpeg (${{ matrix.ffmpeg_platform }})
         if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
         run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform ${{ matrix.ffmpeg_platform }} -Tag ${{ steps.ffmpeg_version.outputs.tag }}
-
-      - name: Resolve nzbget version
-        id: nzbget_version
-        if: matrix.fetch_nzbget
-        # -Platform matches the Fetch step below; see the ffmpeg Resolve step's own comment.
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly -Platform linux-x64
-
-      - name: Cache nzbget
-        id: cache_nzbget
-        if: matrix.fetch_nzbget
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: third_party/nzbget/bin/linux-x64
-          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-linux-x64
-
-      - name: Fetch nzbget (linux-x64)
-        if: matrix.fetch_nzbget && steps.cache_nzbget.outputs.cache-hit != 'true'
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64 -Tag ${{ steps.nzbget_version.outputs.tag }}
-
-      # Found breaking the arm64 leg for real: deploy/node/Dockerfile's `thirdparty` stage does an
-      # unconditional `COPY third_party/nzbget/bin /tp/nzbget`, and Docker's COPY fails hard --
-      # "not found" -- on a source directory that does not exist at all, as opposed to one that is
-      # merely empty. arm64 has no nzbget fetch step (no upstream release asset -- see
-      # deploy/node/LAYOUT.md), so that directory was never created on this leg's checkout.
-      - name: Ensure third_party/nzbget/bin exists even when nothing was fetched into it
-        # A bare `mkdir -p` was not enough on its own -- found still failing after adding it:
-        # Dockerfile.dockerignore's `!third_party/nzbget/bin/**` unignore pattern only matches
-        # *files* under that path, so a truly empty directory never makes it into the build
-        # context Docker actually sees, and COPY still reports "not found". The placeholder file
-        # gives that pattern something to match; the Dockerfile's own arch-specific logic never
-        # looks for a file named exactly this, so it changes nothing else.
-        if: ${{ !matrix.fetch_nzbget }}
-        run: |
-          mkdir -p third_party/nzbget/bin
-          touch third_party/nzbget/bin/.keep
 
       # The web bundle. Building it here (rather than shipping the image with only the placeholder
       # page) costs a few extra minutes of CI time for a release-quality image; a checkout with

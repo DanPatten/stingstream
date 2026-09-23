@@ -68,7 +68,7 @@ powershell tools\ui-node.ps1 -Fresh
 # Point it at a running Metro dev server instead (Tier A).
 powershell tools\ui-node.ps1 -DevServer http://127.0.0.1:8081
 
-# Full node (Radarr/Sonarr/NZBGet too), bound to loopback only.
+# Full node (Radarr/Sonarr too), bound to loopback only.
 powershell tools\ui-node.ps1 -Fresh -WithArrs -Bind 127.0.0.1
 
 # Stop whatever is running against the default data dir.
@@ -107,7 +107,7 @@ Params: `-PrivateCopy` (default `...\ui-loop\bin`), `-DataDir` (default `...\ui-
 `-Fresh` (stop anything running against that data dir, wipe it), `-ForceCopy` (accepted and now a
 no-op: the private copy is a delta made on every start, so it is never behind the build outputs),
 `-Port` (default 8795), `-WithArrs` (switch, default off: `[children]
-radarr/sonarr/nzbget = false`, the same shape `tools/e2e-m4.ps1` uses for a pure holder), `-Bind`
+radarr/sonarr = false`, the same shape `tools/e2e-m4.ps1` uses for a pure holder), `-Bind`
 (`0.0.0.0` default so a LAN IP and an Android emulator's `10.0.2.2` both work; `127.0.0.1` to
 restrict to this machine), `-WebDist <dir>`, `-DevServer <url>` (passes `--web-dev-server <url>` --
 see "The `--web-dev-server` flag" below), `-Stop`.

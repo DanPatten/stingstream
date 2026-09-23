@@ -61,15 +61,19 @@ had a chance to stop being useful.
 Content-agnostic, and deliberately so. The position is the one Radarr and Sonarr hold, and it rests
 on facts about what ships rather than on a disclaimer:
 
-- **No sources ship.** `SharedSettings.CreateDefault()` has an empty indexer list, the arr sync is a
-  projection of that list that returns early when it is empty, and NZBGet is preseeded with no news
-  server at all. Every indexer and provider is something the user adds by hand.
+- **No sources ship.** `SharedSettings.CreateDefault()` has an empty indexer list and an empty
+  download-client list, and the arr sync is a projection of those lists that returns early when
+  they are empty. Every indexer and every download client is something the user adds by hand,
+  pointed at a server they run.
 - **Nothing names or implies a source of copyrighted material** — not in the UI, the docs, the
   README or the store listing. `deploy/play/README.md` is where this was first written down; it
   applies repo-wide, and the acceptance harnesses honour it too (a loopback Torznab stub and a
   self-hosted tracker, never a real indexer).
-- **The download engines are general-purpose tools.** A BitTorrent client and a Usenet client are
-  lawful software; what they are pointed at is the user's decision and the user's responsibility.
+- **The download clients are general-purpose tools StingStream does not run.** A BitTorrent client
+  and a Usenet client are lawful software; StingStream stopped bundling one of each on 2026-09-23
+  (see "Decisions locked in with Dan" and M9) precisely so that what a client is pointed at is
+  entirely the user's own decision, on infrastructure the user themselves owns, and never
+  StingStream's responsibility to run or configure by default.
 - **Groups are private.** Invite-only, no public directory, no discovery, nothing leaves a group.
   `docs/SECURITY.md` §1 is the threat model that follows from it.
 - **StingStream provides no content.** It plays and shares media the user already has.
@@ -82,7 +86,7 @@ on facts about what ships rather than on a disclaimer:
 |---|---|
 | Sharing scope | Invite-based groups. Nothing leaves a group. A node can belong to several groups. No public directory. |
 | Sharing mechanism | **Federated library inside Jellyfin.** Each node materializes the group index into its own Jellyfin as `.strm` + `.nfo` items in dedicated Shared libraries, enriched in-process by `StingStream.Core`. Replaces the Jellyswarrm proxy (decided 2026-09-04). Jellyswarrm stays vendored only for its Rust `jellyfin-api` crate and as reference; it is not in the request path and may be dropped. |
-| Downloads | Usenet and torrents, both **embedded**. External clients still allowed for existing setups. |
+| Downloads | **External clients only** (Dan, 2026-09-23, superseding the original "both embedded" decision below). No download client ships with or runs inside StingStream; the user adds their own qBittorrent, Transmission, Deluge, rTorrent, SABnzbd or NZBGet under Settings → Indexers & engines, and `OmniarrSyncService` pushes it into both arr cores the same way it pushes indexers. See M9. |
 | Platforms at launch | Web (served by every node), Android, **Google TV / Android TV**. **iOS skipped entirely for now** (Dan, 2026-09-04); Apple tvOS later. |
 | UI | **One codebase for all of them.** Expo app forked from Streamyfin (which already has TV variants), also built to web. The Expo codebase keeps iOS buildable in principle, but no iOS work, builds or accounts until Dan says so. |
 | Node roles | Full nodes on Windows/macOS/Linux/Docker. Phones and TVs are light nodes: stream, phones download for offline and optionally re-share what they hold. |
@@ -189,11 +193,15 @@ Verified 2026-09-04 unless marked otherwise.
   Install react-dom@19.2.3, react-native-web@^0.21.2`. This is the concrete M2-spike starting
   point: it's not about native-module shimming yet, it's that web support was never wired in
   upstream at all.
-- **Embedded download engines**: MonoTorrent 3.x (.NET, MIT, BitTorrent v2) for torrents.
-  NZBGet fork `nzbgetcom/nzbget` (C++, GPL-2.0, maintained, prebuilt binaries for Windows, macOS,
+- **Embedded download engines — superseded 2026-09-23, see M9.** The choice recorded at M0 and
+  built through M1: MonoTorrent 3.x (.NET, MIT, BitTorrent v2) for torrents. NZBGet fork
+  `nzbgetcom/nzbget` (C++, GPL-2.0, maintained, prebuilt binaries for Windows, macOS,
   Linux incl. ARM) for full-to-disk usenet — not vendored as a subtree, fetched on demand by
   `third_party/nzbget/fetch-nzbget.ps1` (latest release checked during M0: v26.3, correctly
-  preferring the non-debug release assets over nzbgetcom's much larger `-debug` builds). InfiniDysk
+  preferring the non-debug release assets over nzbgetcom's much larger `-debug` builds). Both are
+  gone: no download client ships with StingStream any more, `third_party/nzbget/` no longer exists
+  in this repository, and MonoTorrent is no longer a dependency of `StingStream.Core` — see
+  "Decisions locked in with Dan" and M9. InfiniDysk
   / `nzbdav/nzbdav` (.NET 10, MIT, maintained) for optional stream-from-usenet mode via WebDAV.
   **M0 build finding, resolved:** its `RapidYencSharp` project has an MSBuild pre-build step
   (`scripts/ensure-rapidyenc-native.sh`) that downloads a native `rapidyenc` binary from a GitHub
@@ -208,8 +216,9 @@ Verified 2026-09-04 unless marked otherwise.
   warnings, 0 errors, rapidyenc native fetched and installed correctly.
 
 **Licensing outcome**: everything is combinable. New StingStream code is GPL-3.0-or-later. The mesh
-binary is GPL-2.0-or-later. Radarr/Sonarr/NZBGet stay in their own processes under their own
-licenses.
+binary is GPL-2.0-or-later. Radarr and Sonarr stay in their own processes under their own licenses;
+NZBGet is no longer one of StingStream's own processes at all (2026-09-23), so its licensing is
+simply the user's own concern as the operator of whatever download client they connect.
 
 **Resources and constraints (Dan, 2026-09-04):** a VPS is available for the relay and a
 domain/subdomain can be delegated (so M3's real-NAT and side-door tests can run for real). No iOS,
@@ -223,7 +232,7 @@ those milestones need them.
 
 ## Architecture
 
-### One node = one install = five processes behind one door
+### One node = one install = four processes behind one door
 
 ```
                  ┌──────────────────────────────────────────────────────────┐
@@ -233,19 +242,23 @@ those milestones need them.
                  │  ├─ mesh: iroh endpoint, groups, gossip index, /stream    │
                  │  │   endpoint with source scoring, HTTP-over-QUIC to peers│
                  │  └─ supervisor: spawns, monitors, restarts children       │
-                 └───┬──────────────┬──────────────┬─────────────┬──────────┘
-                     │ localhost    │              │             │
-          ┌──────────▼──────────┐ ┌─▼──────┐ ┌─────▼─────┐ ┌────▼─────┐  ┌──────────────┐
-          │ jellyfin (fork)     │ │ radarr │ │  sonarr   │ │  nzbget  │  │ infinidysk   │
-          │ + StingStream.Core: │ │ (fork) │ │  (fork)   │ │ (binary) │  │ (optional)   │
-          │   federated library,│ └────────┘ └───────────┘ └──────────┘  └──────────────┘
+                 └───┬──────────────┬──────────────┬─────────────────────────┘
+                     │ localhost    │              │
+          ┌──────────▼──────────┐ ┌─▼──────┐ ┌─────▼─────┐  ┌──────────────┐
+          │ jellyfin (fork)     │ │ radarr │ │  sonarr   │  │ infinidysk   │
+          │ + StingStream.Core: │ │ (fork) │ │  (fork)   │  │ (optional)   │
+          │   federated library,│ └────────┘ └───────────┘  └──────────────┘
           │   PlaybackInfo hook,│
           │   Omniarr sync,     │
-          │   MonoTorrent,      │
           │   inventory, hooks, │
           │   requests          │
           └─────────────────────┘
 ```
+
+Four, not five: a bundled download client (MonoTorrent behind a qBittorrent-compatible shim, plus
+a supervisor-run NZBGet child) used to sit alongside `infinidysk` here. Removed 2026-09-23 — see
+"Decisions locked in with Dan" and M9 below; the box stayed only as long as StingStream ran a
+download client of its own.
 
 - **`stingstream`** (Rust, entry binary): the only exposed port. Children bind localhost on
   supervisor-assigned ports written to `$STINGSTREAM_DATA/runtime.json`. The app always talks to
@@ -259,10 +272,11 @@ those milestones need them.
 - **Config sync ("Omniarr" — internal name only)**: one shared model (indexers, download clients,
   quality profiles, root folders, naming, notifications) pushed into both cores via their v3 APIs.
   Same pattern Prowlarr uses.
-- **Downloaders**: MonoTorrent runs in-process behind a **qBittorrent-compatible API subset**
-  (login, app/version, app/webapiVersion, torrents/info, add, delete, properties, files, setCategory)
-  so the arr cores use it unmodified. NZBGet runs as a bundled child with its native API. InfiniDysk
-  optional (SABnzbd-compatible API, streaming mode) — later milestone.
+- **Downloads**: no embedded client of any kind. The user points Radarr and Sonarr at download
+  clients they already run — qBittorrent, Transmission, Deluge, rTorrent, SABnzbd, NZBGet, added
+  under Settings → Indexers & engines — and `OmniarrSyncService` pushes each into both arr cores the
+  same way it pushes indexers, editable and deletable the same way too. InfiniDysk remains optional
+  (SABnzbd-compatible API, streaming mode).
 
 ### Groups and identity
 
@@ -558,9 +572,9 @@ already preferred a version that fits; under Quality first it is the mechanism b
 3. Present → it is already in the Shared library; mark "available via group", optionally add to
    arr **unmonitored** for future upgrades. **No download.**
 4. Absent → add to the fulfilling node's arr core (requester's home node by default; else a
-   volunteer node with matching indexers and free space) as monitored → grab → embedded engine →
-   import → arr webhook → Jellyfin refresh → inventory publish → materialized on every other node
-   within seconds.
+   volunteer node with matching indexers and free space) as monitored → grab → the download client
+   the node's owner configured → import → arr webhook → Jellyfin refresh → inventory publish →
+   materialized on every other node within seconds.
 5. **Pin/mirror**: node fetches the file over iroh (resumable HTTP range) into its own root folder,
    imports it, removes its pointer entry, and the index now shows two copies.
 
@@ -634,8 +648,8 @@ invites, relay, storage), **Requests** (adapted from Streamyfin's Seerr screens)
 libraries, scan, transcoding, logs), **Node status**. The TV build gets the browse/play/requests
 surface with D-pad focus handling; management screens stay phone/web-only. Native builds embed an
 iroh endpoint and rewrite `stingstream.local` stream URLs to it; the web bundle and the cast sender
-use the HTTPS side door with connection racing. Stock jellyfin-web, Radarr, Sonarr and NZBGet UIs
-are never the front door.
+use the HTTPS side door with connection racing. Stock jellyfin-web, Radarr and Sonarr UIs are
+never the front door.
 
 ---
 
@@ -656,7 +670,7 @@ StingStream/
 │     ├─ stingstream-mesh/   # iroh transport, groups, gossip index, /stream endpoint + scoring
 │     └─ stingstream-relay/  # relay + discovery + direct DNS zone + SNI router + storage-node profile
 ├─ packages/api-client/      # TS client generated from StingStream OpenAPI
-├─ third_party/nzbget/       # fetch script for nzbgetcom binaries (not vendored)
+├─ third_party/              # jellyfin-ffmpeg + cloudflared fetch scripts (not vendored)
 ├─ deploy/                   # Dockerfiles, compose, installers
 ├─ tools/                    # upstream-pull.ps1, fetch-jellyswarrm-media.ps1, build scripts
 └─ docs/                     # ARCHITECTURE.md (this document), PATCHES.md
@@ -1897,13 +1911,88 @@ machine. The table is in the M8b report.
 - `/healthz` tells a stranger three fields and this machine everything. CORS was never the control
   it was being treated as: it stops a browser page, not `curl`.
 
+### M9 — External download clients only (Sonnet 5) — done
+
+StingStream stopped running a download client of its own (2026-09-23). Deleted outright: the
+in-process MonoTorrent BitTorrent engine, its qBittorrent-compatible API shim (`QbtController`,
+`QbtSessionStore`, formerly answering at `/stingstream/qbt`), the supervisor-run bundled NZBGet
+child process, and the `NzbgetClient`/`TorrentEngine`/`DownloadClientSettings` classes behind all
+three. `third_party/nzbget/` — the fetch script and its fetched binaries — no longer exists in this
+repository; no packaging script, Dockerfile or CI workflow fetches or bundles it; `bin/nzbget/` is
+gone from the packaged node layout (`deploy/node/LAYOUT.md`); and `Directory.Packages.props` no
+longer carries a MonoTorrent entry. `CHILD_ORDER` (`mesh/crates/stingstream/src/supervisor/mod.rs`)
+is now `["jellyfin", "radarr", "sonarr", "mesh", "infinidysk"]`, asserted by a test that stays that
+way, and the gateway's `--dev`-only child-UI proxy has only `/radarr/*` and `/sonarr/*` left.
+
+**Why remove rather than keep both.** A bundled engine was never really zero-configuration: it still
+needed a news server's credentials pasted in for usenet, and the qBittorrent shim's DHT toggle and
+peer limits were one more settings surface duplicating what every real download client already does
+better. What it bought was "works before you configure anything" for the torrent half only, at the
+cost of carrying and patching a whole BitTorrent stack and an API-compatibility shim forever, and of
+every child-inventory table, health panel and settings screen needing a permanent "which of the
+four/five children is this" branch. Meanwhile the external-client path (`OmniarrSyncService`
+pushing a user's own qBittorrent/SABnzbd/etc. into both arrs) already existed and was already the
+recommended path for anyone who had a seedbox or an existing usenet setup before they installed
+StingStream — the M4.5 gap-8 note said as much: "not because the embedded engines are insufficient,
+but because somebody migrating to StingStream already has a seedbox or a SABnzbd with a queue in
+it." Once that path covered every case (added in 432ddb5, below), the embedded engines were pure
+maintenance weight for a worse default, not a real convenience — so the decision is "external
+clients only," not "external clients too."
+
+**Why `runtime.json`'s `qbittorrent` block stays.** It looks like the one piece of the removed
+engine left behind, and by name it is, but by function it stopped being the qBittorrent shim's
+login the moment the shim was deleted. `QbtRuntime.password` is this node's own secret: it seeds
+`gateway::streamurl`'s stream-URL signing key and the arr webhook's shared secret, both added in
+M8b's security hardening, well after the shim existed for its original reason. Renaming or
+regenerating it would break every signed stream URL and every arr webhook delivery on the node, so
+it is carried forward under its old name rather than invented fresh under a new one — `url_base` is
+still written, in the same shape every existing reader expects, even though nothing answers there
+any more. A `runtime.json` from before 2026-09-23 may also carry a per-child `nzbget` secrets entry;
+it is read like any other entry and silently dropped at the next start, because startup rebuilds
+that map from `CHILD_ORDER`, which no longer names it. A `config.toml` with a stray `nzbget = ...`
+line under `[children]` or `[ports]` keeps parsing the same way — a retired field, accepted and
+ignored, so an old file never fails a node that starts with it.
+
+**The automatic migration.** An upgrading node does not just stop offering the built-in clients; it
+actively removes its own old registrations from both arrs so they stop sending grabs to a client
+that no longer runs. `SharedSettings.RetiredProviders` records every provider name StingStream has
+ever registered under a name it no longer wants, and `OmniarrSyncService.IsRetiredBuiltIn` matches
+the old built-in registrations specifically by where they pointed — qBittorrent at the shim's old
+loopback address, "StingStream Usenet" at the bundled NZBGet's loopback address — so every sync
+deletes them from Radarr and Sonarr without needing the operator to notice, open Settings, or do
+anything at all. This is the same mechanism, generalized, that 432ddb5 built for renamed or removed
+*indexers*: every sync reconciles the arrs' provider lists against what StingStream currently wants
+there, in both directions.
+
+**Editable indexers and download clients (432ddb5, landed just before this removal).**
+`PUT /Settings/indexers/{id}` and `PUT /Settings/downloadclients/{id}` — an Edit action on each row,
+where before there was only add and delete. Necessary groundwork for "only" rather than "also": once
+the external-client list is the *entire* download-client story, a user fixing a changed password or
+port needs to edit the row, not delete and re-add it and lose whatever else referenced it.
+
+**Indexer Test's direct Torznab fallback (432ddb5).** Testing an indexer used to fail with a bare
+"could not test it" the moment a fresh node's arrs had not started yet, because the arrs only start
+once an indexer exists and the very first test is what creates one — a chicken-and-egg failure that
+had nothing to do with whether the Torznab URL and key were actually right. `Arr/TorznabProbe.cs`
+now runs inside the same one-try-per-app loop, skips an app that is not up, and falls back to
+asking the Torznab endpoint directly when neither app can answer, so a bad URL or key is still
+caught even on a node's very first indexer.
+
+**`SyncRetryWorker` (432ddb5).** A failed or stale sync now retries in the background with back-off,
+serialized against any other sync in flight, rather than leaving a red banner and a manual "Sync
+now" button as the only way to recover — that banner and button are both gone. This matters more
+after this removal than it did before it: the migration above depends on a sync actually running
+soon after an upgrade for the automatic cleanup to happen promptly, not on the operator noticing a
+banner and clicking something.
+
 ## Verification (end-to-end, after M4)
 
 1. Three nodes: Dan's Windows desktop, a Linux Docker host, a VPS running `stingstream-relay` with
    the `storage-node` profile. Create the group on the desktop, join the others by invite.
 2. Two users, one per home node, log in from the web UI, an Android device, and a Google TV. Each
    sees only their own accounts on their own node, and the whole group's content.
-3. Add a public-domain movie on node A; confirm it downloads once (embedded torrent engine) and
+3. Add a public-domain movie on node A; confirm it downloads once (through a download client
+   configured on that node) and
    appears in every other node's Movies within a minute with poster and badges. Add the same
    title from node B; confirm no second download.
 4. Play from each client with Speed-first, then Quality-first; watch PlaybackInfo order and the

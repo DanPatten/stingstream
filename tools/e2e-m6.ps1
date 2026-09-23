@@ -30,8 +30,8 @@
       4. An administrator approves it. It becomes `approved`, and the requester is notified.
       5. A gossips the request; B adopts it, claims it, wins the claim, and is the only node that
          does -- A never claims, because it cannot fulfil.
-      6. B grabs the episode through the Torznab stub, downloads it with the embedded engine and
-         imports it.
+      6. B grabs the episode through the Torznab stub, downloads it with an external qBittorrent
+         (Start-Qbittorrent in e2e-common.ps1, registered as B's download client) and imports it.
       7. It reaches A's group index and A's TV Shows library, and A's request flips to
          `available` on its own.
       8. The requester has an unread `request_available` notification on A.
@@ -240,7 +240,6 @@ expose_child_uis_in_dev = true
 jellyfin = true
 radarr = $arrs
 sonarr = $arrs
-nzbget = false
 mesh = true
 infinidysk = false
 
@@ -533,6 +532,13 @@ $IndexerPort = Invoke-Step 'Start the Torznab stub' {
 }
 
 # ============================================================================================
+Invoke-Step 'Start qBittorrent' {
+    # B's download client. Beside the work directory rather than in it, so the node sweep never
+    # reaches it; Stop-Qbittorrent in the finally block stops it by pid and profile path.
+    Start-Qbittorrent -ProfileDir (Join-Path $RepoRoot '.local\e2e\qbt\m6') | Out-Null
+}
+
+# ============================================================================================
 Invoke-Step 'Start node B (the fulfiller) and give it the film it already has' {
     Write-M6NodeConfig -Node $NodeB -ServerName 'stingstream-b' -WithArrs $true
 
@@ -566,6 +572,16 @@ Invoke-Step 'B: add the Torznab indexer, for TV only' {
     $sync = Invoke-Node $NodeB '/stingstream/api/v1/sync' -Method POST -TimeoutSec 300
     foreach ($s in $sync) { if (-not $s.ok) { throw "Omniarr sync into $($s.app) failed: $($s.message)" } }
     Write-Host '      Sonarr has the indexer; Radarr deliberately does not'
+
+    # And somewhere to send what it grabs. StingStream has no download client of its own. TV only,
+    # like the indexer: Radarr has nothing to search, so it has nothing to send.
+    $client = New-QbittorrentClientSettings
+    $client.forMovies = $false
+    Invoke-Node $NodeB '/stingstream/api/v1/settings/downloadclients?sync=true' -Method POST `
+        -Body $client -TimeoutSec 300 | Out-Null
+    $sync = Invoke-Node $NodeB '/stingstream/api/v1/sync' -Method POST -TimeoutSec 300
+    foreach ($s in $sync) { if (-not $s.ok) { throw "Omniarr sync into $($s.app) failed: $($s.message)" } }
+    Write-Host '      the external qBittorrent is B''s download client'
 }
 
 # ============================================================================================
@@ -795,9 +811,15 @@ Invoke-Step 'B grabs the episode and imports it' {
         if (-not $items) { return $false }
         return @($items.Items).Count -ge 1
     } -Describe {
+        $t = try { @(Get-QbittorrentTorrents) } catch { @() }
+        $held = ($t | ForEach-Object { "{0}:{1:P0}" -f $_.category, $_.progress }) -join ' '
         $st = try { Invoke-Node $NodeB '/stingstream/api/v1/status' -TimeoutSec 20 } catch { $null }
-        if ($st) { "torrents=$($st.torrents.count) events=$((@($st.recentArrEvents) | ForEach-Object { $_.eventType }) -join ',')" } else { 'no answer' }
+        if ($st) { "qbittorrent=[$held] events=$((@($st.recentArrEvents) | ForEach-Object { $_.eventType }) -join ',')" } else { "qbittorrent=[$held] node: no answer" }
     } | Out-Null
+
+    $episodeTorrent = @(Get-QbittorrentTorrents | Where-Object { $_.category -eq 'sonarr' -and $_.progress -ge 1 })
+    if ($episodeTorrent.Count -eq 0) { throw 'B imported the episode, yet qBittorrent holds no finished sonarr download.' }
+    Write-Host "      downloaded by qBittorrent: $($episodeTorrent[0].name)"
 
     $inventory = Wait-Until -What "B's inventory to carry the episode" -Seconds 300 -PollSeconds 5 -Condition {
         $inv = try { Invoke-Node $NodeB '/stingstream/api/v1/inventory' -TimeoutSec 30 } catch { $null }
@@ -1047,6 +1069,7 @@ Invoke-Step 'Withdrawing takes the request off the group and keeps what already 
     } else {
         Write-Head 'Cleanup'
         Stop-Tools
+        Stop-Qbittorrent
     }
 }
 

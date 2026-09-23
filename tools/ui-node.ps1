@@ -40,13 +40,13 @@
     Use this after `cargo build`/`dotnet build` land a change you want reflected.
 
 .PARAMETER Port
-    The gateway port. Everything else (Jellyfin, mesh, and with -WithArrs the two arrs and NZBGet)
-    takes an ephemeral port, recorded in runtime.json.
+    The gateway port. Everything else (Jellyfin, mesh, and with -WithArrs the two arrs) takes an
+    ephemeral port, recorded in runtime.json.
 
 .PARAMETER WithArrs
-    Off by default: Jellyfin + the embedded mesh only, `[children] radarr/sonarr/nzbget = false`,
-    the same shape tools/e2e-m4.ps1 uses for a holder node. Pass this to also run Radarr, Sonarr
-    and NZBGet, e.g. to exercise Manage/Requests/Transfers against a real node.
+    Off by default: Jellyfin + the embedded mesh only, `[children] radarr/sonarr = false`, the
+    same shape tools/e2e-m4.ps1 uses for a holder node. Pass this to also run Radarr and Sonarr,
+    e.g. to exercise Manage/Requests/Transfers against a real node.
 
 .PARAMETER Bind
     The gateway's listen address. 0.0.0.0 (default) so a LAN IP and an Android emulator's
@@ -175,7 +175,6 @@ expose_child_uis_in_dev = true
 jellyfin = true
 radarr = $withArrsBool
 sonarr = $withArrsBool
-nzbget = $withArrsBool
 mesh = true
 infinidysk = false
 
@@ -186,7 +185,6 @@ embedded = true
 jellyfin = 0
 radarr = 0
 sonarr = 0
-nzbget = 0
 mesh = 0
 infinidysk = 0
 

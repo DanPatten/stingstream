@@ -114,14 +114,6 @@ binary fetched on demand (not vendored). New StingStream code is licensed **GPL-
 - Jellyfin cannot transcode, probe media or extract images without it, and the acceptance harnesses
   generate their test clips with it.
 
-### third_party/nzbget — NZBGet (nzbgetcom fork)
-
-- **Upstream:** https://github.com/nzbgetcom/nzbget
-- Not a git subtree — prebuilt release binaries only, fetched by
-  [`third_party/nzbget/fetch-nzbget.ps1`](third_party/nzbget/fetch-nzbget.ps1) into
-  `third_party/nzbget/bin/` (gitignored). Latest release checked during M0: **v26.3**.
-- **License:** GPL-2.0 (nzbgetcom is a maintained fork of the original NZBGet, itself GPL-2.0).
-
 ## Build-time tooling embedded in release artifacts (M8a)
 
 Neither of these is fetched or vendored into the repository — both are installed on the machine
@@ -157,8 +149,6 @@ The ones worth naming because they are load-bearing rather than incidental:
 
 - **iroh**, **iroh-gossip**, **iroh-blobs** (n0) — MIT/Apache-2.0. The QUIC transport, the group
   topic and the content-addressed transfer the whole mesh is built on.
-- **MonoTorrent** 3.0.2 — MIT. The in-process BitTorrent engine behind the qBittorrent-compatible
-  API subset, shipped as a DLL inside `bin/jellyfin/`.
 - **rustls**, **hyper**, **axum**, **tokio** — MIT/Apache-2.0. TLS, HTTP and the async runtime for
   every listener in `mesh/crates/**`.
 - **instant-acme** — Apache-2.0. The ACME client the side door gets its certificate with.

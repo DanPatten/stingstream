@@ -1143,7 +1143,7 @@ for her links to work. So a node's own address lives in its `meta` table
 | `cargo test --workspace` | the unit tests plus the integration suites |
 | `mesh/crates/stingstream-mesh/tests/two_nodes.rs` | two nodes, one process, **every discovery service off**: create, invite, join, gossip, and a 1 MiB mid-file range out of a 50 MB file with every byte checked against its offset and the iroh path asserted `direct`. Also the range grammar's edges, and a node with the right group id but the wrong secret being refused. |
 | `tools/e2e-m4.ps1` | three nodes: source scoring, same-hash failover, and the swarm — one film pulled from two holders at once and reassembled byte-exact, then a holder killed mid-transfer and the rest finishing it. |
-| `tools/e2e-m3.ps1` | the milestone's own acceptance: two *complete* nodes — Jellyfin, both arrs, NZBGet, the mesh — a group, a real invite, and a peer's film materialised into the other node's Jellyfin and played three ways. Runs on Windows and in CI on ubuntu; `docs/RUNNING.md` has the detail. |
+| `tools/e2e-m3.ps1` | the milestone's own acceptance: two *complete* nodes — Jellyfin, both arrs, the mesh — a group, a real invite, and a peer's film materialised into the other node's Jellyfin and played three ways. Runs on Windows and in CI on ubuntu; `docs/RUNNING.md` has the detail. |
 
 **Two things stopped being covered when the coordinator went, and it is better to say so than to
 leave the table implying otherwise.** `rendezvous_join.rs` proved a node could join a group after

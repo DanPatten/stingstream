@@ -13,13 +13,14 @@ License: GPL-3.0-or-later
 LicenseUrl: https://github.com/DanPatten/stingstream/blob/master/LICENSE
 Copyright: Copyright (c) Dan Patten and contributors
 ShortDescription: >-
-  One self-hosted media server: Jellyfin, Radarr, Sonarr and NZBGet behind a single install,
-  a single login, and a mesh that shares your group's libraries and downloads automatically.
+  One self-hosted media server: Jellyfin, Radarr and Sonarr behind a single install, a single
+  login, and a mesh that shares your group's libraries and downloads automatically.
 Description: >-
-  StingStream replaces the usual five-tool media stack (Jellyfin, Sonarr, Radarr, a remote-management
-  app, and a download client) with one install, one UI, and one login. Every member of a group pools
-  their libraries and downloads automatically, and playback picks the best available source across
-  the group. Installs as a Windows service listening on http://localhost:8790.
+  StingStream replaces the usual multi-tool media stack (Jellyfin, Sonarr, Radarr and a
+  remote-management app) with one install, one UI, and one login, connecting to the download
+  clients you already run (qBittorrent, NZBGet, Transmission, and others). Every member of a
+  group pools their libraries and downloads automatically, and playback picks the best available
+  source across the group. Installs as a Windows service listening on http://localhost:8790.
 Moniker: stingstream
 Tags:
   - media-server

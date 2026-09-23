@@ -9,15 +9,19 @@
 # Dockerfile.dockerignore next to this file keeps the vendored .NET/Expo subtrees' own build
 # litter (bin/, obj/, node_modules/) out of the build context.
 #
-# ffmpeg and nzbget are NOT fetched inside this Dockerfile: the CI job that builds this image runs
-# third_party/{ffmpeg,nzbget}/fetch-*.ps1 for BOTH linux platforms first (pwsh is on every
+# ffmpeg is NOT fetched inside this Dockerfile: the CI job that builds this image runs
+# third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 for BOTH linux platforms first (pwsh is on every
 # GitHub-hosted runner) and this Dockerfile just copies the results in -- the `thirdparty` stage
 # below picks the one matching TARGETARCH so one `buildx build --platform amd64,arm64` invocation
 # still gets the right binary on each side. Building this image from a checkout with nothing
-# fetched yet produces empty bin/ffmpeg and bin/nzbget rather than failing the build -- the
-# supervisor already treats a missing child binary as "disabled", not fatal (see
-# supervisor::build_children), so the image still builds and runs; it just cannot transcode or
-# download anything until rebuilt with the fetch step actually run. See .github/workflows/images.yml.
+# fetched yet produces an empty bin/ffmpeg rather than failing the build -- the supervisor already
+# treats a missing child binary as "disabled", not fatal (see supervisor::build_children), so the
+# image still builds and runs; it just cannot transcode anything until rebuilt with the fetch step
+# actually run. See .github/workflows/images.yml.
+#
+# StingStream runs no download client of its own (2026-09-23): downloads go to whatever external
+# client (qBittorrent, NZBGet, etc.) the operator points Radarr/Sonarr at from inside the node,
+# so there is nothing to fetch or bundle for that.
 #
 # Not trimmed, for the same reason tools/package-node.ps1/.sh are not: PublishTrimmed is not used
 # anywhere in the vendored Radarr/Sonarr build system, and trimming ASP.NET Core plus Jellyfin's
@@ -115,7 +119,7 @@ RUN RID=$(cat /rid) && \
       --self-contained false -p:RunAnalyzersDuringBuild=false -o /out/sonarr-mono && \
     cp /out/sonarr-mono/Sonarr.Mono.dll /out/sonarr/
 
-# --- third_party: pick the fetched ffmpeg/nzbget for this platform -----------------------------
+# --- third_party: pick the fetched ffmpeg for this platform -------------------------------------
 # See the header comment: fetched by CI before `docker build`, not by this Dockerfile. Copying the
 # whole (gitignored, CI-populated) bin/ tree in and selecting by TARGETARCH here -- rather than a
 # build-arg naming the platform directly -- is what lets one multi-platform `buildx build` pick the
@@ -123,20 +127,14 @@ RUN RID=$(cat /rid) && \
 FROM debian:bookworm-slim AS thirdparty
 ARG TARGETARCH
 COPY third_party/ffmpeg/bin /tp/ffmpeg
-COPY third_party/nzbget/bin /tp/nzbget
 RUN set -eu; \
     case "$TARGETARCH" in \
-      amd64) ffm=linux64; nzb=linux-x64 ;; \
-      arm64) ffm=linuxarm64; nzb= ;; \
+      amd64) ffm=linux64 ;; \
+      arm64) ffm=linuxarm64 ;; \
       *) echo "unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
-    mkdir -p /out/ffmpeg /out/nzbget; \
-    [ -d "/tp/ffmpeg/$ffm" ] && cp -r "/tp/ffmpeg/$ffm/." /out/ffmpeg/ || echo "no fetched ffmpeg for $ffm -- shipping without it"; \
-    if [ -n "$nzb" ] && [ -d "/tp/nzbget/$nzb" ]; then \
-      cp -r "/tp/nzbget/$nzb/." /out/nzbget/; \
-    else \
-      echo "no fetched nzbget for arch $TARGETARCH -- shipping without it (nzbgetcom has no arm64 Linux release; see deploy/node/LAYOUT.md)"; \
-    fi
+    mkdir -p /out/ffmpeg; \
+    [ -d "/tp/ffmpeg/$ffm" ] && cp -r "/tp/ffmpeg/$ffm/." /out/ffmpeg/ || echo "no fetched ffmpeg for $ffm -- shipping without it"
 
 # --- runtime -------------------------------------------------------------------------------------
 FROM debian:bookworm-slim
@@ -160,7 +158,6 @@ COPY --from=dotnet-builder /out/jellyfin /app/bin/jellyfin
 COPY --from=dotnet-builder /out/radarr /app/bin/radarr
 COPY --from=dotnet-builder /out/sonarr /app/bin/sonarr
 COPY --from=thirdparty /out/ffmpeg /app/bin/ffmpeg
-COPY --from=thirdparty /out/nzbget /app/bin/nzbget
 COPY apps/stingstream/dist /app/web
 COPY LICENSE NOTICE.md /app/
 
@@ -194,6 +191,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=300s --retries=3 \
   CMD ["/app/bin/stingstream", "--healthcheck", "--data-dir", "/data"]
 
 LABEL org.opencontainers.image.title="StingStream node" \
-      org.opencontainers.image.description="Jellyfin + Radarr + Sonarr + NZBGet + the StingStream mesh, behind one gateway port" \
+      org.opencontainers.image.description="Jellyfin + Radarr + Sonarr + the StingStream mesh, behind one gateway port" \
       org.opencontainers.image.source="https://github.com/DanPatten/stingstream" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"

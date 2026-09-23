@@ -199,7 +199,7 @@ function Write-M7NodeConfig {
     .SYNOPSIS
         Write one node's config.toml and mesh.toml.
     .DESCRIPTION
-        No arrs and no NZBGet on any node: nothing here grabs anything, and B's and C's media is
+        No arrs on any node: nothing here grabs anything, and B's and C's media is
         placed on disk directly, which is both faster and more deterministic than driving the whole
         download pipeline. The mesh timings are turned down for the same reason as in the M3 and M4
         harnesses -- the shipped defaults declare a peer offline sixty seconds after its last
@@ -220,7 +220,6 @@ expose_child_uis_in_dev = true
 jellyfin = true
 radarr = false
 sonarr = false
-nzbget = false
 mesh = true
 infinidysk = false
 

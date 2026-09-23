@@ -182,7 +182,6 @@ expose_child_uis_in_dev = true
 jellyfin = true
 radarr = $withArrsBool
 sonarr = $withArrsBool
-nzbget = $withArrsBool
 mesh = true
 infinidysk = false
 
@@ -193,7 +192,6 @@ embedded = true
 jellyfin = 0
 radarr = 0
 sonarr = 0
-nzbget = 0
 mesh = 0
 infinidysk = 0
 

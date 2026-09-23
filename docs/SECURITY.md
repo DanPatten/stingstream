@@ -18,7 +18,7 @@ HTTPS side door and `RUNNING.md` for what a node writes where.
 
 | Actor | What they can do | What they cannot |
 |---|---|---|
-| **A member of your group** | See every title anyone in the group holds and stream it. Publish inventory. Make requests. Start a watch party. Mint an invite into the group. Remove any member, including you, and rotate the secret. | Read your Jellyfin accounts, your watched state or your passwords. Reach your Radarr, Sonarr, NZBGet or the mesh's own API. Write files outside `$STINGSTREAM_DATA/federated`. |
+| **A member of your group** | See every title anyone in the group holds and stream it. Publish inventory. Make requests. Start a watch party. Mint an invite into the group. Remove any member, including you, and rotate the secret. | Read your Jellyfin accounts, your watched state or your passwords. Reach your Radarr, Sonarr, the mesh's own API, or any download client you have pointed the arrs at (StingStream runs none of its own and knows nothing about how yours is reached). Write files outside `$STINGSTREAM_DATA/federated`. |
 | **A user on your node** | Whatever their Jellyfin account allows. A non-admin sees the merged library and their own requests. | See other users' requests, change anyone's playback policy but their own, or reach any elevated endpoint. |
 | **An administrator on your node** | Everything. This is your machine. | |
 | **A Jellyfin API key** | Everything an administrator can do. Jellyfin stamps `role = Administrator` on every API key; that is upstream's decision and we inherit it. Treat an API key as a full credential. | |
@@ -62,8 +62,12 @@ value is this node's own network addresses, and resolves the same for peers it a
 It never announces an infohash, never calls `get_peers`, and neither learns nor advertises anything
 about what any node holds. Turning it off costs discovery speed, not privacy of the library.
 
-The torrent engine's DHT is a different setting and a different thing: that one *is* content
-discovery, and it is **off** by default (`downloadClients.torrentDhtEnabled`).
+**Superseded 2026-09-23.** A second, unrelated DHT setting used to live here too:
+`downloadClients.torrentDhtEnabled` on the in-process torrent engine, off by default, *content*
+discovery rather than the address-book use above. StingStream stopped bundling a torrent engine at
+all on 2026-09-23 (`ARCHITECTURE.md`, "Decisions locked in with Dan" and M9), so that setting no
+longer exists to be on or off — if you run BitTorrent DHT discovery at all, it is your own external
+client's own setting now, outside StingStream's threat model entirely.
 
 ---
 
@@ -95,6 +99,12 @@ severity column is about this system's own threat model, not a generic CVSS.
 | N17 | **Restarting a group left its old gossip tasks running**, so a rotated node kept publishing heartbeats sealed under the key it had just rotated away from. | **Low** | The tasks are owned and aborted on drop. |
 | N19 | **The app shipped a crash reporter pointed at a third party, on by default.** `@sentry/react-native` is inherited from the Streamyfin fork, and its DSN fell back to *upstream Streamyfin's own Sentry organisation* whenever `EXPO_PUBLIC_SENTRY_DSN` was unset — which it is in every StingStream build. `sentryEnabled` defaulted to true, so a person who never opened Settings was reporting by default, to somebody who never agreed to receive it and cannot be asked to delete it. It also made `README.md`, `deploy/play/privacy-policy.md` and the Data Safety declaration to Google all false, and Google enforces a wrong Data Safety form by removal rather than by warning. | **High** | The DSN fallback is gone, so with nothing configured `Sentry.init` is never called; consent is opt-in (`=== true`) rather than opt-out (`!== false`); the default is `false`. The scrubbers, the toggle and the admin lock are untouched and start working the moment somebody sets a DSN they own. Four tests pin it, including "a release build with no DSN never initializes". |
 | N18 | **Three log lines in the app printed the user's own Jellyfin access token**, from the `ApiKey=` in a direct-play URL, to logcat and to the browser console. | **Low** | `lib/stingstream/redactUrl.ts` at the three call sites; the parameter name is kept and only the value goes. |
+
+**N3 and N4 are moot as of 2026-09-23**, the same way the coordinator's findings below are: the
+qBittorrent-compatible shim and the MonoTorrent engine behind it are deleted outright, along with
+the bundled NZBGet child, rather than merely patched further. `Authenticated()`, `QbtController` and
+the `savepath`/category handling N3 and N4 describe no longer exist in this codebase to have a
+finding against. See "Decisions locked in with Dan" and M9 in `ARCHITECTURE.md`.
 
 ### The coordinator — deleted, and the findings with it
 
@@ -206,7 +216,6 @@ authenticated Jellyfin user on this node.
 | `/stingstream/api/v1/invites/accept/passkey/{begin,finish}` | POST | Anonymous, gated on a live invite token in the body. `begin` creates nothing; `finish` verifies the passkey before it claims the invite, so a failed or abandoned ceremony spends nothing. The ceremony is single-use, bound to the invite id and name it was issued for, and counts against `PasskeyCeremonies.MaxOutstanding`. The account gets a random password, never a blank one |
 | `/stingstream/api/v1/passkeys/login/{begin,finish}` | POST | Anonymous — the passkey *is* the credential. Usernameless, so it cannot be used to ask whether an account exists here. The challenge lives on the server, is single-use and expires in five minutes, and outstanding ones are capped |
 | `/stingstream/api/v1/webhooks/arr` | POST | Anonymous + per-node token + loopback + gateway refuses off-machine |
-| `/stingstream/qbt/api/v2/*` | all | Anonymous + qBittorrent-style session cookie, fails closed |
 
 Gateway routes, which are not Jellyfin's:
 
@@ -219,7 +228,7 @@ Gateway routes, which are not Jellyfin's:
 | `/stingstream/mesh/*` | Loopback only |
 | `/stream/*` | Loopback, or a signed URL that has not expired |
 | `/jellyfin/*`, `/stingstream/*` | Proxied; Jellyfin's own auth applies |
-| `/radarr/*`, `/sonarr/*`, `/nzbget/*` | `--dev` only, never on an installed node |
+| `/radarr/*`, `/sonarr/*` | `--dev` only, never on an installed node |
 
 Peer routes, over authenticated iroh connections. Every one of these requires a completed group
 handshake first; a light node refuses the content routes outright.
@@ -241,12 +250,20 @@ handshake first; a light node refuses the content routes outright.
 | Group secret | 256 | `mesh.db`, 0600 on Unix | Yes, §3 |
 | Invite code | carries the group secret | Wherever the user pasted it | Dead on rotation |
 | Rendezvous id / token / data key | 256 each | Derived from the group secret | With the secret |
-| Stream-URL signing key | 256 | Derived from `runtime.json` | With `runtime.json` |
-| Arr webhook token | 256 | Derived from `runtime.json` | With `runtime.json` |
-| Radarr / Sonarr / NZBGet credentials | 256 | `runtime.json`, 0600 on Unix | On `runtime.json` rewrite |
+| Stream-URL signing key | 256 | Derived from `runtime.json`'s `qbittorrent.password` | With `runtime.json` |
+| Arr webhook token | 256 | Derived from `runtime.json`'s `qbittorrent.password` | With `runtime.json` |
+| Radarr / Sonarr credentials | 256 | `runtime.json`, 0600 on Unix | On `runtime.json` rewrite |
 | TLS private key, ACME account key | — | `$STINGSTREAM_DATA/tls/`, 0600 on Unix | ACME renewal at 60 days |
 | Cloudflare API token | — | **Nowhere. In memory only** | The reconcile that spends it |
 | Cloudflare tunnel run token | — | In memory, as a child process argument | With the process |
+
+**`qbittorrent.password` outlived the qBittorrent shim it was named for.** It was the shim's login
+until 2026-09-23, when the shim was deleted along with the rest of the bundled download engine. The
+field stayed, under its old name, because two things added after the shim already existed now derive
+from it — the stream-URL signing key (N1's fix) and the arr webhook token (N2's fix) — and
+regenerating or renaming it would invalidate every signed stream URL and every arr webhook delivery
+on the node. Treat it exactly as sensitively as any other node secret in this table; the name is
+historical, not a hint that it is lower-stakes than it looks.
 
 **The Cloudflare API token is never persisted, and that is a design constraint rather than an
 oversight.** Settings → Remote access asks for one to create a tunnel; it carries `Zone:DNS:Edit` on a
@@ -453,8 +470,9 @@ A scheduled daily job is the shape that works; `mesh/deny.toml`'s footer says so
 
 **Bundled third-party binaries and vendored source** are listed in `NOTICE.md`, which was checked
 against the tree during this review: five git subtrees (Jellyfin, Radarr, Sonarr, InfiniDysk,
-Streamyfin), the Jellyswarrm reference vendoring, the NZBGet binaries fetched at package time, and
-ffmpeg where a platform bundles it.
+Streamyfin), the Jellyswarrm reference vendoring, and ffmpeg where a platform bundles it. NZBGet's
+binaries were fetched at package time until 2026-09-23; StingStream bundles no download client any
+more, so `NOTICE.md` no longer carries an NZBGet entry.
 
 **GitHub Actions.** A tag is a mutable pointer: `actions/checkout@v4` is whatever the `v4` tag points
 at *at the moment the job runs*, so anybody who gains push access to that repository can change what

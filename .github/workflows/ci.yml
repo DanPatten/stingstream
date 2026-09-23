@@ -305,9 +305,9 @@ jobs:
           workspaces: mesh
           cache-on-failure: true
 
-      # Neither binary is vendored; both are fetched on demand into gitignored directories the
-      # supervisor discovers on its own. Without ffmpeg the harness cannot generate its test files
-      # and Jellyfin cannot probe them.
+      # Not vendored; fetched on demand into a gitignored directory the supervisor discovers on
+      # its own. Without ffmpeg the harness cannot generate its test files and Jellyfin cannot
+      # probe them.
       # Cached keyed on the resolved release tag (not "latest"): the tag is what actually
       # determines the downloaded bytes, so a cache hit skips the download entirely rather than
       # just skipping a rebuild. -PrintVersionOnly makes one lightweight API call to resolve it;
@@ -332,26 +332,6 @@ jobs:
       - name: Fetch jellyfin-ffmpeg
         if: steps.cache_ffmpeg.outputs.cache-hit != 'true'
         run: pwsh third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 -Platform linux64 -Tag ${{ steps.ffmpeg_version.outputs.tag }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Resolve nzbget version
-        id: nzbget_version
-        # -Platform matches the Fetch step below; see the ffmpeg Resolve step's own comment.
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly -Platform linux-x64
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Cache nzbget
-        id: cache_nzbget
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: third_party/nzbget/bin/linux-x64
-          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-linux-x64
-
-      - name: Fetch NZBGet
-        if: steps.cache_nzbget.outputs.cache-hit != 'true'
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64 -Tag ${{ steps.nzbget_version.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
@@ -384,8 +364,6 @@ jobs:
           find server/sonarr -maxdepth 5 -name 'Sonarr.Console*' -not -path '*/obj/*' | sort
           echo "--- jellyfin ---"
           find server/jellyfin/Jellyfin.Server/bin -maxdepth 3 -name 'jellyfin*' | sort
-          echo "--- nzbget ---"
-          find third_party/nzbget/bin -maxdepth 4 \( -name 'nzbget' -o -name 'nzbget.conf.template' \) | sort
 
       # The harness asserts that the page a browser gets carries the node marker, so the node needs
       # a real web bundle to splice it into. With none it serves its placeholder and the step fails
@@ -481,26 +459,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
-      - name: Resolve nzbget version
-        id: nzbget_version
-        # -Platform matches the Fetch step below; see the ffmpeg Resolve step's own comment.
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -PrintVersionOnly -Platform linux-x64
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Cache nzbget
-        id: cache_nzbget
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
-        with:
-          path: third_party/nzbget/bin/linux-x64
-          key: nzbget-${{ steps.nzbget_version.outputs.tag }}-linux-x64
-
-      - name: Fetch NZBGet
-        if: steps.cache_nzbget.outputs.cache-hit != 'true'
-        run: pwsh third_party/nzbget/fetch-nzbget.ps1 -Platform linux-x64 -Tag ${{ steps.nzbget_version.outputs.tag }}
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
       # The mesh binary as well as the supervisor: the supervisor embeds the mesh library, but the
       # harness's rendezvous scenario drives three standalone mesh nodes.
       - name: Build the supervisor and the mesh
@@ -580,8 +538,8 @@ jobs:
   # be right. Lighter than the M3 job despite having one more node, because none of the three runs
   # an arr: B and C are pure holders whose media is placed on disk with an NFO carrying the TMDB id,
   # and A's only add is one the group already satisfies, which never reaches an arr at all. So this
-  # job builds the supervisor and Jellyfin and nothing else, and needs no NZBGet, no seeder and no
-  # Torznab stub.
+  # job builds the supervisor and Jellyfin and nothing else, and needs no seeder and no Torznab
+  # stub.
   #
   # There is no -SkipCoordinator equivalent: every step here runs on loopback and needs nothing
   # hosted by anyone. See tools/e2e-m4.ps1 and docs/RUNNING.md.
@@ -832,9 +790,9 @@ jobs:
   # The M7 acceptance harness: watch together across nodes, subtitles that travel with a title, DVR
   # recordings that federate, and the two bugs M5 handed on.
   #
-  # Three nodes, no arrs and no NZBGet -- B and C are pure holders whose media is placed on disk
-  # with an NFO carrying the TMDB id, and nothing here grabs anything -- so like the M4 job this
-  # builds the supervisor and Jellyfin and nothing else.
+  # Three nodes, no arrs -- B and C are pure holders whose media is placed on disk with an NFO
+  # carrying the TMDB id, and nothing here grabs anything -- so like the M4 job this builds the
+  # supervisor and Jellyfin and nothing else.
   #
   # The subtitle provider is deliberately mocked: the sidecar is written onto the holder's disk, and
   # what the run asserts is the publish-and-fetch half. A job that depended on OpenSubtitles

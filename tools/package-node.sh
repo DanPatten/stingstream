@@ -11,7 +11,7 @@
 # Usage:
 #   tools/package-node.sh --rid linux-x64
 #   tools/package-node.sh --rid linux-x64 --skip-build      # assemble only
-#   tools/package-node.sh --rid osx-arm64 --skip-fetch      # no nzbget/ffmpeg fetch on this host
+#   tools/package-node.sh --rid osx-arm64 --skip-fetch      # no ffmpeg fetch on this host
 #
 set -euo pipefail
 
@@ -53,14 +53,12 @@ echo "Output:    $OUT_DIR"
 [[ -n "${NUGET_PACKAGES:-}" ]] && echo "NUGET_PACKAGES: $NUGET_PACKAGES"
 
 # --- RID mapping --------------------------------------------------------------------------
-# See package-node.ps1's own table / deploy/node/LAYOUT.md for why nzbget has no linux-arm64
-# entry: nzbgetcom does not publish an arm64 Linux release asset.
 case "$RID" in
-    win-x64)     RUST_TRIPLE=x86_64-pc-windows-msvc;    FFMPEG_PLATFORM=win64;      NZBGET_PLATFORM=win64;     BUILD_PLATFORM=Windows; EXE=.exe ;;
-    linux-x64)   RUST_TRIPLE=x86_64-unknown-linux-gnu;  FFMPEG_PLATFORM=linux64;    NZBGET_PLATFORM=linux-x64; BUILD_PLATFORM=Posix;   EXE= ;;
-    linux-arm64) RUST_TRIPLE=aarch64-unknown-linux-gnu; FFMPEG_PLATFORM=linuxarm64; NZBGET_PLATFORM=;          BUILD_PLATFORM=Posix;   EXE= ;;
-    osx-x64)     RUST_TRIPLE=x86_64-apple-darwin;       FFMPEG_PLATFORM=macos;      NZBGET_PLATFORM=macos;     BUILD_PLATFORM=Posix;   EXE= ;;
-    osx-arm64)   RUST_TRIPLE=aarch64-apple-darwin;      FFMPEG_PLATFORM=macos;      NZBGET_PLATFORM=macos;     BUILD_PLATFORM=Posix;   EXE= ;;
+    win-x64)     RUST_TRIPLE=x86_64-pc-windows-msvc;    FFMPEG_PLATFORM=win64;      BUILD_PLATFORM=Windows; EXE=.exe ;;
+    linux-x64)   RUST_TRIPLE=x86_64-unknown-linux-gnu;  FFMPEG_PLATFORM=linux64;    BUILD_PLATFORM=Posix;   EXE= ;;
+    linux-arm64) RUST_TRIPLE=aarch64-unknown-linux-gnu; FFMPEG_PLATFORM=linuxarm64; BUILD_PLATFORM=Posix;   EXE= ;;
+    osx-x64)     RUST_TRIPLE=x86_64-apple-darwin;       FFMPEG_PLATFORM=macos;      BUILD_PLATFORM=Posix;   EXE= ;;
+    osx-arm64)   RUST_TRIPLE=aarch64-apple-darwin;      FFMPEG_PLATFORM=macos;      BUILD_PLATFORM=Posix;   EXE= ;;
     *) echo "Unknown RID: $RID" >&2; exit 1 ;;
 esac
 
@@ -160,23 +158,12 @@ if [[ "$RID" == "win-x64" ]]; then sonarr_platform_dll="Sonarr.Windows.dll"; els
     exit 1
 }
 
-# --- 3. third_party: jellyfin-ffmpeg, nzbget --------------------------------------------------
+# --- 3. third_party: jellyfin-ffmpeg -----------------------------------------------------------
 
 FFMPEG_SRC="$REPO_ROOT/third_party/ffmpeg/bin/$FFMPEG_PLATFORM"
 if [[ "$SKIP_FETCH" -eq 0 ]] && ! compgen -G "$FFMPEG_SRC/ffmpeg*" > /dev/null; then
     echo "-- fetching jellyfin-ffmpeg for $FFMPEG_PLATFORM"
     pwsh "$REPO_ROOT/third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1" -Platform "$FFMPEG_PLATFORM"
-fi
-
-NZBGET_SRC=""
-if [[ -n "$NZBGET_PLATFORM" ]]; then
-    NZBGET_SRC="$REPO_ROOT/third_party/nzbget/bin/$NZBGET_PLATFORM"
-    if [[ "$SKIP_FETCH" -eq 0 ]] && ! compgen -G "$NZBGET_SRC/nzbget*" > /dev/null; then
-        echo "-- fetching nzbget for $NZBGET_PLATFORM"
-        pwsh "$REPO_ROOT/third_party/nzbget/fetch-nzbget.ps1" -Platform "$NZBGET_PLATFORM"
-    fi
-else
-    echo "WARNING: no nzbget release for $RID (nzbgetcom publishes no arm64 Linux asset -- see deploy/node/LAYOUT.md). bin/nzbget/ will be empty; the node still comes up with NZBGet reported as disabled." >&2
 fi
 
 # --- 4. web bundle ----------------------------------------------------------------------------
@@ -191,7 +178,7 @@ fi
 
 echo "-- assembling $OUT_DIR"
 rm -rf "$OUT_DIR"
-mkdir -p "$OUT_DIR"/bin/{jellyfin,radarr,sonarr,mesh,ffmpeg,nzbget}
+mkdir -p "$OUT_DIR"/bin/{jellyfin,radarr,sonarr,mesh,ffmpeg}
 
 cp "$SUPERVISOR_BIN" "$OUT_DIR/bin/stingstream$EXE"
 if [[ -f "$MESH_BIN" ]]; then cp "$MESH_BIN" "$OUT_DIR/bin/mesh/stingstream-mesh$EXE"; fi
@@ -203,10 +190,6 @@ cp -r "$SONARR_OUT"/. "$OUT_DIR/bin/sonarr/"
 if [[ -d "$FFMPEG_SRC" ]]; then
     find "$FFMPEG_SRC" -mindepth 1 -maxdepth 1 ! -name '*.zip' ! -name '*.tar.xz' ! -name '*.tar.gz' \
         -exec cp -r {} "$OUT_DIR/bin/ffmpeg/" \;
-fi
-if [[ -n "$NZBGET_SRC" && -d "$NZBGET_SRC" ]]; then
-    find "$NZBGET_SRC" -mindepth 1 -maxdepth 1 ! -name '*-setup.exe' ! -name '*.run' ! -name 'Uninstall.exe' \
-        -exec cp -r {} "$OUT_DIR/bin/nzbget/" \;
 fi
 
 if [[ -f "$WEB_DIST/index.html" ]]; then

@@ -5,7 +5,7 @@ Companion to [`docs/RUNNING.md`](RUNNING.md) (running a node from a checkout, fo
 for someone downloading a release, not building one.
 
 Every install method produces the same thing: one node listening on **`http://localhost:8790`**,
-running Jellyfin, Radarr, Sonarr, NZBGet and the StingStream mesh behind a single login. See
+running Jellyfin, Radarr, Sonarr and the StingStream mesh behind a single login. See
 `deploy/node/LAYOUT.md` for exactly what is inside.
 
 ---
@@ -77,8 +77,7 @@ stingstream` today.
    starting up behind it).
 
 **Dependencies** installed automatically: `libicu72`, `libfontconfig1`, `libfreetype6` (needed by
-the self-contained .NET publishes and Jellyfin's image processing). `p7zip-full` is recommended,
-not required, for archive formats NZBGet's own bundled tools do not cover.
+the self-contained .NET publishes and Jellyfin's image processing).
 
 **Data directory**: `/var/lib/stingstream`. **Install tree**: `/opt/stingstream` (read-only from
 the running node's point of view — an upgrade replaces it wholesale).
@@ -100,9 +99,7 @@ users, in case anything else on the machine still references it).
 
 **arm64**: built and published the same way, but only the amd64 leg's install is actually verified
 in CI (a real, unemulated systemd boot on the GitHub Actions runner) — see `docs/RELEASING.md`
-"Known packaging quirks" for why arm64 is build-verified only. **No NZBGet on arm64**: nzbgetcom
-publishes no arm64 Linux release asset; the node still comes up with NZBGet reported disabled in
-`/healthz`.
+"Known packaging quirks" for why arm64 is build-verified only.
 
 ---
 
@@ -165,7 +162,7 @@ What exists today:
   platform gets (`deploy/node/LAYOUT.md`), built and lightly smoke-tested on real GitHub-hosted Mac
   runners in `.github/workflows/release.yml` (`stingstream --version` and `--print-runtime`
   succeed) — genuine proof the binaries run on macOS, not just that they cross-compile. **Full
-  multi-child startup (Jellyfin, Radarr, Sonarr, NZBGet all actually coming up together) has not
+  multi-child startup (Jellyfin, Radarr and Sonarr all actually coming up together) has not
   been verified on macOS anywhere**, and neither has an end user's actual download-and-run
   experience with Gatekeeper's quarantine attribute in the way.
 - `deploy/macos/stingstream.rb`: a Homebrew formula **template**, wired to install the tarball

@@ -23,7 +23,7 @@ StingStream/
 │     ├─ stingstream-mesh/   # iroh transport, groups, gossip index, source selection
 │     └─ stingstream-mesh-ffi/ # uniffi bindings, for the app's embedded light node
 ├─ packages/api-client/      # TS client generated from the StingStream OpenAPI document
-├─ third_party/              # nzbget and jellyfin-ffmpeg fetch scripts (not vendored)
+├─ third_party/              # jellyfin-ffmpeg (and cloudflared) fetch scripts (not vendored)
 ├─ deploy/                   # installers, Docker, compose, Play Store listing
 ├─ tools/                    # e2e-m*.ps1 acceptance harnesses, upstream-pull.ps1, packaging
 └─ docs/                     # everything linked from here

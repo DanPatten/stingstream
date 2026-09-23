@@ -53,9 +53,15 @@ $script:OwnedExecutables = @(
     'jellyfin.exe', 'jellyfin',
     'Radarr.Console.exe', 'Radarr.Console',
     'Sonarr.Console.exe', 'Sonarr.Console',
-    'nzbget.exe', 'nzbget',
     'dotnet.exe', 'dotnet'
 )
+
+# The external qBittorrent a downloading harness starts (Start-Qbittorrent), or $null. Deliberately
+# not in OwnedExecutables: it is stopped by its own process id and its own profile path, never by a
+# sweep, because Dan may be running a qBittorrent of his own on this machine.
+$script:Qbittorrent = $null
+# Get-FreeLoopbackPort's generator, created on first use.
+$script:PortRandom = $null
 
 function Initialize-Harness {
     param(
@@ -98,8 +104,8 @@ function Copy-TreeDelta {
         The replacement for `Copy-Item -Recurse -Force` everywhere a build output is mirrored into
         a private install root. `Copy-Item -Force` rewrites every byte of every file whether or not
         it changed, which is what made `-ForceCopy` cost a gigabyte: a `dotnet build` touches about
-        76 files and 17 MB, and the Jellyfin output beside it is 274 files and 731 MB. ffmpeg and
-        nzbget are vendored binaries that had not changed in a week and were re-copied every time.
+        76 files and 17 MB, and the Jellyfin output beside it is 274 files and 731 MB. ffmpeg is a
+        vendored binary that had not changed in a week and was re-copied every time.
 
         On Windows this is robocopy, whose default classification is exactly the wanted semantics:
         copy a file whose size or write time differs from the destination's, skip it otherwise.
@@ -110,8 +116,7 @@ function Copy-TreeDelta {
 
     .PARAMETER Exclude
         File name patterns to leave behind, as `Copy-Item -Exclude` takes them. The vendored ffmpeg
-        and nzbget directories ship their own installers and archives beside the binaries, and a
-        node has no use for them.
+        directory ships its own archives beside the binaries, and a node has no use for them.
     #>
     param(
         [Parameter(Mandatory)][string]$Source,
@@ -249,7 +254,6 @@ function New-PrivateInstallRoot {
     $supervisor = Join-Path $Destination "stingstream$exeSuffix"
     $jellyfinBin = Join-Path $Destination 'bin/jellyfin'
     $ffmpegBin = Join-Path $Destination 'bin/ffmpeg'
-    $nzbgetBin = Join-Path $Destination 'bin/nzbget'
     $radarrBin = Join-Path $Destination 'bin/radarr'
     $sonarrBin = Join-Path $Destination 'bin/sonarr'
 
@@ -296,23 +300,6 @@ function New-PrivateInstallRoot {
     $r = Copy-TreeDelta -Source $ffmpeg.Directory.FullName -Destination $ffmpegBin -Exclude '*.zip', '*.tar.xz', '*.tar.gz'
     $moved += $r.Copied; $movedBytes += $r.Bytes
     $stamp['ffmpeg'] = Write-SyncedComponent -Name 'ffmpeg' -From $ffmpeg.Directory.FullName -Result $r
-
-    # NZBGet, when it has been fetched. `--install-root` has no repository to fall back on, and a
-    # node with `children.nzbget = true` and no binary does not start at all -- it is a hard error,
-    # not a disabled child. So a harness whose node enables NZBGet gets nothing but a timeout unless
-    # it is copied, which is exactly how M7 found this: e2e-m1 ran perfectly out of the repository
-    # and would not start out of a private copy.
-    $nzbget = Get-ChildItem -Path (Join-Path $RepoRoot 'third_party/nzbget/bin') -Recurse -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -eq "nzbget$exeSuffix" } | Select-Object -First 1
-    if ($nzbget) {
-        $r = Copy-TreeDelta -Source $nzbget.Directory.FullName -Destination $nzbgetBin -Exclude '*-setup.exe', '*.run', 'Uninstall.exe'
-        $moved += $r.Copied; $movedBytes += $r.Bytes
-        $stamp['nzbget'] = Write-SyncedComponent -Name 'nzbget' -From $nzbget.Directory.FullName -Result $r
-    } else {
-        # Not fatal here: a harness whose nodes run `children.nzbget = false` -- which is most of
-        # them -- does not need it, and saying so beats a copy that fails for something unused.
-        Write-Host '      no nzbget under third_party/nzbget/bin; a node that enables it will not start'
-    }
 
     # Radarr and Sonarr, for a harness whose nodes actually grab something. Off by default because
     # most harnesses place their media on disk instead -- which is faster and more deterministic --
@@ -761,6 +748,376 @@ function Stop-Tools {
         Start-Sleep -Seconds 1
         Stop-Owned -PathFragment $script:WorkDirFull
     }
+}
+
+# --- external qBittorrent -------------------------------------------------------------------
+#
+# StingStream runs no download client of its own (169a8d9 removed the in-process torrent engine
+# and the bundled NZBGet), so a harness that grabs something needs a real client for the arrs to
+# hand the release to. It is qBittorrent, started from a private profile the harness writes
+# itself: Web UI on a loopback port, fixed credentials, DHT/PeX/LSD/UPnP off so the only peer it
+# ever finds is tools/seeder, and every listener on 127.0.0.1 so Windows never raises a firewall
+# prompt on the desktop.
+#
+# One harness, one instance: Start-Qbittorrent refuses to start a second, and Stop-Qbittorrent
+# stops it by the process id it recorded and by the profile path in the command line -- never by
+# name, because Dan may well have a qBittorrent of his own running on this machine.
+
+function Find-QbittorrentExe {
+    <#
+    .SYNOPSIS
+        The qBittorrent binary to run: $env:QBITTORRENT_EXE, the Windows install, or -nox on PATH.
+    #>
+    if ($env:QBITTORRENT_EXE -and (Test-Path $env:QBITTORRENT_EXE)) { return $env:QBITTORRENT_EXE }
+    if ($script:IsWindowsHost) {
+        foreach ($root in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, (Join-Path ([string]$env:LOCALAPPDATA) 'Programs'))) {
+            if (-not $root) { continue }
+            $candidate = Join-Path $root 'qBittorrent\qbittorrent.exe'
+            if (Test-Path $candidate) { return $candidate }
+        }
+    }
+    foreach ($name in @('qbittorrent-nox', 'qbittorrent')) {
+        $cmd = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cmd) { return $cmd.Source }
+    }
+    throw ('qBittorrent is not installed. On Windows: winget install --id qBittorrent.qBittorrent -e; ' +
+        'on Linux: apt-get install qbittorrent-nox. Or point $env:QBITTORRENT_EXE at the binary.')
+}
+
+function New-QbittorrentPasswordHash {
+    <#
+    .SYNOPSIS
+        The WebUI\Password_PBKDF2 value qBittorrent 4.2+ reads: PBKDF2-HMAC-SHA512, 100 000
+        iterations, a 16-byte random salt and a 64-byte key, as `@ByteArray(<salt>:<key>)` in base64.
+    .DESCRIPTION
+        The same derivation qBittorrent's own Utils::Password::PBKDF2::generate does, so the file
+        this writes is indistinguishable from one qBittorrent saved after somebody typed the
+        password into its options dialog.
+    #>
+    param([Parameter(Mandatory)][string]$Password)
+    $salt = [byte[]]::new(16)
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($salt) } finally { $rng.Dispose() }
+    $kdf = [System.Security.Cryptography.Rfc2898DeriveBytes]::new(
+        $Password, $salt, 100000, [System.Security.Cryptography.HashAlgorithmName]::SHA512)
+    try { $key = $kdf.GetBytes(64) } finally { $kdf.Dispose() }
+    return '@ByteArray({0}:{1})' -f [Convert]::ToBase64String($salt), [Convert]::ToBase64String($key)
+}
+
+function Get-FreeLoopbackPort {
+    <#
+    .SYNOPSIS
+        A free loopback port, outside the ranges the harnesses and the pinned nodes bind by number.
+    .DESCRIPTION
+        The OS hands out ephemeral ports from its dynamic range, which on Dan's machine starts at
+        1024 -- so a plain "bind 0" can return 8791, and a qBittorrent sitting there stops e2e-m1's
+        gateway from starting. 5173 and 8802 are the pinned nodes; 8700-9099 holds every fixed
+        gateway port a harness uses.
+
+        So not "bind 0" at all: Windows hands those out sequentially, and fifty in a row landed
+        inside 8700-9099. A random candidate from 20000-44999, kept only if it binds, is outside
+        every fixed port by construction.
+    #>
+    # One generator for the whole run: a new one per call is seeded from the clock, and two calls a
+    # millisecond apart then return the same port.
+    if (-not $script:PortRandom) { $script:PortRandom = [System.Random]::new() }
+    for ($i = 0; $i -lt 50; $i++) {
+        $port = $script:PortRandom.Next(20000, 45000)
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+        try { $listener.Start(); return $port } catch { continue } finally { $listener.Stop() }
+    }
+    throw 'could not find a free loopback port in 20000-44999.'
+}
+
+function Stop-QbittorrentByProfile {
+    <#
+    .SYNOPSIS
+        Kill every qBittorrent whose command line names this profile directory, and nothing else.
+    .DESCRIPTION
+        A leftover from an earlier run that died without its finally block holds the profile's
+        files open and the Web UI port. Matched by profile path, so a qBittorrent Dan started
+        himself -- which has no --profile pointing in here -- is never touched.
+    #>
+    param([Parameter(Mandatory)][string]$ProfileDir)
+    $full = [System.IO.Path]::GetFullPath($ProfileDir)
+    $comparison = if ($script:IsWindowsHost) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+    Get-ProcessTable |
+        Where-Object {
+            $_.Name -match '^qbittorrent(-nox)?(\.exe)?$' -and $_.CommandLine -and
+            $_.CommandLine.IndexOf($full, $comparison) -ge 0
+        } |
+        ForEach-Object {
+            Write-Host "      stopping leftover qBittorrent (pid $($_.ProcessId)) on $full" -ForegroundColor DarkGray
+            try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { }
+        }
+}
+
+function Start-Qbittorrent {
+    <#
+    .SYNOPSIS
+        Start a private, headless-as-possible qBittorrent and wait for its Web API.
+    .DESCRIPTION
+        The profile is wiped and rewritten every time, so each run starts with no torrents, no
+        categories and no state from the last one. Returns an object with Host, Port, Url,
+        Username, Password, SavePath, ProfileDir and Process; pass Host/Port/Username/Password to
+        POST /stingstream/api/v1/settings/downloadclients, and use Invoke-Qbittorrent for the
+        client's own view of what it is downloading.
+
+        On Windows this is the GUI build (there is no official qbittorrent-nox there), started
+        minimized to the tray with every first-run dialog pre-answered in the ini: the legal
+        notice, the file-association question, the update check, and balloon notifications.
+
+        TCP only (Session\BTProtocol=TCP). tools/seeder is MonoTorrent, which does not speak uTP,
+        and libtorrent tries uTP first: the attempt times out, the peer is marked failed, and the
+        retry comes a minute or more later. That made two runs in three stall with a seeder sitting
+        right there on 127.0.0.1.
+
+        Multiple connections per IP (Session\MultiConnectionsPerIp=true). Every peer here is
+        127.0.0.1, and the seeder's tracker answers with qBittorrent's own entry beside the
+        seeder's. With libtorrent's default the peer list keys peers by address alone, so the two
+        collapse into one; whenever qBittorrent's own port won, it discarded the entry as itself
+        and never saw the seeder at all.
+    .PARAMETER ProfileDir
+        Where the profile lives. The ini is written to <ProfileDir>/qBittorrent/config, which is
+        where `--profile` makes qBittorrent look.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$ProfileDir,
+        [string]$Username = 'e2e',
+        [string]$Password = 'e2e-qbittorrent',
+        [int]$TimeoutSeconds = 90
+    )
+    if ($script:Qbittorrent -and -not $script:Qbittorrent.Process.HasExited) {
+        throw "a harness qBittorrent is already running (pid $($script:Qbittorrent.Process.Id))."
+    }
+
+    $exe = Find-QbittorrentExe
+    $profileFull = [System.IO.Path]::GetFullPath($ProfileDir)
+    Stop-QbittorrentByProfile -ProfileDir $profileFull
+    if (Test-Path $profileFull) {
+        Start-Sleep -Seconds 1
+        Remove-Item -Recurse -Force $profileFull -ErrorAction SilentlyContinue
+        if (Test-Path $profileFull) { throw "could not wipe the qBittorrent profile at $profileFull." }
+    }
+
+    $configDir = Join-Path $profileFull 'qBittorrent/config'
+    $savePath = Join-Path $profileFull 'downloads'
+    New-Item -ItemType Directory -Force -Path $configDir, $savePath | Out-Null
+
+    $webPort = Get-FreeLoopbackPort
+    $peerPort = Get-FreeLoopbackPort
+    # Qt's ini format: backslash is the key separator, and a path value wants forward slashes.
+    $saveIni = ($savePath -replace '\\', '/')
+    $hash = New-QbittorrentPasswordHash -Password $Password
+
+    $ini = @"
+[LegalNotice]
+Accepted=true
+
+[Application]
+FileLogger\Enabled=true
+FileLogger\Path=$((Join-Path $profileFull 'logs') -replace '\\', '/')
+
+[BitTorrent]
+Session\DefaultSavePath=$saveIni
+Session\TempPathEnabled=false
+Session\Port=$peerPort
+Session\UseRandomPort=false
+Session\InterfaceAddress=127.0.0.1
+Session\BTProtocol=TCP
+Session\MultiConnectionsPerIp=true
+Session\DHTEnabled=false
+Session\PeXEnabled=false
+Session\LSDEnabled=false
+Session\AnonymousModeEnabled=false
+Session\QueueingSystemEnabled=false
+Session\AddTorrentStopped=false
+Session\SSRFMitigation=false
+Session\ValidateHTTPSTrackerCertificate=false
+Session\DisableAutoTMMByDefault=true
+Session\GlobalMaxRatio=-1
+Session\GlobalMaxSeedingMinutes=-1
+
+[Core]
+AutoDeleteAddedTorrentFile=Never
+
+[GUI]
+Notifications\Enabled=false
+Notifications\TorrentAdded=false
+
+[Preferences]
+Connection\UPnP=false
+Connection\ResolvePeerCountries=false
+General\Locale=en
+General\NoSplashScreen=true
+General\StartMinimized=true
+General\SystrayEnabled=true
+General\MinimizeToTray=true
+General\CloseToTray=true
+General\ExitConfirm=false
+General\NeverCheckFileAssocation=true
+Advanced\updateCheck=false
+Advanced\confirmRemoveAllTags=false
+Downloads\SavePath=$saveIni
+WebUI\Enabled=true
+WebUI\Address=127.0.0.1
+WebUI\Port=$webPort
+WebUI\UseUPnP=false
+WebUI\Username=$Username
+WebUI\Password_PBKDF2="$hash"
+WebUI\LocalHostAuth=true
+WebUI\CSRFProtection=false
+WebUI\ClickjackingProtection=false
+WebUI\HostHeaderValidation=false
+WebUI\SecureCookie=false
+WebUI\MaxAuthenticationFailCount=0
+"@
+    Set-Content -Path (Join-Path $configDir 'qBittorrent.ini') -Value $ini -Encoding utf8
+
+    $arguments = @("--profile=$profileFull", "--webui-port=$webPort")
+    if ($script:IsWindowsHost) {
+        $arguments += '--no-splash'
+        # ShellExecute rather than -NoNewWindow with redirects: a GUI process has nothing on stdout
+        # worth keeping (its log is FileLogger, above), and not inheriting this shell's handles is
+        # what keeps an agent's pipe from being held open by it (see Start-DetachedTool).
+        $p = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Minimized -PassThru
+    } else {
+        $arguments += '--confirm-legal-notice'
+        $stdout = Join-Path $profileFull 'qbittorrent.out.log'
+        $stderr = Join-Path $profileFull 'qbittorrent.err.log'
+        $p = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru `
+            -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+    }
+
+    $qbt = [pscustomobject]@{
+        Host       = '127.0.0.1'
+        Port       = $webPort
+        Url        = "http://127.0.0.1:$webPort"
+        PeerPort   = $peerPort
+        Username   = $Username
+        Password   = $Password
+        SavePath   = $savePath
+        ProfileDir = $profileFull
+        Exe        = $exe
+        Process    = $p
+        Session    = $null
+    }
+    $script:Qbittorrent = $qbt
+    Write-Host "      started qBittorrent (pid $($p.Id)) web $($qbt.Url), peer port $peerPort, profile $profileFull" -ForegroundColor DarkGray
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $last = 'no answer'
+    while ((Get-Date) -lt $deadline) {
+        if ($p.HasExited) { throw "qBittorrent exited with code $($p.ExitCode) before its Web UI came up." }
+        try {
+            $session = $null
+            $login = Invoke-WebRequest -Uri "$($qbt.Url)/api/v2/auth/login" -Method POST -UseBasicParsing -TimeoutSec 5 `
+                -Body @{ username = $Username; password = $Password } -SessionVariable session -DisableKeepAlive
+            if ($login.Content -ne 'Ok.') { throw "login answered '$($login.Content)'; the password hash in the ini is not being accepted." }
+            $qbt.Session = $session
+            $version = (Invoke-WebRequest -Uri "$($qbt.Url)/api/v2/app/version" -UseBasicParsing -TimeoutSec 5 -WebSession $session -DisableKeepAlive).Content
+            Write-Host "      qBittorrent $version answering, signed in as $Username"
+            return $qbt
+        } catch {
+            $last = $_.Exception.Message
+            if ($last -like 'login answered*') { throw }
+        }
+        Start-Sleep -Seconds 1
+    }
+    throw "qBittorrent's Web UI did not answer within ${TimeoutSeconds}s. Last seen: $last"
+}
+
+function Invoke-Qbittorrent {
+    <#
+    .SYNOPSIS
+        Call the harness qBittorrent's Web API (signed in) and return the parsed JSON.
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [string]$Method = 'GET',
+        [hashtable]$Form
+    )
+    $qbt = $script:Qbittorrent
+    if (-not $qbt) { throw 'no harness qBittorrent is running.' }
+    # -DisableKeepAlive is load-bearing. This machine's dynamic port range starts at 1024, so the
+    # local end of a pooled connection can be *any* port -- and one left in CLOSE_WAIT by a kept-
+    # alive call here held 127.0.0.1:8791 at the moment e2e-m1's node tried to bind its gateway
+    # there ("os error 10048"). A request that closes its own connection leaves nothing behind.
+    $request = @{
+        Uri = "$($qbt.Url)$Path"; Method = $Method; UseBasicParsing = $true; TimeoutSec = 20
+        WebSession = $qbt.Session; DisableKeepAlive = $true
+    }
+    if ($Form) { $request.Body = $Form }
+    $response = Invoke-WebRequest @request
+    if ($response.Content) {
+        try { return $response.Content | ConvertFrom-Json } catch { return $response.Content }
+    }
+    return $null
+}
+
+function New-QbittorrentClientSettings {
+    <#
+    .SYNOPSIS
+        The body for POST /stingstream/api/v1/settings/downloadclients that points a node's arrs
+        at the harness qBittorrent.
+    .DESCRIPTION
+        One category per arr, so a harness can tell from qBittorrent's own torrent list which app
+        grabbed what. Post it after an indexer exists: the arrs only run once one does, and the
+        client's test (downloadclients/test) is theirs -- it answers 409 until one is up.
+    #>
+    param([string]$Name = 'E2E qBittorrent')
+    $qbt = $script:Qbittorrent
+    if (-not $qbt) { throw 'Start-Qbittorrent first.' }
+    return @{
+        name                     = $Name
+        implementation           = 'QBittorrent'
+        protocol                 = 'torrent'
+        host                     = $qbt.Host
+        port                     = $qbt.Port
+        useSsl                   = $false
+        urlBase                  = ''
+        username                 = $qbt.Username
+        password                 = $qbt.Password
+        movieCategory            = 'radarr'
+        tvCategory               = 'sonarr'
+        enabled                  = $true
+        priority                 = 1
+        forMovies                = $true
+        forSeries                = $true
+        removeCompletedDownloads = $true
+        removeFailedDownloads    = $true
+    }
+}
+
+function Get-QbittorrentTorrents {
+    <#
+    .SYNOPSIS
+        Every torrent the harness qBittorrent holds, as its own /api/v2/torrents/info reports them.
+    .DESCRIPTION
+        Piped, not @()'d: Windows PowerShell's ConvertFrom-Json hands a JSON array back as one
+        Object[], and wrapping that makes a one-element array of arrays.
+    #>
+    $all = Invoke-Qbittorrent '/api/v2/torrents/info'
+    return @($all | ForEach-Object { $_ })
+}
+
+function Stop-Qbittorrent {
+    <#
+    .SYNOPSIS
+        Stop the harness qBittorrent: by the process id Start-Qbittorrent recorded, then by its
+        profile path in case it re-spawned or an earlier run left one behind.
+    #>
+    $qbt = $script:Qbittorrent
+    if (-not $qbt) { return }
+    try {
+        if (-not $qbt.Process.HasExited) {
+            Write-Host "      stopping qBittorrent (pid $($qbt.Process.Id))" -ForegroundColor DarkGray
+            Stop-Process -Id $qbt.Process.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch { }
+    Start-Sleep -Seconds 1
+    Stop-QbittorrentByProfile -ProfileDir $qbt.ProfileDir
+    $script:Qbittorrent = $null
 }
 
 # --- HTTP -----------------------------------------------------------------------------------

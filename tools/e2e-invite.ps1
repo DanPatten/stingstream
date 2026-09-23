@@ -120,7 +120,7 @@ function Write-InviteNodeConfig {
     .SYNOPSIS
         One node's config.toml and mesh.toml.
     .DESCRIPTION
-        The arrs and NZBGet are off: this harness places media on disk directly, because nothing
+        The arrs are off: this harness places media on disk directly, because nothing
         here is about the grab pipeline. The gossip timings are turned down for the reason the other
         harnesses turn them down — the shipped defaults declare a peer offline sixty seconds after
         its last heartbeat, and an acceptance run should not spend a minute per liveness assertion.
@@ -140,7 +140,6 @@ expose_child_uis_in_dev = true
 jellyfin = true
 radarr = false
 sonarr = false
-nzbget = false
 mesh = true
 infinidysk = false
 

@@ -7,8 +7,9 @@
     This is the test that decides whether M1 is done. Nothing in the download path is mocked: a
     real Torznab indexer (tools/torznab-stub), a real BitTorrent tracker and seeder
     (tools/seeder), real Radarr and Sonarr grabbing through their own unmodified qBittorrent
-    download client, and the real in-process MonoTorrent engine behind StingStream's
-    qBittorrent-compatible API doing the transfer.
+    download client, and a real, external qBittorrent doing the transfer. StingStream runs no
+    download client of its own (169a8d9), so this is the same shape a person's node has: they
+    add a client they run, and the arrs send it what they grab.
 
     What it does, in order:
 
@@ -18,15 +19,18 @@
          arrs' sample check for its title.
       3. Makes a .torrent for each and seeds it from a self-hosted tracker on loopback.
       4. Serves both as releases from a Torznab stub.
-      5. Starts a StingStream node on a throwaway data directory and waits for every child to be
+      5. Starts a private qBittorrent (Start-Qbittorrent in e2e-common.ps1) from a profile under
+         .local\e2e\qbt\m1: Web UI on a loopback port, DHT/PeX/LSD/UPnP off. It has to be
+         installed; see docs/RUNNING.md.
+      6. Starts a StingStream node on a throwaway data directory and waits for every child to be
          healthy and for first-run wiring to finish.
-      6. Adds the indexer through the StingStream API, then adds the movie (TMDB 10378) and the
-         series (TVDB 71471, "The Beverly Hillbillies").
-      7. Waits for grab -> download through the qBittorrent-compatible API -> import -> webhook ->
-         Jellyfin item, for each.
-      8. Asserts the item exists in Jellyfin and that GET /jellyfin/Videos/{id}/stream returns 200
+      7. Adds the indexer and the qBittorrent download client through the StingStream API, then
+         adds the movie (TMDB 10378) and the series (TVDB 71471, "The Beverly Hillbillies").
+      8. Waits for grab -> download in qBittorrent -> import -> webhook -> Jellyfin item, for
+         each.
+      9. Asserts the item exists in Jellyfin and that GET /jellyfin/Videos/{id}/stream returns 200
          with actual bytes.
-      9. Kills the supervisor, restarts it, and asserts every child comes back healthy and both
+     10. Kills the supervisor, restarts it, and asserts every child comes back healthy and both
          items are still there.
 
     Every step is timed and reported. A non-zero exit code means M1 does not pass.
@@ -451,17 +455,18 @@ if ((Test-Path $WorkDir) -and -not $KeepData) {
 # Where the supervisor and its children are run from. `--dev --repo-root` is CI's answer: one
 # checkout, one build, nothing else running. On a shared machine it is the wrong default, because a
 # node started this way holds the repository's build outputs open for as long as the harness runs.
+# The copy itself is made in 'Start the node', after 'Build', so it carries what was just built.
 $script:NodeArgs = @('--dev', '--repo-root', $RepoRoot)
+$script:PrivateSupervisor = $null
 if ($PrivateCopy) {
-    Write-Host '  making a private copy of the build outputs'
-    $script:PrivateSupervisor = New-PrivateInstallRoot `
-        -RepoRoot $RepoRoot -Destination $PrivateCopy -Force:$Force -WithArrs
     $script:NodeArgs = @('--install-root', $PrivateCopy)
-} else {
-    $script:PrivateSupervisor = $null
 }
 
 $DataDir = Join-Path $WorkDir 'data'
+# The external qBittorrent's profile. Beside the work directory rather than inside it, so the
+# node-process sweep in Stop-Tools (which matches the work directory) never reaches it; it has its
+# own stop, by process id and profile path, in the finally block.
+$QbtProfile = Join-Path $RepoRoot '.local\e2e\qbt\m1'
 $SeedDir = Join-Path $WorkDir 'seed'
 $LogDir = Join-Path $WorkDir 'logs'
 New-Item -ItemType Directory -Force -Path $DataDir, $SeedDir, $LogDir | Out-Null
@@ -621,12 +626,23 @@ $IndexerPort = Invoke-Step 'Start the Torznab stub' {
     # Retry the first request rather than trusting one attempt: "ready" is the tool's word, and a
     # listener that has just come up can still refuse a connection for a moment.
     $caps = Wait-Until -What 'the Torznab stub to answer t=caps' -Seconds 30 -PollSeconds 1 -Condition {
-        try { Invoke-WebRequest -Uri "http://127.0.0.1:$port/api?t=caps" -UseBasicParsing -TimeoutSec 10 }
+        # -DisableKeepAlive: a pooled connection's local end can land on 8791 on a machine whose
+        # dynamic port range starts at 1024, and the gateway cannot bind while it sits there.
+        try { Invoke-WebRequest -Uri "http://127.0.0.1:$port/api?t=caps" -UseBasicParsing -TimeoutSec 10 -DisableKeepAlive }
         catch { $null }
     }
     if ($caps.Content -notmatch 'movie-search') { throw 'The Torznab stub did not answer t=caps correctly.' }
     Write-Host "      http://127.0.0.1:$port/api"
     return $port
+}
+
+# ============================================================================================
+$Qbt = Invoke-Step 'Start qBittorrent' {
+    # The download client, run the way a person runs theirs: a separate program the node is told
+    # about, not something the node starts. See Start-Qbittorrent for the profile it writes.
+    $qbt = Start-Qbittorrent -ProfileDir $QbtProfile
+    if (@(Get-QbittorrentTorrents).Count -ne 0) { throw 'a freshly wiped qBittorrent profile already holds torrents.' }
+    return $qbt
 }
 
 # ============================================================================================
@@ -655,13 +671,11 @@ expose_child_uis_in_dev = true
 [children]
 radarr = true
 sonarr = true
-nzbget = true
 
 [ports]
 jellyfin = 0
 radarr = 0
 sonarr = 0
-nzbget = 0
 # The mesh runs as a supervised child only when mesh/target/**/stingstream-mesh has been built.
 # The harness builds -p stingstream alone, so on CI there is usually no binary: the supervisor
 # logs that, marks the child disabled and the node is healthy without it. 0 rather than its
@@ -677,6 +691,20 @@ level = "debug"
 console = true
 "@
     Set-Content -Path (Join-Path $DataDir 'config.toml') -Value $config -Encoding utf8
+
+    if ($PrivateCopy) {
+        Write-Host '      syncing the private copy of the build outputs'
+        $script:PrivateSupervisor = New-PrivateInstallRoot `
+            -RepoRoot $RepoRoot -Destination $PrivateCopy -Force:$Force -WithArrs
+        # An installed node serves <install>/web, not apps/stingstream/dist (main.rs,
+        # resolve_web_dist), and New-PrivateInstallRoot copies no web bundle. Without this the
+        # node serves its placeholder and the node-marker step fails for want of a page.
+        $webSource = Join-Path $RepoRoot 'apps/stingstream/dist'
+        if (Test-Path (Join-Path $webSource 'index.html')) {
+            $r = Copy-TreeDelta -Source $webSource -Destination (Join-Path $PrivateCopy 'web')
+            Write-Host "      web bundle: $($r.Copied) file(s) copied"
+        }
+    }
 
     $exe = if ($script:PrivateSupervisor) {
         $script:PrivateSupervisor
@@ -863,9 +891,12 @@ Invoke-Step 'Authenticate to Jellyfin' {
 # ============================================================================================
 Invoke-Step 'StingStream API is reachable' {
     $status = Invoke-StingStream '/stingstream/api/v1/status'
-    if (-not $status.torrents.running) { throw 'The torrent engine is not running.' }
-    Write-Host "      torrent engine at $($status.torrents.root)"
-    Write-Host "      categories: $(($status.torrents.categories.PSObject.Properties | ForEach-Object { $_.Name }) -join ', ')"
+    if (-not (Get-Member-Value $status 'nodeId')) { throw '/status answered without a node id.' }
+    # The built-in engine is gone (169a8d9), and so is its block in the status document. A node
+    # still reporting one is running a Core from before that commit.
+    if ($null -ne (Get-Member-Value $status 'torrents')) { throw '/status still reports a built-in torrent engine.' }
+    $children = @((Get-Member-Value $status 'children').PSObject.Properties | ForEach-Object { $_.Name })
+    Write-Host "      node $($status.nodeId), children: $($children -join ', ')"
 
     $spec = Invoke-WebRequest -Uri "$script:GatewayUrl/stingstream/api/v1/openapi.json" -UseBasicParsing -Headers (Get-AuthHeaders) -TimeoutSec 30
     $doc = $spec.Content | ConvertFrom-Json
@@ -932,6 +963,44 @@ Invoke-Step 'Add the indexer and sync' {
 }
 
 # ============================================================================================
+Invoke-Step 'Add qBittorrent as the download client' {
+    # After the indexer, deliberately: the arrs are stopped until an indexer covers them, and the
+    # client's Test is the arrs' own test, which answers 409 until one of them is running.
+    $body = New-QbittorrentClientSettings
+
+    # Both arrs have to be answering for the test to mean anything, and for the sync below to
+    # land in both. They start once the indexer above exists; give them the time that takes.
+    Wait-Until -What 'both arrs to answer' -Seconds 300 -PollSeconds 3 -Condition {
+        $a = try { Invoke-StingStream '/stingstream/api/v1/status/arrs' -TimeoutSec 20 } catch { $null }
+        return $a -and (Get-Member-Value $a 'radarr') -and (Get-Member-Value $a 'sonarr')
+    } -Describe {
+        $a = try { Invoke-StingStream '/stingstream/api/v1/status/arrs' -TimeoutSec 20 } catch { $null }
+        if ($a) { ($a.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ' ' } else { 'no answer yet' }
+    } | Out-Null
+
+    $test = Invoke-StingStream '/stingstream/api/v1/settings/downloadclients/test' -Method POST -Body $body -TimeoutSec 120
+    foreach ($p in @($test.apps.PSObject.Properties)) {
+        Write-Host "      test in $($p.Name): $(if ($p.Value.ok) { 'ok' } else { "FAILED -- $($p.Value.message)" })"
+        if (-not $p.Value.ok) { throw "the $($p.Name) test of the qBittorrent client failed: $($p.Value.message)" }
+    }
+    if (@($test.apps.PSObject.Properties).Count -lt 2) { throw 'the download client test did not run in both arrs.' }
+
+    $client = Invoke-StingStream '/stingstream/api/v1/settings/downloadclients?sync=true' -Method POST -Body $body -TimeoutSec 180
+    Write-Host "      download client $($client.id) -> $($client.host):$($client.port)"
+
+    $sync = Invoke-StingStream '/stingstream/api/v1/sync' -Method POST -TimeoutSec 180
+    foreach ($s in $sync) {
+        Write-Host "      $($s.app): $(if ($s.ok) { 'ok' } else { 'FAILED' }) -- $($s.message)"
+        if (-not $s.ok) { throw "Omniarr sync into $($s.app) failed: $($s.message)" }
+    }
+
+    $stored = @(Invoke-StingStream '/stingstream/api/v1/settings/downloadclients' | ForEach-Object { $_ })
+    if (@($stored | Where-Object { $_.name -eq $body.name }).Count -ne 1) { throw 'the download client is not in settings after adding it.' }
+    $health = Invoke-StingStream '/stingstream/api/v1/status/indexers'
+    if ($health.downloadClients -lt 1) { throw "/status/indexers counts $($health.downloadClients) enabled download client(s)." }
+}
+
+# ============================================================================================
 Invoke-Step 'Add the movie' {
     $movie = Invoke-StingStream '/stingstream/api/v1/movies' -Method POST -Body @{
         tmdbId      = $MovieTmdbId
@@ -944,16 +1013,47 @@ Invoke-Step 'Add the movie' {
 
 # ============================================================================================
 Invoke-Step 'Movie: grabbed and downloading' {
-    Wait-Until -What 'the movie to appear in the torrent engine' -Seconds 300 -PollSeconds 3 -Condition {
-        $status = try { Invoke-StingStream '/stingstream/api/v1/status' -TimeoutSec 20 } catch { $null }
-        return $status -and $status.torrents.count -ge 1
+    # The client's own word that Radarr handed it the release, in Radarr's category. Polled fast:
+    # the file is small and the seeder is on loopback, so the whole transfer takes seconds.
+    $torrent = Wait-Until -What 'the movie to reach qBittorrent' -Seconds 300 -PollSeconds 2 -Condition {
+        $all = try { Get-QbittorrentTorrents } catch { @() }
+        return ($all | Where-Object { $_.name -like "$MovieRelease*" } | Select-Object -First 1)
     } -Describe {
         $q = try { Invoke-StingStream '/stingstream/api/v1/queue' -TimeoutSec 20 } catch { $null }
         $items = Get-Member-Value $q 'radarr'
         if ($items) { "radarr queue: $(@($items).Count) item(s)" } else { 'waiting for a grab' }
-    } | Out-Null
-    $status = Invoke-StingStream '/stingstream/api/v1/status'
-    Write-Host "      torrents in the engine: $($status.torrents.count)"
+    }
+    Write-Host "      qBittorrent: $($torrent.name) [$($torrent.category)] $($torrent.state)"
+    if ($torrent.category -ne 'radarr') { throw "the movie landed in qBittorrent under category '$($torrent.category)', not 'radarr'." }
+
+    # And the node's own Downloads list, which is now built only from the arrs' queues. It is
+    # waited for together with the transfer finishing, because on loopback the download can be
+    # over -- and imported, and gone from the queue -- before the first poll lands.
+    # A hashtable, because the condition runs in Wait-Until's child scope and a plain assignment
+    # there would never reach this one.
+    $track = @{ Seen = $null }
+    $done = Wait-Until -What 'qBittorrent to finish the movie' -Seconds 300 -PollSeconds 2 -Condition {
+        $d = try { Invoke-StingStream '/stingstream/api/v1/downloads' -TimeoutSec 20 } catch { $null }
+        $row = @(@(Get-Member-Value $d 'items') | Where-Object { $_ -and (Get-Member-Value $_ 'engine') -eq 'radarr' }) | Select-Object -First 1
+        if ($row -and -not $track.Seen) { $track.Seen = $row }
+        $t = @(Get-QbittorrentTorrents | Where-Object { $_.hash -eq $torrent.hash }) | Select-Object -First 1
+        if ($t -and $t.progress -ge 1) { return $t }
+        return $null
+    } -Describe {
+        $t = @(Get-QbittorrentTorrents | Where-Object { $_.hash -eq $torrent.hash }) | Select-Object -First 1
+        if ($t) { "{0} {1:P0} seeds={2}" -f $t.state, $t.progress, $t.num_seeds } else { 'the torrent is gone from qBittorrent' }
+    }
+    Write-Host "      qBittorrent finished it: $($done.content_path)"
+    if ($track.Seen) {
+        Write-Host "      Downloads list showed it: $($track.Seen.title) ($($track.Seen.state))"
+    } else {
+        Write-Host '      the transfer finished before the Downloads list caught it in the queue' -ForegroundColor DarkGray
+    }
+    $d = Invoke-StingStream '/stingstream/api/v1/downloads' -TimeoutSec 30
+    $engines = Get-Member-Value $d 'engines'
+    if ((Get-Member-Value $engines 'radarr') -ne 'ok') {
+        throw "GET /downloads could not read the movie queue: $((Get-Member-Value $engines 'radarr'))"
+    }
 }
 
 # ============================================================================================
@@ -969,9 +1069,10 @@ $MovieItem = Invoke-Step 'Movie: imported into Jellyfin' {
         $q = try { Invoke-StingStream '/stingstream/api/v1/queue' -TimeoutSec 20 } catch { $null }
         $qi = Get-Member-Value $q 'radarr'
         if ($qi) { $parts += "queue=$(@($qi).Count)" }
+        $t = try { @(Get-QbittorrentTorrents) } catch { @() }
+        $parts += "qbittorrent=$($t.Count)"
         $st = try { Invoke-StingStream '/stingstream/api/v1/status' -TimeoutSec 20 } catch { $null }
         if ($st) {
-            $parts += "torrents=$($st.torrents.count)"
             $parts += "events=$((@($st.recentArrEvents) | ForEach-Object { $_.eventType }) -join ',')"
         }
         $parts -join '  '
@@ -1227,7 +1328,7 @@ Invoke-Step 'Add the series' {
 }
 
 $EpisodeItem = Invoke-Step 'Series: episode imported into Jellyfin' {
-    Wait-Until -What 'the episode to appear in Jellyfin' -Seconds 600 -PollSeconds 5 -Condition {
+    $item = Wait-Until -What 'the episode to appear in Jellyfin' -Seconds 600 -PollSeconds 5 -Condition {
         $items = try {
             Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Items?IncludeItemTypes=Episode&Recursive=true&Fields=Path&userId=$script:JellyfinUserId" -Headers (Get-AuthHeaders) -TimeoutSec 30
         } catch { $null }
@@ -1238,13 +1339,23 @@ $EpisodeItem = Invoke-Step 'Series: episode imported into Jellyfin' {
         $q = try { Invoke-StingStream '/stingstream/api/v1/queue' -TimeoutSec 20 } catch { $null }
         $qi = Get-Member-Value $q 'sonarr'
         if ($qi) { $parts += "queue=$(@($qi).Count)" }
+        $t = try { @(Get-QbittorrentTorrents) } catch { @() }
+        $ep = @($t | Where-Object { $_.category -eq 'sonarr' }) | Select-Object -First 1
+        $parts += if ($ep) { "qbittorrent: episode {0} {1:P0}" -f $ep.state, $ep.progress } else { "qbittorrent=$($t.Count)" }
         $st = try { Invoke-StingStream '/stingstream/api/v1/status' -TimeoutSec 20 } catch { $null }
         if ($st) {
-            $parts += "torrents=$($st.torrents.count)"
             $parts += "events=$((@($st.recentArrEvents) | ForEach-Object { $_.eventType }) -join ',')"
         }
         $parts -join '  '
     }
+
+    # It came through the external client, in Sonarr's category, and all of it arrived.
+    $ep = @(Get-QbittorrentTorrents | Where-Object { $_.name -like "$EpisodeRelease*" }) | Select-Object -First 1
+    if (-not $ep) { throw 'the episode was imported, but qBittorrent never held its torrent.' }
+    if ($ep.category -ne 'sonarr') { throw "the episode landed in qBittorrent under category '$($ep.category)', not 'sonarr'." }
+    if ($ep.progress -lt 1) { throw "the episode was imported while qBittorrent reports it $([math]::Round($ep.progress * 100))% done." }
+    Write-Host "      qBittorrent: $($ep.name) [$($ep.category)] $($ep.state)"
+    return $item
 }
 
 Invoke-Step 'Series: episode streams from Jellyfin' {
@@ -1322,8 +1433,26 @@ Invoke-Step 'Restart: everything comes back' {
     Write-Host "      items still present: $($names -join ', ')"
     if ($names.Count -lt 2) { throw "Expected the movie and the episode to survive the restart; found $($names.Count) item(s)." }
 
-    $status = Invoke-StingStream '/stingstream/api/v1/status'
-    Write-Host "      torrents restored: $($status.torrents.count)"
+    # The Downloads list is the arrs' queues now, so after a restart it answers only once both are
+    # back. Healthy is the supervisor's word; the API answering is a moment later, so it is waited
+    # for rather than read once.
+    $downloads = Wait-Until -What 'GET /downloads to read both queues after the restart' -Seconds 180 -PollSeconds 3 -Condition {
+        $d = try { Invoke-StingStream '/stingstream/api/v1/downloads' -TimeoutSec 60 } catch { $null }
+        $e = Get-Member-Value $d 'engines'
+        if ((Get-Member-Value $e 'radarr') -eq 'ok' -and (Get-Member-Value $e 'sonarr') -eq 'ok') { return $d }
+        return $null
+    } -Describe {
+        $d = try { Invoke-StingStream '/stingstream/api/v1/downloads' -TimeoutSec 60 } catch { $null }
+        $e = Get-Member-Value $d 'engines'
+        if ($e) { (@($e.PSObject.Properties) | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ' ' } else { 'no answer yet' }
+    }
+    $engines = Get-Member-Value $downloads 'engines'
+    $states = @($engines.PSObject.Properties | ForEach-Object { "$($_.Name)=$($_.Value)" })
+    Write-Host "      downloads list after restart: $(@(Get-Member-Value $downloads 'items').Count) item(s); $($states -join ' ')"
+    foreach ($app in 'radarr', 'sonarr') {
+        if ((Get-Member-Value $engines $app) -ne 'ok') { throw "after the restart GET /downloads could not read $app's queue: $(Get-Member-Value $engines $app)" }
+    }
+    Write-Host "      qBittorrent still holds $(@(Get-QbittorrentTorrents).Count) torrent(s)"
 }
 
 Invoke-Step 'Switching a library off keeps its files' {
@@ -1405,7 +1534,7 @@ Invoke-Step 'Switching a library off keeps its files' {
     $config = Get-Content -Path $configPath -Raw
     if ($config -notmatch '(?m)^\s*radarr\s*=\s*false\s*$') {
         $children = ($config -split "`r?`n" |
-            Where-Object { $_ -match '^\s*(\[|radarr|sonarr|nzbget)' }) -join ' | '
+            Where-Object { $_ -match '^\s*(\[|radarr|sonarr)' }) -join ' | '
         throw ("Switching the Movies library off did not write radarr = false into $configPath. " +
                "It holds: $children")
     }
@@ -1464,6 +1593,7 @@ Invoke-Step 'Switching a library off keeps its files' {
     } else {
         Write-Head 'Cleanup'
         Stop-Tools
+        Stop-Qbittorrent
     }
 }
 

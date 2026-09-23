@@ -34,7 +34,6 @@ yarn-error.log*
 .e2e-work/
 
 # === Vendored binaries fetched at build time, not committed ===
-third_party/nzbget/bin/
 # cloudflared, fetched by third_party/cloudflared/fetch-cloudflared.ps1 so a node can run
 # its own Cloudflare Tunnel (Settings -> Domains).
 third_party/cloudflared/bin/

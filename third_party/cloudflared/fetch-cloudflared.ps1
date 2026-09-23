@@ -5,17 +5,17 @@
     commands by hand. third_party/cloudflared/bin/ is gitignored.
 
 .DESCRIPTION
-    Far shorter than fetch-nzbget.ps1 beside it, and for a good reason: cloudflared's release
-    assets are plain executables, not installers. There is nothing to unpack, nothing to keep out
-    of the registry, and no payload to go hunting for -- the download IS the binary. macOS is the
-    one exception and ships a .tgz.
+    Deliberately simple: cloudflared's release assets are plain executables, not installers.
+    There is nothing to unpack, nothing to keep out of the registry, and no payload to go hunting
+    for -- the download IS the binary. macOS is the one exception and ships a .tgz.
 
     The result is found at runtime by `childdef::find_cloudflared`, which also falls back to
     whatever is on PATH -- so somebody who already has cloudflared from Homebrew, winget or their
     distribution does not need this script at all.
 
-    cloudflared is Apache-2.0. It is fetched rather than vendored for the same reason NZBGet is:
-    it is a Go program with prebuilt releases, not something StingStream patches.
+    cloudflared is Apache-2.0. It is fetched rather than vendored because it is a Go program with
+    prebuilt releases, not something StingStream patches -- the same reasoning
+    third_party/ffmpeg/fetch-jellyfin-ffmpeg.ps1 beside it follows for jellyfin-ffmpeg.
 
 .PARAMETER Platform
     Which platform's binary to fetch: win64, linux-x64, macos, or `current` (the default, detected
@@ -30,7 +30,7 @@
 .PARAMETER Tag
     Pin a release tag instead of taking the latest. Pairs with -PrintVersionOnly so a CI cache-key
     step and the fetch itself agree on one release even if "latest" moves between the two calls --
-    the same reasoning as fetch-nzbget.ps1's own -Tag.
+    the same reasoning as fetch-jellyfin-ffmpeg.ps1's own -Tag.
 
 .PARAMETER PrintVersionOnly
     Resolve the release and print its tag, then exit without downloading. Writes `tag=<value>` to
@@ -60,9 +60,8 @@ $ErrorActionPreference = 'Stop'
 $Repo = 'cloudflare/cloudflared'
 
 # Platform key -> the exact asset name in a cloudflared release, and what it lands as on disk.
-# Exact rather than a loose substring match (which is what fetch-nzbget.ps1 needs): cloudflared's
-# asset names are stable and unambiguous, and a loose match here would happily pick
-# `cloudflared-linux-arm64` for an x64 host.
+# Exact rather than a loose substring match: cloudflared's asset names are stable and unambiguous,
+# and a loose match here would happily pick `cloudflared-linux-arm64` for an x64 host.
 $PlatformAssets = [ordered]@{
     'win64'     = @{ Asset = 'cloudflared-windows-amd64.exe'; Binary = 'cloudflared.exe' }
     'linux-x64' = @{ Asset = 'cloudflared-linux-amd64';       Binary = 'cloudflared' }

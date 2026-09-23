@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=StingStream
-Comment=One self-hosted media server: Jellyfin, Radarr, Sonarr and NZBGet behind a single login
+Comment=One self-hosted media server: Jellyfin, Radarr and Sonarr behind a single login
 Exec=AppRun
 Icon=stingstream
 Categories=AudioVideo;Video;Network;

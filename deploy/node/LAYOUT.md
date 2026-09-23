@@ -15,7 +15,6 @@ delivery mechanisms.
 │  ├─ jellyfin/                  self-contained `dotnet publish` of Jellyfin.Server (+ StingStream.Core)
 │  ├─ radarr/                    self-contained publish of NzbDrone.Console (Radarr.Console)
 │  ├─ sonarr/                    self-contained publish of NzbDrone.Console (Sonarr.Console)
-│  ├─ nzbget/                    the fetched nzbgetcom binary and its webui/, unpacked
 │  └─ ffmpeg/                    the fetched jellyfin-ffmpeg binaries (ffmpeg, ffprobe)
 ├─ web/                          `bun run build:web`'s output (apps/stingstream/dist), served at /
 ├─ LICENSE                       StingStream's own (GPL-3.0-or-later)
@@ -39,7 +38,6 @@ Every one of these paths is load-bearing in
 | `bin/jellyfin/` | `resolve_prod_dotnet(install_root, "jellyfin")` | exact: `bin/jellyfin/{jellyfin.exe\|jellyfin.dll}` |
 | `bin/radarr/` | `resolve_prod_dotnet(install_root, "radarr")` | exact: `bin/radarr/{Radarr.Console\|Radarr}{.exe,.dll}` |
 | `bin/sonarr/` | `resolve_prod_dotnet(install_root, "sonarr")` | exact: `bin/sonarr/{Sonarr.Console\|Sonarr}{.exe,.dll}` |
-| `bin/nzbget/` | `find_nzbget(_, install_root)` | shallow search, depth 3 (nzbget's own installer nests it) |
 | `bin/ffmpeg/` | `find_ffmpeg(_, install_root)` | shallow search, depth 3 (jellyfin-ffmpeg ships `ffmpeg`/`ffprobe` at the top of its archive, but the search tolerates a nested layout too) |
 | `bin/mesh/stingstream-mesh(.exe)` | `find_mesh_binary(_, install_root)` | exact: `bin/mesh/stingstream-mesh{.exe,}` |
 | `web/` | `resolve_web_dist` (the default when neither `--web-dist` nor `gateway.web_dist` is set) | exact |
@@ -70,23 +68,15 @@ children's own subdirectories.
 
 `tools/package-node.ps1 -Rid win-x64` / `tools/package-node.sh --rid linux-x64` (etc.) produce one
 `dist/node/<rid>/` tree per target. RIDs follow .NET's own naming, which the Rust build's own target
-triples and the fetch scripts' platform tokens are each mapped to:
+triples and the fetch script's platform tokens are each mapped to:
 
-| RID | Rust target triple | jellyfin-ffmpeg platform | nzbget platform | Built/verified where |
-|---|---|---|---|---|
-| `win-x64` | `x86_64-pc-windows-msvc` | `win64` | `win64` | Locally (Dan's machine) + not in CI |
-| `linux-x64` | `x86_64-unknown-linux-gnu` | `linux64` | `linux-x64` | CI (ubuntu-latest) |
-| `linux-arm64` | `aarch64-unknown-linux-gnu` | `linuxarm64` | *(none published upstream — see below)* | CI, best-effort |
-| `osx-x64` | `x86_64-apple-darwin` | `macos` | `macos` | Tree produced, unsigned, **unverified** (no Mac available) |
-| `osx-arm64` | `aarch64-apple-darwin` | `macos` | `macos` | Tree produced, unsigned, **unverified** (no Mac available) |
-
-**`linux-arm64` has no nzbget binary.** `third_party/nzbget/fetch-nzbget.ps1`'s `$PlatformPatterns`
-only knows `win64`, `linux-x64` and `macos` — nzbgetcom does not publish an arm64 release asset as of
-this writing. `package-node.sh --rid linux-arm64` produces a tree with `bin/nzbget/` absent and a
-warning; the supervisor's own `find_nzbget` already treats a missing binary as "not started" rather
-than a hard failure (`build_children` in `supervisor/mod.rs`), so the node still comes up with
-Jellyfin, Radarr and Sonarr and NZBGet reporting `Disabled`. Fixing this needs either an upstream
-release or building nzbget from source for arm64, neither of which is in scope here.
+| RID | Rust target triple | jellyfin-ffmpeg platform | Built/verified where |
+|---|---|---|---|
+| `win-x64` | `x86_64-pc-windows-msvc` | `win64` | Locally (Dan's machine) + not in CI |
+| `linux-x64` | `x86_64-unknown-linux-gnu` | `linux64` | CI (ubuntu-latest) |
+| `linux-arm64` | `aarch64-unknown-linux-gnu` | `linuxarm64` | CI, best-effort |
+| `osx-x64` | `x86_64-apple-darwin` | `macos` | Tree produced, unsigned, **unverified** (no Mac available) |
+| `osx-arm64` | `aarch64-apple-darwin` | `macos` | Tree produced, unsigned, **unverified** (no Mac available) |
 
 Cross-RID note: everything here can be *produced* from a single Windows host — `dotnet publish -r
 <rid>` cross-compiles .NET output for any RID, and `cargo build --target <triple>` cross-compiles

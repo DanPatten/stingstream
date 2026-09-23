@@ -16,8 +16,9 @@ namespace StingStream.Tools.Seeder;
 /// it takes a file, builds a <c>.torrent</c> announcing to a tracker it runs itself, and seeds it.
 ///
 /// Deliberately not a library or a test fixture -- the point of the acceptance harness is that
-/// nothing in the download path is mocked. The engine inside <c>StingStream.Core</c> talks to this
-/// over TCP exactly as it would to any other peer.
+/// nothing in the download path is mocked. The external qBittorrent the harnesses register as the
+/// node's download client talks to this over TCP exactly as it would to any other peer: the
+/// tracker and the peer both listen on 127.0.0.1, and the tracker hands out 127.0.0.1:port.
 /// </remarks>
 public static class Program
 {
@@ -142,6 +143,23 @@ public static class Program
             }.ToSettings()).ConfigureAwait(false);
 
         await manager.StartAsync().ConfigureAwait(false);
+
+        // StartAsync returns while the engine is still hash-checking the data, and a peer that
+        // connects then is turned away. MonoTorrent-to-MonoTorrent never noticed, but a real client
+        // (the harnesses download through an external qBittorrent now) treats that as a failed peer
+        // and backs off for a minute or more before trying again. So "ready" means seeding.
+        var hashDeadline = DateTime.UtcNow.AddMinutes(5);
+        while (manager.State != TorrentState.Seeding)
+        {
+            if (manager.State == TorrentState.Error || DateTime.UtcNow > hashDeadline)
+            {
+                Console.Error.WriteLine($"seeder: never reached Seeding (state {manager.State}).");
+                return 1;
+            }
+
+            await Task.Delay(200).ConfigureAwait(false);
+        }
+
         Console.WriteLine($"seeding from: {seedRoot}");
         Console.WriteLine("ready");
         // The harness waits for this line before it starts the download, so the tool must not

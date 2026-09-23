@@ -438,8 +438,10 @@ supported.
 
 ### Upstream forks
 
-Jellyfin, Radarr, Sonarr, NZBGet and Streamyfin are vendored as git subtrees and pulled **monthly**
-(`tools/upstream-pull.ps1`). Every patch we carry is listed in `PATCHES.md`, with the reason, so a
+Jellyfin, Radarr, Sonarr, InfiniDysk, Streamyfin and Jellyswarrm are vendored as git subtrees and
+pulled **monthly** (`tools/upstream-pull.ps1`). NZBGet was never one of these — it was a prebuilt
+binary fetched on demand, not vendored source, and StingStream stopped fetching or bundling it at
+all on 2026-09-23. Every patch we carry is listed in `PATCHES.md`, with the reason, so a
 pull that conflicts has somewhere to look. A pull is never part of a release branch: pull, fix,
 land, then cut.
 
@@ -585,3 +587,41 @@ access log — the node's or any proxy's in between.
 
 The Join screen accepts a link or a code in the field, from the clipboard and from the QR scanner,
 so nobody has to know which they were sent.
+
+### 2026-09-23: external download clients only
+
+StingStream stopped running a download client of its own. Deleted outright: the in-process
+MonoTorrent BitTorrent engine, its qBittorrent-compatible API shim, and the supervisor-run bundled
+NZBGet child. If you never touched Settings → Download clients, or if you already had your own
+external client registered alongside the built-in ones, there is nothing for you to do — read on
+only to understand what changed under you.
+
+**Add your own.** Point Radarr and Sonarr at a download client you already run — qBittorrent,
+Transmission, Deluge, rTorrent, SABnzbd or NZBGet — under Settings → Indexers & engines. It is
+registered into both arr cores the same way an indexer is, editable and deletable the same way too.
+A node with an indexer but no download client now says so on the Requests screen, where it used to
+be silently able to grab into the client StingStream ran itself.
+
+**Old registrations are cleaned up automatically.** An upgrading node does not just stop offering
+the built-in clients, it removes its own old qBittorrent and NZBGet registrations from both arrs on
+its own, matched by where they pointed (the shim's old loopback address, the bundled NZBGet's old
+loopback address) — so a node that grabs nothing after upgrading, because nobody has added a
+replacement client yet, is not the same failure as a node still trying to hand releases to a client
+that no longer exists. Both matter, and only the second one is handled for you the moment the node's
+next sync runs (usually within seconds of starting; `SyncRetryWorker` retries automatically if that
+sync fails).
+
+**If you relied on the embedded torrent engine's DHT setting, or its default "just works" usenet
+setup with no news server configured,** neither exists to configure any more — those were properties
+of the engine that is gone, not settings that moved somewhere else. A DHT toggle, if you want
+BitTorrent DHT discovery, is now your external client's own setting, entirely outside StingStream.
+
+**`runtime.json`'s `qbittorrent` block is not a sign anything is still wrong.** It looks like a
+leftover of the shim, and by name it is, but it now holds this node's own secret — the stream-URL
+signing key and the arr webhook token both derive from it — carried forward under its old name so
+regenerating it does not break every signed stream URL and every arr webhook delivery on the node.
+Nothing answers at its `url_base` any more. See `ARCHITECTURE.md` ("Decisions locked in with Dan"
+and M9) and `SECURITY.md` §5 for the detail.
+
+No protocol bump and no `mesh.db` migration: this is entirely inside `StingStream.Core`, the
+supervisor's own list of children, and the app's settings screens.

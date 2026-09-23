@@ -42,8 +42,10 @@ vendor: StingStream
 homepage: https://github.com/DanPatten/stingstream
 license: GPL-3.0-or-later
 description: |
-  One self-hosted media server: Jellyfin, Radarr, Sonarr and NZBGet behind a single install,
-  a single login, and a mesh that shares your group's libraries and downloads automatically.
+  One self-hosted media server: Jellyfin, Radarr and Sonarr behind a single install, a single
+  login, and a mesh that shares your group's libraries and downloads automatically. Connect it
+  to a download client you already run (qBittorrent, NZBGet, Transmission, and others) from
+  inside the app.
   .
   Installs to /opt/stingstream, runs as the "stingstream" system user under systemd, and listens
   on http://localhost:8790 once the stingstream.service unit starts.
@@ -63,10 +65,6 @@ depends:
   - "libicu72 | libicu74 | libicu76 | libicu73 | libicu71 | libicu70"
   - libfontconfig1
   - libfreetype6
-recommends:
-  # NZBGet's own bundled 7za/unrar cover most archives; a system unrar handles the rest for RAR5
-  # archives that need the non-free unrar rather than unrar-free.
-  - p7zip-full
 
 contents:
   - src: dist/node/${STINGSTREAM_RID}/bin

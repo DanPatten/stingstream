@@ -310,9 +310,9 @@ feature with no endpoint — there is simply no such feature on these screens an
 | Requests → Find | **search-as-you-type add** (`/requests/search` over `/movies/lookup`, `/series/lookup`), with **add-by-id** kept as an escape hatch behind the no-match empty state: it resolves `tmdb:550` to a title and files an ordinary request |
 | Requests → My requests, Approvals, Wanted | a **filter bar** over each list (`RequestListFilterBar`): Status, Type and Sort by on My requests; Type, Requested by and Sort by on Approvals and Wanted. A set chip reads its value ("Status: Waiting"), Clear resets it, and the filters are the route's `?status=`, `?type=`, `?by=`, `?sort=` |
 | Requests → Activity | Queue (both apps), **History** merged and paged, and **Upcoming** — the merged calendar grouped by day, week/month window |
-| Downloads | aggregate engine health, and the **unified per-item list** across the torrent engine, NZBGet and both arr queues, with per-item progress and pause / resume / remove |
+| Downloads | the **unified per-item list** across both arrs' queues, with per-item progress and remove, routed through the owning arr (no pause/resume: the arrs have no API for it) |
 | Server settings → Indexers | full CRUD, and a **connectivity test** run against every app the indexer applies to |
-| Server settings → Download clients | embedded-engine toggles, DHT, categories, housekeeping, and **your own external clients** — add, test, remove, pushed into both arrs |
+| Server settings → Download clients | **your own external clients** (qBittorrent, Transmission, Deluge, rTorrent, SABnzbd, NZBGet) — add, edit, test, remove, pushed into both arrs; StingStream runs none of its own |
 | Server settings → Quality profiles | the default-profile-name field, and **full CRUD across both apps**: create, edit qualities and cutoff, delete |
 | Server settings → Naming / Notifications (incl. extra webhooks) | full CRUD |
 | Settings → Libraries (`/settings/libraries`; `/settings/storage` redirects) | a **list of every library** (name, type icon, Off when switched off; no folders, those are on the library's own page), **Add library** (Movies, TV shows or Other videos, each chip with its icon; Other videos is the media server's `homevideos` type, with no manager and no federation; Recordings is no longer offered, though a node that has it keeps it and the API still accepts the type; a name and one or more folders picked with **Browse**, the media server's own `/Environment` listing), and a **scan** for the whole server. Each row opens `settings/libraries/[id]` (`LibraryDetailScreen`): the **switch that runs it**, its **folders** (each with an × to remove; Recordings keeps one) and **Add folder**, which opens `FolderBrowserDialog`: laid out as Plex's Add Folder: an editable path field the list follows as you type (type-ahead on the last segment), a sidebar with the node's media folder (`GET /libraries/MediaFolder`, labelled Media, never the service account's home) and one entry per drive (`/` on Unix), chips above the list at phone width, and the subfolders on the right; the list's first row is Back, shown only when there is somewhere to go back to: up one level per press, stopping at the sidebar entry the path is under. It opens on the library's first folder, or Media when there is none; **Add** adds the folder in the field (creating it if it does not exist yet) and a refusal, naming the folder and library it collides with, stays in the dialog under the field, and a "..." with Scan library files, Grant access and, for anything but Movies and TV Shows, Delete. `POST`/`PUT`/`DELETE /libraries` write the settings rows and `config.toml` together, and `LibraryLayoutService` adds or withdraws the media server's library without touching disk. Adding or removing a folder (or a library) also queues a scan of the whole server through `LibraryScanQueue`, behind any scan already running rather than in place of it, so a new folder fills without anyone pressing scan and the request does not wait for it; a folder the library holds that has files but that no scan has taken in yet is scanned on the next reconcile, which repairs a node that took one before this. A switch-only `PUT` saves the boolean and answers at once; `LibraryApplyQueue` reconciles `config.toml` and the layout afterwards, one pass at a time, and the app lays unanswered edits over every refetch (`lib/stingstream/libraryEdits.ts`) so the switch never jumps back While a scan runs (the whole-server task on `/ScheduledTasks`, or one library's refresh on `/Library/VirtualFolders`), a row's value is its progress ("Scanning, 42%", or "Waiting to scan") and the library's page shows the same line over a bar, and the home page and each library page float a "Scanning Movies, 42%" pill at the bottom (`components/library/ScanStatus.tsx` over `hooks/useScanStatus.ts`) while refetching their lists every 6 s, so movies and then their posters appear as the scan finds them rather than when it ends; administrators only, as both endpoints are. A poster still on its way pulses; the type's glyph on a flat tile means there is no poster. Posters are requested at the card's width times the screen's pixel ratio (capped at 2), rounded up to a short ladder (`serverPosterWidth`, `POSTER_REQUEST_WIDTHS`), so every screen and window width shares a few server-side resizes, and lazily on web. |
@@ -485,7 +485,7 @@ workaround.
 **Confirmed working layout** (verified against `mesh/crates/stingstream/src/supervisor/childdef.rs`
 and by actually running a node this way during M2's own verification — `resolve_prod_dotnet` looks
 for a child's entry point *directly* inside `<install>/bin/<child>/`, not one directory level
-deeper, and `Mode::Prod` has no repo-root fallback at all, so ffmpeg/nzbget need copying too, not
+deeper, and `Mode::Prod` has no repo-root fallback at all, so ffmpeg needs copying too, not
 just jellyfin/radarr/sonarr):
 
 ```powershell
@@ -493,7 +493,7 @@ just jellyfin/radarr/sonarr):
 $bin = "E:\Dan\Documents\Repos\StingStream\.local\scratch\stingstream-m2-bin"
 New-Item -ItemType Directory -Force `
   "$bin\bin\jellyfin", "$bin\bin\radarr", "$bin\bin\sonarr", `
-  "$bin\bin\ffmpeg\win64", "$bin\bin\nzbget\win64", "$bin\bin\mesh" | Out-Null
+  "$bin\bin\ffmpeg\win64", "$bin\bin\mesh" | Out-Null
 
 Copy-Item "mesh\target\debug\stingstream.exe" "$bin\stingstream.exe" -Force
 # Optional: only read if [mesh] embedded = false is set. Default is embedded (M3b), so a node
@@ -504,7 +504,6 @@ Copy-Item "server\jellyfin\Jellyfin.Server\bin\Debug\net10.0\*" "$bin\bin\jellyf
 Copy-Item "server\radarr\_output\net8.0\*" "$bin\bin\radarr\" -Recurse -Force
 Copy-Item "server\sonarr\_output\net10.0\*" "$bin\bin\sonarr\" -Recurse -Force
 Copy-Item "third_party\ffmpeg\bin\win64\*" "$bin\bin\ffmpeg\win64\" -Recurse -Force
-Copy-Item "third_party\nzbget\bin\win64\*" "$bin\bin\nzbget\win64\" -Recurse -Force
 
 # Run from the copy — no locks on anything under mesh/ or server/. --web-dist is needed here
 # because the "look in apps/stingstream/dist automatically" default only applies in --dev; Prod

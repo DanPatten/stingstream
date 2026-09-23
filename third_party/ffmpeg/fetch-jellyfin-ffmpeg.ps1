@@ -6,8 +6,8 @@
     Jellyfin needs an ffmpeg build with the codecs and hardware-acceleration paths it expects, and
     upstream ships exactly that as `jellyfin-ffmpeg`. It is NOT vendored as a git subtree (it is a
     huge C project with prebuilt release binaries, not something StingStream patches) -- this
-    script fetches those binaries on demand, the same way third_party/nzbget/fetch-nzbget.ps1
-    does. third_party/ffmpeg/bin/ is gitignored.
+    script fetches those binaries on demand, the same way third_party/cloudflared/fetch-cloudflared.ps1
+    does for cloudflared. third_party/ffmpeg/bin/ is gitignored.
 
     The StingStream supervisor discovers the result automatically (see
     mesh/crates/stingstream/src/supervisor/childdef.rs `find_ffmpeg`) and passes it to Jellyfin as

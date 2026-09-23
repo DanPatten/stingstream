@@ -14,7 +14,9 @@
       1. Builds everything (skip with -SkipBuild).
       2. Generates a movie and an episode with the fetched jellyfin-ffmpeg, seeds them from a
          self-hosted BitTorrent tracker and serves them from a Torznab stub -- the M1 pipeline,
-         reused so node B's library is populated the way a real one would be.
+         reused so node B's library is populated the way a real one would be. B downloads through
+         an external qBittorrent (Start-Qbittorrent in e2e-common.ps1), registered as its
+         download client; StingStream has no download client of its own.
       3. Starts node B, waits for it to be healthy, and drives the movie and the episode all the
          way to an import.
       4. Starts node A, empty.
@@ -53,6 +55,11 @@
 .PARAMETER KeepData
     Do not wipe WorkDir on start.
 
+.PARAMETER PrivateCopy
+    Run both nodes out of a private copy of the build outputs (New-PrivateInstallRoot -WithArrs,
+    synced after the Build step) instead of out of the repository, so the run does not hold
+    mesh/target/debug and server/*/bin open. Pass it on a shared checkout (CONTRIBUTING rule 3).
+
 .PARAMETER TimeoutSeconds
     Budget for a single wait step.
 
@@ -72,6 +79,7 @@ param(
     [switch]$SkipBuild,
     [switch]$KeepRunning,
     [switch]$KeepData,
+    [string]$PrivateCopy,
     [int]$TimeoutSeconds = 600
 )
 
@@ -80,6 +88,11 @@ Set-StrictMode -Version Latest
 if ($PSVersionTable.PSVersion.Major -lt 6) {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 }
+
+# Dot-sourced first, for Start-Qbittorrent and its helpers only -- the same arrangement as
+# e2e-m1.ps1. This harness's own copies of Start-Tool, Wait-Until, Stop-Tools and the rest are
+# defined further down and, being later, shadow the shared ones.
+. "$PSScriptRoot/e2e-common.ps1"
 
 # --- constants ----------------------------------------------------------------------------
 
@@ -283,7 +296,6 @@ $script:OwnedExecutables = @(
     'jellyfin.exe', 'jellyfin',
     'Radarr.Console.exe', 'Radarr.Console',
     'Sonarr.Console.exe', 'Sonarr.Console',
-    'nzbget.exe', 'nzbget',
     'dotnet.exe', 'dotnet'
 )
 
@@ -605,7 +617,6 @@ embedded = true
 jellyfin = 0
 radarr = 0
 sonarr = 0
-nzbget = 0
 mesh = 0
 infinidysk = 0
 
@@ -630,8 +641,9 @@ snapshot_interval_secs = 60
 function Start-Node {
     param([Parameter(Mandatory)]$Node, [string]$Suffix = '')
     $name = "node-$($Node.Name)$Suffix"
-    $tool = Start-Tool -Name $name -FilePath $SupervisorExe -LogDir $LogDir -Arguments @(
-        '--dev', '--repo-root', $RepoRoot, '--data-dir', $Node.DataDir
+    $mode = if ($PrivateCopy) { @('--install-root', $PrivateCopy) } else { @('--dev', '--repo-root', $RepoRoot) }
+    $tool = Start-Tool -Name $name -FilePath $SupervisorExe -LogDir $LogDir -Arguments (
+        $mode + @('--data-dir', $Node.DataDir)
     )
     $Node.Tool = $tool
 
@@ -722,6 +734,10 @@ Invoke-Step 'Build' {
 }
 
 if (-not (Test-Path $SupervisorExe)) { throw "The supervisor is not built: $SupervisorExe" }
+if ($PrivateCopy) {
+    Write-Host '  syncing the private copy of the build outputs'
+    $SupervisorExe = New-PrivateInstallRoot -RepoRoot $RepoRoot -Destination $PrivateCopy -WithArrs
+}
 
 # ============================================================================================
 $FFmpeg = Invoke-Step 'Locate ffmpeg' {
@@ -795,6 +811,13 @@ $IndexerPort = Invoke-Step 'Start the Torznab stub' {
 }
 
 # ============================================================================================
+Invoke-Step 'Start qBittorrent' {
+    # B's download client. Its profile sits beside the work directory, not in it, so the node sweep
+    # never reaches it; Stop-Qbittorrent in the finally block stops it by pid and profile path.
+    Start-Qbittorrent -ProfileDir (Join-Path $RepoRoot '.local\e2e\qbt\m3') | Out-Null
+}
+
+# ============================================================================================
 Invoke-Step 'Start node B (the holder)' {
     Write-NodeConfig -Node $NodeB -ServerName 'stingstream-b'
     Start-Node -Node $NodeB
@@ -807,6 +830,12 @@ Invoke-Step 'B: grab and import a movie and an episode' {
         apiKey = 'e2e'; enabled = $true; minimumSeeders = 1; priority = 25
     } -TimeoutSec 180 | Out-Null
 
+    $sync = Invoke-Node $NodeB '/stingstream/api/v1/sync' -Method POST -TimeoutSec 180
+    foreach ($s in $sync) { if (-not $s.ok) { throw "Omniarr sync into $($s.app) failed: $($s.message)" } }
+
+    # After the indexer: that is what starts the arrs, and the client goes into them.
+    Invoke-Node $NodeB '/stingstream/api/v1/settings/downloadclients?sync=true' -Method POST `
+        -Body (New-QbittorrentClientSettings) -TimeoutSec 180 | Out-Null
     $sync = Invoke-Node $NodeB '/stingstream/api/v1/sync' -Method POST -TimeoutSec 180
     foreach ($s in $sync) { if (-not $s.ok) { throw "Omniarr sync into $($s.app) failed: $($s.message)" } }
 
@@ -827,9 +856,19 @@ Invoke-Step 'B: grab and import a movie and an episode' {
         $episode = @($items.Items | Where-Object { $_.Type -eq 'Episode' })
         return ($movie.Count -ge 1) -and ($episode.Count -ge 1)
     } -Describe {
+        $t = try { @(Get-QbittorrentTorrents) } catch { @() }
+        $held = ($t | ForEach-Object { "{0}:{1:P0}" -f $_.category, $_.progress }) -join ' '
         $st = try { Invoke-Node $NodeB '/stingstream/api/v1/status' -TimeoutSec 20 } catch { $null }
-        if ($st) { "torrents=$($st.torrents.count) events=$((@($st.recentArrEvents) | ForEach-Object { $_.eventType }) -join ',')" } else { 'no answer' }
+        if ($st) { "qbittorrent=[$held] events=$((@($st.recentArrEvents) | ForEach-Object { $_.eventType }) -join ',')" } else { "qbittorrent=[$held] node: no answer" }
     } | Out-Null
+
+    # Both came through the external client, one per arr.
+    $held = @(Get-QbittorrentTorrents)
+    foreach ($category in 'radarr', 'sonarr') {
+        $t = @($held | Where-Object { $_.category -eq $category -and $_.progress -ge 1 })
+        if ($t.Count -eq 0) { throw "qBittorrent holds no finished '$category' download, yet B imported the item." }
+    }
+    Write-Host "      qBittorrent holds $($held.Count) finished download(s): $(($held | ForEach-Object { $_.name }) -join ', ')"
 
     $inventory = Wait-Until -What "B's inventory to carry both items" -Seconds 300 -PollSeconds 5 -Condition {
         $inv = try { Invoke-Node $NodeB '/stingstream/api/v1/inventory' -TimeoutSec 30 } catch { $null }
@@ -1407,6 +1446,7 @@ Invoke-Step 'B comes back: the unavailable tag clears' {
     } else {
         Write-Head 'Cleanup'
         Stop-Tools
+        Stop-Qbittorrent
     }
 }
 
