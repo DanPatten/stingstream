@@ -3,7 +3,6 @@ import { View } from "react-native";
 import { toast } from "sonner-native";
 import { ListGroup } from "@/components/list/ListGroup";
 import type { NamingSettings } from "@/lib/stingstream/hooks";
-import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { SaveStatus, TextFieldRow, ToggleRow } from "./fields";
 import { useAutosave } from "./useAutosave";
 
@@ -39,7 +38,6 @@ export function NamingSection({
 
   return (
     <View>
-      <ScreenHeaderRow title={t("server_settings.naming_title")} />
       <ListGroup>
         <ToggleRow
           title={t("server_settings.naming_rename_on_import_title")}
@@ -56,7 +54,7 @@ export function NamingSection({
           }
         />
       </ListGroup>
-      <View style={{ height: 12 }} />
+      <View style={{ height: 16 }} />
       <ListGroup title={t("server_settings.naming_movies_group_title")}>
         <TextFieldRow
           title={t("server_settings.naming_movie_folder_format_title")}
@@ -69,7 +67,7 @@ export function NamingSection({
           onChangeText={(v) => set((d) => ({ ...d, MovieFormat: v }))}
         />
       </ListGroup>
-      <View style={{ height: 12 }} />
+      <View style={{ height: 16 }} />
       <ListGroup title={t("server_settings.naming_series_group_title")}>
         <TextFieldRow
           title={t("server_settings.naming_series_folder_format_title")}

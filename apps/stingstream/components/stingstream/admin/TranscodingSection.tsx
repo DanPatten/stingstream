@@ -9,7 +9,6 @@ import { ListGroup } from "@/components/list/ListGroup";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { SaveStatus, TextFieldRow, ToggleRow } from "../settings/fields";
 import { useAutosave } from "../settings/useAutosave";
-import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { QueryState } from "../shared/ScreenState";
 
 export function TranscodingSection() {
@@ -54,7 +53,6 @@ export function TranscodingSection() {
 
   return (
     <View>
-      <ScreenHeaderRow title={t("admin.transcoding_title")} />
       <QueryState isLoading={isLoading} error={error} onRetry={refetch}>
         {draft && (
           <>

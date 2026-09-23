@@ -5,7 +5,6 @@ import { useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
-import { Button } from "@/components/Button";
 import { Icon } from "@/components/common/Icon";
 import { Pill } from "@/components/common/Pill";
 import { ListGroup } from "@/components/list/ListGroup";
@@ -25,10 +24,9 @@ import {
   useServerUsers,
 } from "@/lib/stingstream/serverUsers";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
-import { InvitePerson, MintedInviteDialog } from "../invites/InvitePerson";
+import { MintedInviteDialog } from "../invites/InvitePerson";
 import { ActionRow } from "../shared/ActionRow";
 import { confirmDestructive } from "../shared/confirm";
-import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
 import { UserAvatar } from "./UserAvatar";
 import { UserDialog } from "./UserDialog";
@@ -75,7 +73,6 @@ export function UsersScreen() {
   const removeUser = useDeleteUser();
   const owner = useServerOwner();
 
-  const [inviting, setInviting] = useState(false);
   const [showing, setShowing] = useState<MintedInvite | null>(null);
   // `?user=<id>` opens that person straight away: how another page links to somebody, since a person
   // has no page of their own. Used by "Connected by" on a connected server.
@@ -146,21 +143,6 @@ export function UsersScreen() {
 
   return (
     <View testID='users-screen'>
-      {/* No heading of its own: the pane is already titled Users & access. */}
-      <ScreenHeaderRow
-        accessory={
-          <Button
-            testID='users-invite'
-            variant='primary'
-            size='sm'
-            icon='invite'
-            onPress={() => setInviting(true)}
-          >
-            {t("users.invite_action")}
-          </Button>
-        }
-      />
-
       <QueryState
         isLoading={users.isLoading}
         error={users.error}
@@ -207,7 +189,6 @@ export function UsersScreen() {
         )}
       </QueryState>
 
-      <InvitePerson visible={inviting} onClose={() => setInviting(false)} />
       <MintedInviteDialog minted={showing} onClose={() => setShowing(null)} />
       <UserDialog userId={editingId} onClose={() => setEditingId(null)} />
     </View>

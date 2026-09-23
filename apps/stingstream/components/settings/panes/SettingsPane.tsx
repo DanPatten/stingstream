@@ -1,7 +1,6 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { Platform, View } from "react-native";
 import { Text } from "@/components/common/Text";
-import { ScreenHeaderRow } from "@/components/stingstream/shared/ScreenHeaderRow";
 import { space } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 
@@ -40,32 +39,49 @@ export const SettingsPane: React.FC<
   const { isWebWide } = useBreakpoint();
   const headerSaysIt = !isWebWide && !Platform.isTV;
 
+  // One size above the in-page section headings (`ScreenHeaderRow`, `heading`), which used to share
+  // this one's size and left a page with no top to it: "Transcoding & hardware" over "Transcoding",
+  // "Logs & status" over "Server", all in the same weight. The detail line belongs to the title, so
+  // it sits tight under it; the space that separates the header from the page goes below both.
   return (
     <View>
       {headerSaysIt ? (
-        accessory ? (
-          <View
-            style={{
-              flexDirection: "row",
-              justifyContent: "flex-end",
-              marginBottom: 12,
-            }}
-          >
-            {accessory}
+        accessory || detail ? (
+          <View style={{ marginBottom: space["5"], gap: space["3"] }}>
+            {accessory ? (
+              <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+                {accessory}
+              </View>
+            ) : null}
+            {detail ? (
+              <Text variant='caption' tone='secondary'>
+                {detail}
+              </Text>
+            ) : null}
           </View>
         ) : null
       ) : (
-        <ScreenHeaderRow title={title} accessory={accessory} />
-      )}
-      {detail ? (
-        <Text
-          variant='caption'
-          tone='secondary'
-          style={{ marginTop: -4, marginBottom: space["4"] }}
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            gap: space["4"],
+            marginBottom: space["5"],
+          }}
         >
-          {detail}
-        </Text>
-      ) : null}
+          <View style={{ flex: 1, minWidth: 0, gap: space["1"] }}>
+            <Text variant='title' weight='semibold'>
+              {title}
+            </Text>
+            {detail ? (
+              <Text variant='body' tone='secondary'>
+                {detail}
+              </Text>
+            ) : null}
+          </View>
+          {accessory}
+        </View>
+      )}
       {children}
     </View>
   );
@@ -91,7 +107,8 @@ export const ScopedBlock: React.FC<PropsWithChildren<{ title: string }>> = ({
         alignItems: "center",
         gap: 8,
         marginLeft: 16,
-        marginBottom: 6,
+        paddingTop: 12,
+        marginBottom: 8,
       }}
     >
       <Text

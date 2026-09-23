@@ -39,9 +39,12 @@ export const ListGroup: React.FC<PropsWithChildren<Props>> = ({
           variant='micro'
           weight='semibold'
           tone='tertiary'
+          // The label belongs to the card below it, so it sits well clear of whatever is above and
+          // close to its own rows. At 16 above and 6 below it read as floating between two cards.
           style={{
             marginLeft: 16,
-            marginBottom: 6,
+            paddingTop: 12,
+            marginBottom: 8,
             textTransform: "uppercase",
             letterSpacing: 0.6,
           }}

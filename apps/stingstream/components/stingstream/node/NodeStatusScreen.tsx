@@ -187,7 +187,7 @@ export function NodeStatusScreen() {
             )}
           </ListGroup>
 
-          <View style={{ height: 16 }} />
+          <View style={{ height: 32 }} />
 
           <ScreenHeaderRow title={t("server_status.children_section_title")} />
           {/*
@@ -221,7 +221,7 @@ export function NodeStatusScreen() {
             </View>
           )}
 
-          <View style={{ height: 16 }} />
+          <View style={{ height: 32 }} />
 
           <ScreenHeaderRow title={t("server_status.core_section_title")} />
           {status.data && (
@@ -249,7 +249,7 @@ export function NodeStatusScreen() {
             </ListGroup>
           )}
 
-          <View style={{ height: 16 }} />
+          <View style={{ height: 32 }} />
 
           <ScreenHeaderRow title={t("server_status.sharing_section_title")} />
           {mesh.data ? (
@@ -290,7 +290,7 @@ export function NodeStatusScreen() {
             />
           )}
 
-          <View style={{ height: 16 }} />
+          <View style={{ height: 32 }} />
         </>
       )}
     </QueryState>

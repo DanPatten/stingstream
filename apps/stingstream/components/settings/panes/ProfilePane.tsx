@@ -54,12 +54,16 @@ export const ProfilePane: React.FC = () => {
       {/* Draws nothing unless this browser and this server can both do a
           passkey, so a phone and a server without a domain never see a section
           they cannot use. */}
-      <FocusTarget id='passkeys'>
-        <PasskeysSection className='mt-4' />
-      </FocusTarget>
-      <FocusTarget id='link-device'>
-        <LinkDevice className='mt-4' />
-      </FocusTarget>
+      <View style={{ marginTop: space["4"] }}>
+        <FocusTarget id='passkeys'>
+          <PasskeysSection />
+        </FocusTarget>
+      </View>
+      <View style={{ marginTop: space["4"] }}>
+        <FocusTarget id='link-device'>
+          <LinkDevice />
+        </FocusTarget>
+      </View>
 
       <View style={{ marginTop: space["4"] }}>
         <FocusTarget id='sign-out'>
@@ -139,7 +143,8 @@ const PasswordSection: React.FC = () => {
         tone='tertiary'
         style={{
           marginLeft: 16,
-          marginBottom: 6,
+          paddingTop: 12,
+          marginBottom: 8,
           textTransform: "uppercase",
           letterSpacing: 0.6,
         }}
@@ -256,7 +261,8 @@ const LinkedPasswordSection: React.FC<{ salt: SignInMethod }> = () => {
         tone='tertiary'
         style={{
           marginLeft: 16,
-          marginBottom: 6,
+          paddingTop: 12,
+          marginBottom: 8,
           textTransform: "uppercase",
           letterSpacing: 0.6,
         }}

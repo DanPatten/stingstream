@@ -87,7 +87,7 @@ export const NetworkPane: React.FC = () => {
     >
       <DomainsScreen />
 
-      <View style={{ marginTop: space["6"] }}>
+      <View style={{ marginTop: space["4"] }}>
         <QueryState {...stateOf(query)}>
           {draft ? (
             <View style={{ gap: space["4"] }}>
@@ -184,7 +184,7 @@ export const NetworkPane: React.FC = () => {
         </QueryState>
       </View>
 
-      <View style={{ marginTop: space["6"] }}>
+      <View style={{ marginTop: space["4"] }}>
         <ScopedBlock title={t("home.settings.network.this_app_title")}>
           <LocalNetworkSettings />
         </ScopedBlock>

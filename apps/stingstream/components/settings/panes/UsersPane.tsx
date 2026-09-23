@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
+import { Button } from "@/components/Button";
 import { TabsBar } from "@/components/common/Tabs";
+import { InvitePerson } from "@/components/stingstream/invites/InvitePerson";
 import { RequestPolicySection } from "@/components/stingstream/requests/RequestPolicySection";
 import { UsersScreen } from "@/components/stingstream/users/UsersScreen";
 import { space } from "@/constants/theme";
@@ -54,8 +56,28 @@ export const UsersPane: React.FC<{ initialSection?: string }> = ({
     sectionFromParam(initialSection),
   );
 
+  const [inviting, setInviting] = useState(false);
+  const showingPeople = section === "people" || manual;
+
   return (
-    <SettingsPane title={t("home.settings.nav.users")}>
+    <SettingsPane
+      title={t("home.settings.nav.users")}
+      // Beside the title, as Servers has "Add server". Drawn by `UsersScreen` it sat on a row of its
+      // own under the heading, with nothing on its left.
+      accessory={
+        showingPeople ? (
+          <Button
+            testID='users-invite'
+            variant='primary'
+            size='sm'
+            icon='invite'
+            onPress={() => setInviting(true)}
+          >
+            {t("users.invite_action")}
+          </Button>
+        ) : undefined
+      }
+    >
       {sections.length > 1 ? (
         <View testID='settings-users-tabs' style={{ marginBottom: space["4"] }}>
           <TabsBar
@@ -75,7 +97,7 @@ export const UsersPane: React.FC<{ initialSection?: string }> = ({
         after the first paint. Deciding on the section alone would leave a blank pane under a tab
         bar that is no longer drawn.
       */}
-      {section === "people" || manual ? (
+      {showingPeople ? (
         <FocusTarget id={["accounts", "invitations", "library-access"]}>
           <UsersScreen />
         </FocusTarget>
@@ -84,6 +106,7 @@ export const UsersPane: React.FC<{ initialSection?: string }> = ({
           <RequestPolicySection />
         </FocusTarget>
       )}
+      <InvitePerson visible={inviting} onClose={() => setInviting(false)} />
     </SettingsPane>
   );
 };

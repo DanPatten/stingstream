@@ -27,7 +27,7 @@ export const StoragePane: React.FC = () => {
         <LibrariesSection />
       </FocusTarget>
 
-      <View style={{ marginTop: space["6"] }}>
+      <View style={{ marginTop: space["4"] }}>
         <FocusTarget id={["scan-delay", "scan-concurrency"]}>
           <LibraryScanningSection />
         </FocusTarget>

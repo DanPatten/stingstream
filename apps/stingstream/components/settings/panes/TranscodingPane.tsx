@@ -46,7 +46,7 @@ export const TranscodingPane: React.FC = () => {
       >
         <TranscodingSection />
       </FocusTarget>
-      <View style={{ marginTop: space["6"] }}>
+      <View>
         <FocusTarget id='remote-bitrate'>
           <RemoteLimits />
         </FocusTarget>

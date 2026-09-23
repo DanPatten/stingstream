@@ -126,7 +126,11 @@ export function PasskeysSection({ className }: { className?: string }) {
         ))}
       </ListGroup>
 
-      <Text variant='caption' tone='tertiary' style={{ marginTop: 8 }}>
+      <Text
+        variant='caption'
+        tone='tertiary'
+        style={{ marginTop: 8, paddingHorizontal: 16 }}
+      >
         {rows.length === 0
           ? t("passkeys.empty_detail", { domain: support.relyingParty ?? "" })
           : t("passkeys.detail")}

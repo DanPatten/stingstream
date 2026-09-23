@@ -194,7 +194,7 @@ export const ProfileHeader: React.FC = () => {
         )}
       </View>
       <View style={{ marginLeft: 14, flexShrink: 1 }}>
-        <Text variant='title' weight='semibold' numberOfLines={1}>
+        <Text variant='heading' weight='semibold' numberOfLines={1}>
           {user.Name}
         </Text>
         <View

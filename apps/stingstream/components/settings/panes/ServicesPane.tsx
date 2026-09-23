@@ -42,7 +42,7 @@ export const ServicesPane: React.FC = () => {
           <IndexersSection />
         </FocusTarget>
         {value ? (
-          <View style={{ marginTop: space["6"] }}>
+          <View style={{ marginTop: space["8"] }}>
             <FocusTarget id='download-clients'>
               <DownloadClientsSection
                 value={value}
