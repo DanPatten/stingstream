@@ -29,8 +29,6 @@ function childLabel(t: TFunction, name: string): string {
       return t("server_status.child_radarr");
     case "sonarr":
       return t("server_status.child_sonarr");
-    case "nzbget":
-      return t("server_status.child_nzbget");
     case "infinidysk":
       return t("server_status.child_infinidysk");
     case "mesh":

@@ -326,13 +326,12 @@ public sealed class ArrClient
         var name = desired["name"]?.GetValue<string>()
             ?? throw new ArgumentException("A provider resource must have a name.", nameof(desired));
 
-        // forceSave on both paths skips the app's own connectivity test. Without it, creating a
-        // download client whose target is not answering *at that instant* fails with
-        // "Host: Unable to connect to qBittorrent" and takes the whole first-run wiring with it --
-        // and the target here is the qBittorrent shim inside this very process, which on a slow
-        // machine has not necessarily begun accepting connections by the time the wiring runs.
-        // The configuration is correct either way; the arr connects when it next needs to, and
-        // reachability is reported separately.
+        // forceSave on both paths skips the app's own connectivity test. Without it, saving a
+        // download client or indexer that is not answering *at that instant* fails with "Unable to
+        // connect" and takes the rest of the sync with it: a seedbox that is asleep would stop the
+        // naming rules and the webhook from being written too. The configuration is correct either
+        // way; the arr connects when it next needs to, and the Test button is where reachability
+        // is asked about.
         var existing = await FindByNameAsync(resource, name, ct).ConfigureAwait(false);
         if (existing is null)
         {

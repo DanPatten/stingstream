@@ -338,6 +338,19 @@ describe("activeSidebarKey", () => {
     );
   });
 
+  test("the library list is not a library, even with a stale libraryId", () => {
+    // Opening Movies from the sidebar leaves `libraryId` on the `(libraries)`
+    // tab route, and it is still in the global params once the stack is back
+    // on the list. The list must not light Movies or be titled "Movies".
+    expect(
+      at(["(auth)", "(tabs)", "(libraries)", "library"], "m"),
+    ).toBeUndefined();
+    expect(
+      at(["(auth)", "(tabs)", "(libraries)", "index"], "m"),
+    ).toBeUndefined();
+    expect(at(["(auth)", "(tabs)", "(libraries)"], "m")).toBeUndefined();
+  });
+
   test("a library that is not in the sidebar lights nothing", () => {
     // Hidden, or a book library: the screen is still reachable from a card.
     expect(

@@ -8,10 +8,10 @@
 //! | `/stingstream/reveal` | the gateway itself | "Show in Explorer": admin, this machine, Windows only. See [`reveal`]. |
 //! | `/stingstream/mesh/*` | the mesh node | its loopback API, minus the `/stingstream` half. **Loopback clients only** — see [`proxy_to_mesh`]. |
 //! | `/stream/*` | the mesh node | ranged reads of a peer's file, proxied byte for byte |
-//! | `/stingstream/api/*`, `/stingstream/qbt/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
+//! | `/stingstream/api/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
 //! | `/stingstream/*` (anything else) | Jellyfin | unchanged: Jellyfin's own absolute links, under its `BaseUrl` |
 //! | `/jellyfin/*` | Jellyfin | mapped onto `/stingstream/*`, including the socket; what installed apps use |
-//! | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children | **`--dev` only** |
+//! | `/radarr/*`, `/sonarr/*` | those children | **`--dev` only** |
 //! | everything else | the web bundle | `apps/stingstream/dist`, with SPA fallback; the placeholder page when there is no bundle |
 //!
 //! Jellyfin is started with `BaseUrl=/stingstream` ([`MEDIA_BASE_URL`]; `/jellyfin` until
@@ -54,9 +54,13 @@ pub const MEDIA_BASE_URL: &str = crate::preseed::jellyfin::BASE_URL;
 /// The first segments under `/stingstream` that belong to `StingStream.Core` rather than to
 /// Jellyfin. With `BaseUrl=/stingstream`, Jellyfin's own absolute links also start `/stingstream/`,
 /// so the gateway tells the two apart here. Jellyfin's routes are PascalCase (`/Items`, `/socket`
-/// aside) and none is named `api` or `qbt`; `api-docs` does not match because the test is on a
-/// whole segment.
-const CORE_SEGMENTS: &[&str] = &["api", "qbt"];
+/// aside) and none is named `api`; `api-docs` does not match because the test is on a whole
+/// segment.
+///
+/// `qbt` was the other one, for the qBittorrent-compatible shim in front of Core's torrent engine.
+/// Both went on 2026-09-23 when the node stopped bundling a download client, and a path under
+/// `/stingstream/qbt` is now just a Jellyfin path that Jellyfin does not have.
+const CORE_SEGMENTS: &[&str] = &["api"];
 
 /// Whether a gateway path under `/stingstream` is one of Core's.
 fn is_core_path(path: &str) -> bool {
@@ -191,15 +195,13 @@ pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle)
     };
 
     if expose_child_uis {
-        // Debug convenience only. An installed node never routes these: Radarr's, Sonarr's and
-        // NZBGet's own UIs are not StingStream's front door (docs/ARCHITECTURE.md).
+        // Debug convenience only. An installed node never routes these: Radarr's and Sonarr's own
+        // UIs are not StingStream's front door (docs/ARCHITECTURE.md).
         app = app
             .route("/radarr/{*rest}", any(proxy_to_radarr))
             .route("/radarr", any(proxy_to_radarr))
             .route("/sonarr/{*rest}", any(proxy_to_sonarr))
-            .route("/sonarr", any(proxy_to_sonarr))
-            .route("/nzbget/{*rest}", any(proxy_to_nzbget))
-            .route("/nzbget", any(proxy_to_nzbget));
+            .route("/sonarr", any(proxy_to_sonarr));
     }
 
     app.with_state(state)
@@ -553,15 +555,14 @@ async fn inject_into_html(response: Response, marker: &web::Marker<'_>) -> Respo
 /// at the wrong directory, or a hand-assembled install tree. The page therefore says which of
 /// those it is and how to fix it, and keeps the API index underneath for whoever is debugging.
 ///
-/// The `--dev` note names **paths**, not products: the child UIs at `/radarr/`, `/sonarr/` and
-/// `/nzbget/` are developer plumbing, and a user-visible StingStream page does not print the names
+/// The `--dev` note names **paths**, not products: the child UIs at `/radarr/` and `/sonarr/` are
+/// developer plumbing, and a user-visible StingStream page does not print the names
 /// of the projects behind it.
 pub fn placeholder_page(server_name: &str, dev: bool) -> String {
     let name = html_escape(server_name);
     let dev_note = if dev {
         r#"<p class="dev">Running in <code>--dev</code> mode, so the child UIs are proxied at
-        <a href="/radarr/">/radarr/</a>, <a href="/sonarr/">/sonarr/</a> and
-        <a href="/nzbget/">/nzbget/</a> for debugging. An installed server never routes those.</p>"#
+        <a href="/radarr/">/radarr/</a> and <a href="/sonarr/">/sonarr/</a> for debugging. An installed server never routes those.</p>"#
     } else {
         ""
     };
@@ -1080,11 +1081,6 @@ async fn proxy_to_sonarr(State(state): State<GatewayState>, req: Request) -> Res
     forward(state, req, "sonarr", "/sonarr", "/sonarr".into()).await
 }
 
-async fn proxy_to_nzbget(State(state): State<GatewayState>, req: Request) -> Response {
-    // NZBGet has no concept of a URL base, so its upstream prefix is empty: /nzbget/foo -> /foo.
-    forward(state, req, "nzbget", "/nzbget", String::new()).await
-}
-
 async fn forward(
     state: GatewayState,
     req: Request,
@@ -1222,18 +1218,14 @@ mod tests {
             .unwrap(),
             "/stingstream/stingstream/api/v1/openapi.json"
         );
-        assert_eq!(
-            proxy::rewrite_path("/stingstream/qbt/api/v2/auth/login", STINGSTREAM_PREFIX, &upstream_prefix)
-                .unwrap(),
-            "/stingstream/stingstream/qbt/api/v2/auth/login"
-        );
     }
 
     #[test]
     fn only_cores_own_segments_count_as_core() {
         assert!(is_core_path("/stingstream/api/v1/watch"));
         assert!(is_core_path("/stingstream/api"));
-        assert!(is_core_path("/stingstream/qbt/api/v2/app/webapiVersion"));
+        // The retired download-client shim is not Core's any more.
+        assert!(!is_core_path("/stingstream/qbt/api/v2/app/webapiVersion"));
         // Jellyfin at its own BaseUrl: its links, its socket, its swagger page.
         assert!(!is_core_path("/stingstream/Items/1/Images/Primary"));
         assert!(!is_core_path("/stingstream/socket?api_key=k"));
@@ -1260,12 +1252,6 @@ mod tests {
                 .unwrap(),
             "/stingstream/Items/1/Images/Primary"
         );
-    }
-
-    #[test]
-    fn nzbget_loses_its_prefix_because_it_has_no_url_base() {
-        assert_eq!(proxy::rewrite_path("/nzbget/jsonrpc", "/nzbget", "").unwrap(), "/jsonrpc");
-        assert_eq!(proxy::rewrite_path("/nzbget", "/nzbget", "").unwrap(), "/");
     }
 
     #[test]

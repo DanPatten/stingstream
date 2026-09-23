@@ -73,19 +73,22 @@ sonarr = 8989
 
         Assert.False(flags["radarr"]);
         Assert.False(flags["sonarr"]);
-        Assert.False(flags["nzbget"]);
+
+        // The bundled NZBGet is gone. An older config.toml still carries its line, and that is
+        // neither read nor offered as a switch.
+        Assert.False(flags.ContainsKey("nzbget"));
     }
 
     [Fact]
     public void A_key_the_file_never_mentions_reads_as_on()
     {
         // `ChildrenConfig::default()` is all true and serde fills a missing field from it, so a
-        // config.toml that simply does not list nzbget is a node that runs it. Reporting that as
+        // config.toml that simply does not list sonarr is a node that runs it. Reporting that as
         // off would show a switch in the wrong position on a perfectly working server.
         var path = Write("[children]\njellyfin = true\nradarr = true\n");
         var flags = DownloadingSwitch.Read(path);
 
-        Assert.True(flags["nzbget"]);
+        Assert.True(flags["sonarr"]);
     }
 
     [Fact]

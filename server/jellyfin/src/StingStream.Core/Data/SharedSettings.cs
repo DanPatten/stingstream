@@ -23,18 +23,22 @@ public sealed class SharedSettings
 
     public List<IndexerSettings> Indexers { get; set; } = new();
 
-    public DownloadClientSettings DownloadClients { get; set; } = new();
-
     /// <summary>
-    /// Download clients somebody else runs, registered in both arrs alongside the embedded ones.
+    /// The download clients this node sends grabs to, all of them run by the user.
     /// </summary>
     /// <remarks>
-    /// The answer to <c>docs/UI-API-GAPS.md</c> gap 8, and the answer is yes: StingStream supports
-    /// bring-your-own-client. Not because the embedded engines are insufficient, but because a
-    /// person migrating to StingStream already has a seedbox or a SABnzbd with a queue in it, and
-    /// "move all of that first" is a bad first day. These are pushed into both apps exactly the way
-    /// indexers are — built from the app's own <c>downloadclient/schema</c>, matched by name,
-    /// idempotent.
+    /// <para>
+    /// <c>docs/UI-API-GAPS.md</c> gap 8. These are pushed into both apps exactly the way indexers
+    /// are: built from the app's own <c>downloadclient/schema</c>, matched by name, idempotent.
+    /// </para>
+    /// <para>
+    /// The only download clients there are. Until 2026-09-23 a node also ran its own, an
+    /// in-process torrent engine and a bundled NZBGet, configured by a <c>downloadClients</c>
+    /// object on this document. Both went (Dan: <i>"Remove the built in torrent client and require
+    /// an external client"</i>); a stored document that still carries that object deserializes
+    /// fine, because unknown properties are ignored, and the arrs lose the old registrations on
+    /// the next sync (<c>OmniarrSyncService.IsRetiredBuiltIn</c>).
+    /// </para>
     /// </remarks>
     public List<ExternalDownloadClientSettings> ExternalDownloadClients { get; set; } = new();
 
@@ -109,7 +113,6 @@ public sealed class SharedSettings
     public static SharedSettings CreateDefault() => new()
     {
         Indexers = new List<IndexerSettings>(),
-        DownloadClients = new DownloadClientSettings(),
         Naming = new NamingSettings(),
         Notifications = new NotificationSettings(),
         Revision = 1,
@@ -260,7 +263,7 @@ public sealed class ExternalDownloadClientSettings
 
     public bool Enabled { get; set; } = true;
 
-    /// <summary>1 (highest) to 50. The embedded engines register at 1, so 2 is a sensible default.</summary>
+    /// <summary>1 (highest) to 50. NzbDrone's default is 1.</summary>
     public int Priority { get; set; } = 2;
 
     /// <summary>Push this client to Radarr.</summary>
@@ -322,58 +325,6 @@ public sealed class IndexerSettings
     public bool ForSeries { get; set; } = true;
 }
 
-/// <summary>
-/// The two engines StingStream runs itself. Both are always registered in both apps; there is no
-/// user choice to make, only whether they are enabled.
-/// </summary>
-public sealed class DownloadClientSettings
-{
-    /// <summary>The in-process MonoTorrent engine, presented as qBittorrent.</summary>
-    public bool TorrentsEnabled { get; set; } = true;
-
-    /// <summary>Name the client is registered under in both apps.</summary>
-    public string TorrentClientName { get; set; } = "StingStream Torrents";
-
-    /// <summary>qBittorrent category for Radarr's downloads.</summary>
-    public string TorrentMovieCategory { get; set; } = "radarr";
-
-    /// <summary>qBittorrent category for Sonarr's downloads.</summary>
-    public string TorrentTvCategory { get; set; } = "sonarr";
-
-    /// <summary>The supervisor-run NZBGet child.</summary>
-    public bool UsenetEnabled { get; set; } = true;
-
-    public string UsenetClientName { get; set; } = "StingStream Usenet";
-
-    /// <summary>NZBGet category for Radarr, which must exist in nzbget.conf or the app's test fails.</summary>
-    public string UsenetMovieCategory { get; set; } = "movies";
-
-    /// <summary>NZBGet category for Sonarr.</summary>
-    public string UsenetTvCategory { get; set; } = "tv";
-
-    /// <summary>Let the apps delete completed downloads once they have been imported and seeded.</summary>
-    public bool RemoveCompletedDownloads { get; set; } = true;
-
-    public bool RemoveFailedDownloads { get; set; } = true;
-
-    /// <summary>
-    /// Join the public BitTorrent DHT.
-    /// </summary>
-    /// <remarks>
-    /// Off by default: a headless media server should not quietly join a global peer-to-peer
-    /// network without being asked, and every release an indexer hands the arrs carries its own
-    /// trackers. The qBittorrent shim reports this state honestly in <c>app/preferences</c>, so
-    /// with it off Radarr refuses a trackerless magnet up front instead of stalling on one.
-    /// </remarks>
-    public bool TorrentDhtEnabled { get; set; }
-
-    /// <summary>Announce to and listen for peers on the local network.</summary>
-    public bool TorrentLocalPeerDiscovery { get; set; } = true;
-
-    /// <summary>Port the torrent engine listens on. 0 asks the OS for an ephemeral one.</summary>
-    public int TorrentListenPort { get; set; }
-}
-
 /// <summary>Where imported media lands. These are the arrs' root folders and Jellyfin's libraries.</summary>
 public sealed class RootFolderSettings
 {
@@ -383,7 +334,6 @@ public sealed class RootFolderSettings
     /// <summary>Absolute path. Empty means "use the supervisor's <c>media/TV</c>".</summary>
     public string Tv { get; set; } = string.Empty;
 }
-
 
 /// <summary>The collection types a StingStream library may be.</summary>
 /// <remarks>

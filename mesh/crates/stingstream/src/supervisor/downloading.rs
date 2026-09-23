@@ -2,9 +2,11 @@
 //!
 //! ## What this is for
 //!
-//! Three of this node's children exist only to get hold of something it does not have yet: the
-//! film manager, the series manager, and the usenet engine. `config.toml` decides whether they
-//! run, they default to on, and until now the only way to change that was to edit the file and
+//! Two of this node's children exist only to get hold of something it does not have yet: the
+//! film manager and the series manager. (There used to be a third, a bundled usenet engine; the
+//! node stopped shipping any download client on 2026-09-23, and the managers hand their work to
+//! whichever clients the owner has connected.) `config.toml` decides whether they run, they
+//! default to on, and until now the only way to change that was to edit the file and
 //! restart the whole node — which is not a thing anybody can do from a settings screen, and left
 //! the app pointing at a page that could only repeat the bad news.
 //!
@@ -49,9 +51,9 @@ use crate::supervisor::{build_one, start_one, Mode, Running};
 ///
 /// Jellyfin and the mesh are deliberately absent. Jellyfin *is* the node — turning it off from a
 /// screen served by it is a contradiction — and the mesh runs in this process under
-/// `[mesh] embedded`. These three are the ones that answer "how does something I do not have get
+/// `[mesh] embedded`. These two are the ones that answer "how does something I do not have get
 /// here", which is the question the settings group of the same name exists for.
-pub const RECONCILED: &[&str] = &["radarr", "sonarr", "nzbget"];
+pub const RECONCILED: &[&str] = &["radarr", "sonarr"];
 
 /// How often `config.toml` is re-read.
 ///
@@ -192,33 +194,23 @@ fn wire(name: &str, config: &Config, runtime: &mut Runtime) -> anyhow::Result<()
 
     let port = alloc.assign(config.preferred_port(name))?;
     let url_base = format!("/{name}");
-    // NZBGet serves from the root of its own port; the arrs sit under a base.
-    let effective_base = if name == "nzbget" {
-        ""
-    } else {
-        url_base.as_str()
-    };
     // Carried forward exactly as start-up carries it: a child that has been on before keeps the
     // key the arrs' own config files and Core's stored settings already know. Minting a fresh one
     // here would leave a running manager that nothing can authenticate to.
     let carried = CarriedSecrets::from_previous(Some(runtime));
-    let (api_key, username, password) = match name {
-        "radarr" | "sonarr" => (Some(carried.api_key_for(name)), None, None),
-        "nzbget" => {
-            let (u, p) = carried.nzbget_credentials();
-            (None, Some(u), Some(p))
-        }
-        _ => (None, None, None),
+    let api_key = match name {
+        "radarr" | "sonarr" => Some(carried.api_key_for(name)),
+        _ => None,
     };
 
     let entry = runtime.child_mut(name);
     entry.enabled = true;
     entry.port = port;
     entry.url_base = url_base.clone();
-    entry.base_url = format!("http://127.0.0.1:{port}{effective_base}");
+    entry.base_url = format!("http://127.0.0.1:{port}{url_base}");
     entry.api_key = api_key;
-    entry.username = username;
-    entry.password = password;
+    entry.username = None;
+    entry.password = None;
     Ok(())
 }
 
@@ -265,7 +257,7 @@ mod tests {
     fn reconciles_only_the_children_that_answer_for_downloading() {
         // Jellyfin is the node and the mesh is in this process. Neither is something a settings
         // screen may switch off, and listing them here is the only way this loop could try.
-        assert_eq!(RECONCILED, &["radarr", "sonarr", "nzbget"]);
+        assert_eq!(RECONCILED, &["radarr", "sonarr"]);
         assert!(!RECONCILED.contains(&"jellyfin"));
         assert!(!RECONCILED.contains(&"mesh"));
     }
@@ -284,17 +276,6 @@ mod tests {
         // The arrs are reached with a key; without one `ArrClientFactory` hands back no client at
         // all and the whole feature stays dark for a child that is plainly running.
         assert!(c.api_key.as_deref().is_some_and(|k| !k.is_empty()));
-    }
-
-    #[test]
-    fn nzbget_serves_from_the_root_of_its_own_port() {
-        let config = Config::default();
-        let mut runtime = sample_runtime();
-        wire("nzbget", &config, &mut runtime).expect("wire nzbget");
-
-        let c = runtime.child("nzbget").expect("nzbget entry");
-        assert_eq!(c.base_url, format!("http://127.0.0.1:{}", c.port));
-        assert!(c.username.is_some() && c.password.is_some());
     }
 
     #[test]

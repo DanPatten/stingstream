@@ -42,19 +42,19 @@ export interface DownloadingSettings {
   films?: boolean | null;
   /** Whether this node fetches series. */
   series?: boolean | null;
-  /** Whether this node fetches over usenet as well as over BitTorrent. */
-  usenet?: boolean | null;
 }
 
-/** The three switches, in the order a screen shows them. */
-export const DOWNLOADING_KEYS = ["films", "series", "usenet"] as const;
+/**
+ * The two switches, in the order a screen shows them. There was a third, `usenet`, for the
+ * bundled NZBGet, until StingStream stopped running a download client of its own (2026-09-23).
+ */
+export const DOWNLOADING_KEYS = ["films", "series"] as const;
 export type DownloadingKey = (typeof DOWNLOADING_KEYS)[number];
 
 /** Which child answers for each switch, for reading `/healthz`. */
 export const CHILD_FOR: Record<DownloadingKey, string> = {
   films: "radarr",
   series: "sonarr",
-  usenet: "nzbget",
 };
 
 const authHeaders = (token?: string | null): Record<string, string> =>
@@ -64,7 +64,7 @@ const authHeaders = (token?: string | null): Record<string, string> =>
  * Read the node's answer whichever case it arrives in.
  *
  * StingStream's controllers are hosted inside Jellyfin, and Jellyfin's serializer names properties
- * `Films`/`Series`/`Usenet` even though this API's own base controller documents itself as
+ * `Films`/`Series` even though this API's own base controller documents itself as
  * camelCase. `requestsApi.ts` deals with the same split the same way, and for the same reason: the
  * casing is a property of whose serializer ran, not of the API's contract, and a client that
  * assumed either one would break the first time that changed. Measured against a live node before
@@ -74,7 +74,7 @@ const authHeaders = (token?: string | null): Record<string, string> =>
  */
 const toSettings = (body: unknown): DownloadingSettings => {
   const raw = (body ?? {}) as Record<string, unknown>;
-  const read = (key: "films" | "series" | "usenet"): boolean | null => {
+  const read = (key: DownloadingKey): boolean | null => {
     const value =
       raw[key] ?? raw[`${key[0].toUpperCase()}${key.slice(1)}` as string];
     return typeof value === "boolean" ? value : null;
@@ -82,7 +82,6 @@ const toSettings = (body: unknown): DownloadingSettings => {
   return {
     films: read("films"),
     series: read("series"),
-    usenet: read("usenet"),
   };
 };
 

@@ -195,8 +195,9 @@ bun run ios:install-metal-toolchain   # Fixes "missing Metal Toolchain" build er
   are laid over every refetch (`lib/stingstream/libraryEdits.ts`) so a poll cannot flip it back. Folders are picked with `FolderBrowserDialog`. A library
   page's "..." (`components/library/LibraryActionsMenu.tsx`) links there. Turning Movies on does not by itself start the movie
   manager: that also needs an enabled indexer covering films (`ArrEnablement`, reconciled in the
-  background by `ArrEnablementWorker`). The row is a plain switch with no status on it. Usenet is
-  not about a library and lives under Indexers & engines.
+  background by `ArrEnablementWorker`). The row is a plain switch with no status on it.
+  StingStream runs no download client of its own (removed 2026-09-23): the ones the user runs are
+  added, edited and tested under Settings → Indexers & engines, beside the indexers.
 - **IMPORTANT**: use `useAppRouter` from `@/hooks/useAppRouter`, never `useRouter` or the
   static `router` from `expo-router`. The wrapper preserves offline mode across
   navigation.

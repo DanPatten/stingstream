@@ -34,7 +34,7 @@ use childdef::ChildDef;
 
 /// Canonical child order. Jellyfin first because `StingStream.Core` inside it does the first-run
 /// wiring of the others, and it is the slowest to come up.
-pub const CHILD_ORDER: &[&str] = &["jellyfin", "radarr", "sonarr", "nzbget", "mesh", "infinidysk"];
+pub const CHILD_ORDER: &[&str] = &["jellyfin", "radarr", "sonarr", "mesh", "infinidysk"];
 
 /// Where the supervisor looks for child binaries.
 #[derive(Debug, Clone)]
@@ -130,7 +130,6 @@ pub fn build_one(
             child_rt.url_base.clone(),
             child_rt.api_key.clone(),
         )?,
-        "nzbget" => nzbget_def(runtime, layout, mode, child_rt.port)?,
         "mesh" => match mesh_def(runtime, mode, child_rt.port) {
             Some(def) => def,
             None => {
@@ -292,58 +291,6 @@ fn mesh_def(runtime: &Runtime, mode: &Mode, port: u16) -> Option<ChildDef> {
             basic_auth: None,
             headers: Vec::new(),
             pointer: "/version".to_string(),
-        }),
-    })
-}
-
-fn nzbget_def(
-    runtime: &Runtime,
-    layout: &Layout,
-    mode: &Mode,
-    port: u16,
-) -> Result<ChildDef> {
-    let program = childdef::find_nzbget(mode.repo_root(), mode.install_root()).with_context(|| {
-        "nzbget: no binary found. Run third_party/nzbget/fetch-nzbget.ps1, or set \
-         children.nzbget = false in config.toml."
-    })?;
-    let child_rt = runtime.child("nzbget");
-    let (user, pass) = child_rt
-        .and_then(|c| c.username.clone().zip(c.password.clone()))
-        .unwrap_or_else(|| ("stingstream".to_string(), String::new()));
-    let version_auth = (user.clone(), pass.clone());
-
-    Ok(ChildDef {
-        name: "nzbget".to_string(),
-        program,
-        // `-s` is server mode in the foreground: the supervisor owns the lifecycle, so NZBGet must
-        // not daemonise and detach from the process handle we hold.
-        args: vec![
-            "-s".to_string(),
-            "-c".to_string(),
-            layout.nzbget_conf().display().to_string(),
-        ],
-        cwd: Some(layout.nzbget()),
-        env: BTreeMap::new(),
-        health_url: format!("http://127.0.0.1:{port}/jsonrpc"),
-        health_basic_auth: Some((user, pass)),
-        // NZBGet answers a bare GET on /jsonrpc with an error; a real JSON-RPC call is the only
-        // probe that proves the control API is actually serving.
-        health_post_body: Some(
-            r#"{"version":"1.1","id":1,"method":"version","params":[]}"#.to_string(),
-        ),
-        // The health probe already *is* the version call -- NZBGet answers a bare GET on
-        // /jsonrpc with an error, so the only probe that proves the control API is serving is a
-        // real method call, and `version` is the cheapest one. This repeats it rather than
-        // reading the health response, because the health checker deliberately looks at nothing
-        // but the status code.
-        version_probe: Some(childdef::VersionProbe {
-            url: format!("http://127.0.0.1:{port}/jsonrpc"),
-            post_body: Some(
-                r#"{"version":"1.1","id":1,"method":"version","params":[]}"#.to_string(),
-            ),
-            basic_auth: Some(version_auth),
-            headers: Vec::new(),
-            pointer: "/result".to_string(),
         }),
     })
 }
@@ -738,34 +685,6 @@ pub fn preseed_one(
         };
         preseed::arr::preseed(&dir, &settings)?;
     }
-    if name == "nzbget" {
-        if let Some(c) = runtime.child("nzbget") {
-            let mut settings = preseed::nzbget::NzbgetSettings::new(
-                layout.downloads_usenet(),
-                c.port,
-                c.username.as_deref().unwrap_or("stingstream"),
-                c.password.as_deref().unwrap_or_default(),
-            );
-            // The fetched distribution carries its own web UI and config template; NZBGet warns
-            // loudly on every start without them.
-            if let Some(nzbget) = childdef::find_nzbget(None, None).or_else(|| {
-                childdef::detect_repo_root()
-                    .and_then(|r| childdef::find_nzbget(Some(&r), None))
-            }) {
-                if let Some(dir) = nzbget.parent() {
-                    let webui = dir.join("webui");
-                    if webui.is_dir() {
-                        settings.web_dir = Some(webui);
-                    }
-                    let template = dir.join("nzbget.conf.template");
-                    if template.is_file() {
-                        settings.config_template = Some(template);
-                    }
-                }
-            }
-            preseed::nzbget::preseed(&layout.nzbget_conf(), &settings)?;
-        }
-    }
     Ok(())
 }
 
@@ -802,7 +721,8 @@ mod tests {
         assert_eq!(CHILD_ORDER[0], "jellyfin");
         assert!(CHILD_ORDER.contains(&"radarr"));
         assert!(CHILD_ORDER.contains(&"sonarr"));
-        assert!(CHILD_ORDER.contains(&"nzbget"));
+        // The supervisor bundles no download client; people connect their own.
+        assert!(!CHILD_ORDER.contains(&"nzbget"));
     }
 
     #[test]

@@ -22,7 +22,6 @@ using StingStream.Core.Playback;
 using StingStream.Core.Requests;
 using StingStream.Core.Sharing;
 using StingStream.Core.SyncPlay;
-using StingStream.Core.Torrents;
 using StingStream.Core.Webhooks;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -69,10 +68,6 @@ public static class StingStreamCoreExtensions
             // that arrives while one is still migrating its database.
             client.Timeout = TimeSpan.FromSeconds(60);
         });
-        services.AddHttpClient(QbtController.HttpClientName, client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(60);
-        });
         services.AddSingleton<ArrClientFactory>();
         services.AddSingleton<OmniarrSyncService>();
         services.AddSingleton<ArrEnablementWorker>();
@@ -89,22 +84,8 @@ public static class StingStreamCoreExtensions
         services.AddSingleton<QualityProfileService>();
         services.AddHostedService<QualityProfileSeedWorker>();
 
-        // NZBGet's own control API, which is how the unified Downloads list reaches the usenet half.
-        // Short timeout: it is on loopback, and a Downloads screen polling every few seconds must
-        // not queue up behind a child that has stopped answering.
-        services.AddHttpClient(StingStream.Core.Downloads.NzbgetClient.HttpClientName, client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(15);
-        });
-        services.AddSingleton<StingStream.Core.Downloads.NzbgetClientFactory>();
         services.AddSingleton<StingStream.Core.Downloads.DownloadsService>();
         services.AddSingleton<ChildVersionService>();
-
-        // Torrents. Registered once and resolved as both the concrete engine and a hosted service,
-        // so the qBittorrent shim and the lifecycle share one instance.
-        services.AddSingleton<TorrentEngine>();
-        services.AddHostedService(sp => sp.GetRequiredService<TorrentEngine>());
-        services.AddSingleton<QbtSessionStore>();
 
         // Inventory and hashing.
         services.AddSingleton<IIdleSignal, SessionIdleSignal>();

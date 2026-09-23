@@ -39,8 +39,10 @@
 //!
 //! # The key
 //!
-//! Derived from the generated qBittorrent password in `runtime.json`, which the supervisor writes
-//! and both halves of the node read:
+//! Derived from the generated `qbittorrent.password` in `runtime.json`, which the supervisor writes
+//! and both halves of the node read. It is the node secret now; the name is left over from the
+//! qBittorrent-compatible shim it was first minted for, which went on 2026-09-23 (see
+//! [`crate::runtime::Runtime::qbittorrent`]):
 //!
 //! ```text
 //! key = SHA-256("stingstream stream url v1" || 0x00 || qbt_password)

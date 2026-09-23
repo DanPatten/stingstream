@@ -81,7 +81,7 @@ public sealed class DownloadingController : StingStreamControllerBase
     /// <returns>The switches.</returns>
     /// <remarks>
     /// Omitted rather than false-by-default: a screen that only shows the film manager must not
-    /// silently turn the usenet engine off because its checkbox was not on the page.
+    /// silently turn the series manager off because its checkbox was not on the page.
     /// </remarks>
     [HttpPut]
     [ProducesResponseType(StatusCodes.Status200OK)]
@@ -98,7 +98,6 @@ public sealed class DownloadingController : StingStreamControllerBase
         {
             ["radarr"] = body.Films,
             ["sonarr"] = body.Series,
-            ["nzbget"] = body.Usenet,
         };
 
         try
@@ -144,9 +143,9 @@ public sealed class DownloadingController : StingStreamControllerBase
     }
 }
 
-/// <summary>The three switches, named for what they do rather than for what runs.</summary>
+/// <summary>The two switches, named for what they do rather than for what runs.</summary>
 /// <remarks>
-/// <c>films</c>/<c>series</c>/<c>usenet</c>, not <c>radarr</c>/<c>sonarr</c>/<c>nzbget</c>: this is
+/// <c>films</c>/<c>series</c>, not <c>radarr</c>/<c>sonarr</c>: this is
 /// the boundary where the node's internals stop and the app's vocabulary starts, and the app is one
 /// application to the person using it (see the repository's CLAUDE.md, "StingStream is one app").
 /// The mapping to child names lives on the other side of this type, in one place.
@@ -159,13 +158,9 @@ public sealed class DownloadingSettings
     /// <summary>Whether this node fetches series.</summary>
     public bool? Series { get; set; }
 
-    /// <summary>Whether this node fetches over usenet as well as over BitTorrent.</summary>
-    public bool? Usenet { get; set; }
-
     internal static DownloadingSettings From(IReadOnlyDictionary<string, bool> flags) => new()
     {
         Films = flags.TryGetValue("radarr", out var films) ? films : null,
         Series = flags.TryGetValue("sonarr", out var series) ? series : null,
-        Usenet = flags.TryGetValue("nzbget", out var usenet) ? usenet : null,
     };
 }

@@ -156,7 +156,7 @@ export interface paths {
         /**
          * Turn downloading on or off.
          * @description Omitted rather than false-by-default: a screen that only shows the film manager must not
-         *     silently turn the usenet engine off because its checkbox was not on the page.
+         *     silently turn the series manager off because its checkbox was not on the page.
          */
         put: operations["Downloading_Put"];
         post?: never;
@@ -195,46 +195,10 @@ export interface paths {
         post?: never;
         /**
          * Remove one download.
-         * @description When an arr is waiting for the download, the removal goes through that arr with
-         *     `removeFromClient=true`, so the queue row goes too — see
-         *     M:StingStream.Core.Downloads.DownloadsService.RemoveAsync(System.String,System.String,System.Boolean,System.Boolean,System.Threading.CancellationToken) for why doing it the other way round produces a
-         *     failed-grab notification a few minutes later.
+         * @description The removal goes through the arr, so the queue row goes too. See
+         *     M:StingStream.Core.Downloads.DownloadsService.RemoveAsync(System.String,System.String,System.Boolean,System.Boolean,System.Threading.CancellationToken).
          */
         delete: operations["Downloads_RemoveDownload"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/downloads/{engine}/{id}/pause": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Pause one download. */
-        post: operations["Downloads_PauseDownload"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/stingstream/api/v1/downloads/{engine}/{id}/resume": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Resume one download. */
-        post: operations["Downloads_ResumeDownload"];
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3716,51 +3680,18 @@ export interface components {
          * @enum {string}
          */
         DownMixStereoAlgorithms: "None" | "Dave750" | "NightmodeDialogue" | "Rfc7845" | "Ac4";
-        /** @description What one pause/resume/remove did. */
+        /** @description What one removal did. */
         DownloadActionResult: {
             Ok?: boolean;
             Message?: string;
         };
-        /**
-         * @description The two engines StingStream runs itself. Both are always registered in both apps; there is no
-         *     user choice to make, only whether they are enabled.
-         */
-        DownloadClientSettings: {
-            /** @description The in-process MonoTorrent engine, presented as qBittorrent. */
-            TorrentsEnabled?: boolean;
-            /** @description Name the client is registered under in both apps. */
-            TorrentClientName?: string;
-            /** @description qBittorrent category for Radarr's downloads. */
-            TorrentMovieCategory?: string;
-            /** @description qBittorrent category for Sonarr's downloads. */
-            TorrentTvCategory?: string;
-            /** @description The supervisor-run NZBGet child. */
-            UsenetEnabled?: boolean;
-            UsenetClientName?: string;
-            /** @description NZBGet category for Radarr, which must exist in nzbget.conf or the app's test fails. */
-            UsenetMovieCategory?: string;
-            /** @description NZBGet category for Sonarr. */
-            UsenetTvCategory?: string;
-            /** @description Let the apps delete completed downloads once they have been imported and seeded. */
-            RemoveCompletedDownloads?: boolean;
-            RemoveFailedDownloads?: boolean;
-            /** @description Join the public BitTorrent DHT. */
-            TorrentDhtEnabled?: boolean;
-            /** @description Announce to and listen for peers on the local network. */
-            TorrentLocalPeerDiscovery?: boolean;
-            /**
-             * Format: int32
-             * @description Port the torrent engine listens on. 0 asks the OS for an ephemeral one.
-             */
-            TorrentListenPort?: number;
-        };
-        /** @description One download, whichever engine is really carrying it. */
+        /** @description One download, as the app waiting for it sees it. */
         DownloadItem: {
-            /** @description Stable id: `{engine}:{engineId}`. */
+            /** @description `{app}:{queueId}`. */
             Id?: string;
             /** @description One of StingStream.Core.Downloads.DownloadEngines. */
             Engine?: string;
-            /** @description The engine's own identifier: an info hash, an NZBID, or an arr queue id. */
+            /** @description The arr's queue id. */
             EngineId?: string;
             /** @description True when StingStream.Core.Downloads.DownloadItem.Id is only meaningful until the owning app restarts. */
             Ephemeral?: boolean;
@@ -3778,58 +3709,54 @@ export interface components {
             RemainingBytes?: number;
             /**
              * Format: double
-             * @description 0 to 1. Null when the engine has not worked out a size yet (a magnet, say).
+             * @description 0 to 1. Null when no size is known yet.
              */
             Progress?: number | null;
             /**
              * Format: int64
-             * @description Bytes per second, down.
+             * @description Bytes per second, down, when the arr can say.
              */
             DownloadRate?: number;
             /**
              * Format: int64
-             * @description Bytes per second, up. Always zero for usenet.
+             * @description Bytes per second, up. The arrs do not report it, so this is zero.
              */
             UploadRate?: number;
             /** @description One of StingStream.Core.Downloads.DownloadStates. */
             State?: string;
-            /** @description The engine's own word for the state, kept because it is often more specific. */
+            /** @description The arr's own word for the state, kept because it is often more specific. */
             StateDetail?: string;
             /**
              * Format: int64
-             * @description Seconds remaining at the current rate, or null when that cannot be said.
+             * @description Seconds remaining, or null when that cannot be said.
              */
             Eta?: number | null;
-            /** @description Which arr is waiting for this download, when one is. */
+            /** @description Which arr is waiting for this download. */
             App?: string | null;
             /**
              * Format: int32
-             * @description The arr's queue id, which is what a removal has to go through to be tidy.
+             * @description The arr's queue id, which is what a removal goes through.
              */
             ArrQueueId?: number | null;
             /** @description The arr's own queue status word: `downloading`, `completed`, `warning` and so on. */
             ArrStatus?: string | null;
             /** @description What the arr says is wrong, when something is. */
             ErrorMessage?: string | null;
-            CanPause?: boolean;
-            CanResume?: boolean;
             CanRemove?: boolean;
-            /** @description When the download was added, RFC 3339, when the engine records it. */
+            /** @description When the download was added, RFC 3339, when the arr records it. */
             AddedAt?: string | null;
         };
-        /** @description The three switches, named for what they do rather than for what runs. */
+        /** @description The two switches, named for what they do rather than for what runs. */
         DownloadingSettings: {
             /** @description Whether this node fetches films. */
             Films?: boolean | null;
             /** @description Whether this node fetches series. */
             Series?: boolean | null;
-            /** @description Whether this node fetches over usenet as well as over BitTorrent. */
-            Usenet?: boolean | null;
         };
         /** @description The Downloads screen's whole answer. */
         DownloadsView: {
             Items?: components["schemas"]["DownloadItem"][];
-            /** @description Which engines answered, so an empty list can be told from an engine that is down. */
+            /** @description Which arrs answered, so an empty list can be told from one that is down. */
             Engines?: {
                 [key: string]: string;
             };
@@ -4046,7 +3973,7 @@ export interface components {
             Enabled?: boolean;
             /**
              * Format: int32
-             * @description 1 (highest) to 50. The embedded engines register at 1, so 2 is a sensible default.
+             * @description 1 (highest) to 50. NzbDrone's default is 1.
              */
             Priority?: number;
             /** @description Push this client to Radarr. */
@@ -4405,6 +4332,11 @@ export interface components {
              * @description How many of those are switched on.
              */
             Enabled?: number;
+            /**
+             * Format: int32
+             * @description How many download clients are switched on.
+             */
+            DownloadClients?: number;
             /** @description True when at least one manager answered. */
             Answered?: boolean;
             /** @description The managers' own indexer health messages, deduplicated. */
@@ -5694,8 +5626,6 @@ export interface components {
             /** @description False when this Jellyfin was started by hand rather than by the supervisor. */
             SupervisorDetected?: boolean;
             CoreDatabase?: string | null;
-            /** @description State of the in-process torrent engine. */
-            Torrents?: components["schemas"]["TorrentEngineStatus"];
             /** @description State of the BLAKE3 hashing queue. */
             Hashing?: components["schemas"]["HashingStatus"];
             /** Format: int64 */
@@ -7017,12 +6947,7 @@ export interface components {
          */
         SharedSettings: {
             Indexers?: components["schemas"]["IndexerSettings"][];
-            /**
-             * @description The two engines StingStream runs itself. Both are always registered in both apps; there is no
-             *     user choice to make, only whether they are enabled.
-             */
-            DownloadClients?: components["schemas"]["DownloadClientSettings"];
-            /** @description Download clients somebody else runs, registered in both arrs alongside the embedded ones. */
+            /** @description The download clients this node sends grabs to, all of them run by the user. */
             ExternalDownloadClients?: components["schemas"]["ExternalDownloadClientSettings"][];
             /**
              * @description Names StingStream once registered in the arrs and no longer wants there: an indexer or
@@ -7533,20 +7458,6 @@ export interface components {
          * @enum {string}
          */
         TonemappingRange: "auto" | "tv" | "pc";
-        /** @description State of the in-process torrent engine. */
-        TorrentEngineStatus: {
-            Running?: boolean;
-            Root?: string;
-            /** Format: int32 */
-            Count?: number;
-            /** Format: int64 */
-            DownloadRate?: number;
-            /** Format: int64 */
-            UploadRate?: number;
-            Categories?: {
-                [key: string]: string;
-            };
-        };
         /** @enum {string} */
         TranscodeReason: "ContainerNotSupported" | "VideoCodecNotSupported" | "AudioCodecNotSupported" | "SubtitleCodecNotSupported" | "AudioIsExternal" | "SecondaryAudioNotSupported" | "VideoProfileNotSupported" | "VideoLevelNotSupported" | "VideoResolutionNotSupported" | "VideoBitDepthNotSupported" | "VideoFramerateNotSupported" | "RefFramesNotSupported" | "AnamorphicVideoNotSupported" | "InterlacedVideoNotSupported" | "AudioChannelsNotSupported" | "AudioProfileNotSupported" | "AudioSampleRateNotSupported" | "AudioBitDepthNotSupported" | "ContainerBitrateExceedsLimit" | "VideoBitrateNotSupported" | "AudioBitrateNotSupported" | "UnknownVideoStreamInfo" | "UnknownAudioStreamInfo" | "DirectPlayError" | "VideoRangeTypeNotSupported" | "VideoCodecTagNotSupported" | "StreamCountExceedsLimit" | "VideoRotationNotSupported";
         /**
@@ -8905,9 +8816,9 @@ export interface operations {
             };
             header?: never;
             path: {
-                /** @description `torrent`, `usenet`, `radarr` or `sonarr`. */
+                /** @description `radarr` or `sonarr`: the app whose queue holds it. */
                 engine: string;
-                /** @description The engine's own id. */
+                /** @description That app's queue id. */
                 id: string;
             };
             cookie?: never;
@@ -8937,129 +8848,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description No such download, or the engine refused. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Downloads_PauseDownload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description `torrent` or `usenet`. */
-                engine: string;
-                /** @description The engine's own id: an info hash, or an NZBID. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Paused. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DownloadActionResult"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description This engine cannot pause: it tracks the download rather than holding it. */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProblemDetails"];
-                };
-            };
-            /** @description The server is currently starting or is temporarily not available. */
-            503: {
-                headers: {
-                    /** @description A hint for when to retry the operation in full seconds. */
-                    "Retry-After"?: number;
-                    /** @description A short plain-text reason why the server is not available. */
-                    Message?: string;
-                    [name: string]: unknown;
-                };
-                content: {
-                    "text/html": unknown;
-                };
-            };
-        };
-    };
-    Downloads_ResumeDownload: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description `torrent` or `usenet`. */
-                engine: string;
-                /** @description The engine's own id. */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Resumed. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DownloadActionResult"];
-                };
-            };
-            /** @description Unauthorized */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description This engine cannot resume. */
+            /** @description No such download, or the app refused. */
             409: {
                 headers: {
                     [name: string]: unknown;

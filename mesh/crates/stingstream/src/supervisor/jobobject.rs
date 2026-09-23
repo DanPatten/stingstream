@@ -5,8 +5,8 @@
 //! `kill_on_drop(true)` on every spawned child covers a supervisor that panics, returns an error,
 //! or is Ctrl+C'd: tokio's `Child` drop handler runs and each child is terminated. It does nothing
 //! at all for a supervisor that is *killed* — `Stop-Process -Force`, the Task Manager, a crash, an
-//! installer that terminates the service — because no destructor runs. Jellyfin, both arrs and
-//! NZBGet carry on running, holding the ports the next node wants, and have to be stopped by name.
+//! installer that terminates the service — because no destructor runs. Jellyfin and both arrs
+//! carry on running, holding the ports the next node wants, and have to be stopped by name.
 //!
 //! `tools/e2e-m1.ps1` has a whole block for exactly this, with a comment saying so, and M1
 //! recorded it as an accepted limitation to be fixed "when M8 adds a Job Object".

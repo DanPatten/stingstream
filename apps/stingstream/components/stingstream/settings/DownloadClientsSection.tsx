@@ -5,20 +5,13 @@ import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { Input } from "@/components/common/Input";
 import { Pill } from "@/components/common/Pill";
-import { SettingSwitch } from "@/components/common/SettingSwitch";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
-import { radius, space } from "@/constants/theme";
+import { radius } from "@/constants/theme";
 import { useTheme } from "@/hooks/useTheme";
 import {
-  useDownloading,
-  useDownloadingHealth,
-  useSaveDownloading,
-} from "@/lib/stingstream/downloading";
-import {
   type ConnectivityTestResult,
-  type DownloadClientSettings,
   type ExternalDownloadClientSettings,
   useAddExternalDownloadClient,
   useDeleteExternalDownloadClient,
@@ -29,134 +22,22 @@ import {
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
-import { FormSwitch, SaveStatus, TextFieldRow, ToggleRow } from "./fields";
-import { useAutosave } from "./useAutosave";
-
-export function DownloadClientsSection({
-  value,
-  onSave,
-  saving,
-}: {
-  value: DownloadClientSettings;
-  onSave: (next: DownloadClientSettings) => Promise<void>;
-  saving: boolean;
-}) {
-  const { t } = useTranslation();
-  const {
-    draft,
-    set: edit,
-    saving: sending,
-  } = useAutosave({
-    value,
-    save: async (next) => {
-      try {
-        await onSave(next);
-        toast.success(t("server_settings.download_clients_save_success"));
-      } catch (err) {
-        toast.error(
-          err instanceof Error ? err.message : t("server_settings.save_error"),
-        );
-      }
-    },
-  });
-
-  // A switch is a decision, so it goes at once; a field is still being typed, so it waits for the
-  // pause `useAutosave` counts out.
-  const set = <K extends keyof DownloadClientSettings>(
-    key: K,
-    v: DownloadClientSettings[K],
-    options?: { now?: boolean },
-  ) => edit((d) => ({ ...d, [key]: v }), options);
-
-  if (!draft) return null;
-
-  return (
-    <View>
-      <ScreenHeaderRow title={t("server_settings.download_clients_title")} />
-
-      <ListGroup title={t("server_settings.torrent_engine_group_title")}>
-        <ToggleRow
-          title={t("server_settings.enabled_label")}
-          value={draft.TorrentsEnabled ?? false}
-          onValueChange={(v) => set("TorrentsEnabled", v, { now: true })}
-        />
-        <ToggleRow
-          title={t("server_settings.torrent_dht_title")}
-          subtitle={t("server_settings.torrent_dht_detail")}
-          value={draft.TorrentDhtEnabled ?? false}
-          onValueChange={(v) => set("TorrentDhtEnabled", v, { now: true })}
-        />
-        <ToggleRow
-          title={t("server_settings.torrent_local_peer_discovery_title")}
-          value={draft.TorrentLocalPeerDiscovery ?? false}
-          onValueChange={(v) =>
-            set("TorrentLocalPeerDiscovery", v, { now: true })
-          }
-        />
-        <TextFieldRow
-          title={t("server_settings.torrent_listen_port_title")}
-          subtitle={t("server_settings.torrent_listen_port_detail")}
-          value={String(draft.TorrentListenPort ?? 0)}
-          keyboardType='number-pad'
-          onChangeText={(v) =>
-            set("TorrentListenPort", Number.parseInt(v, 10) || 0)
-          }
-        />
-      </ListGroup>
-
-      <View style={{ height: 12 }} />
-
-      <ListGroup title={t("server_settings.usenet_engine_group_title")}>
-        {/*
-          One switch, two things, and that is the point of it being here. Usenet used to be a row
-          on the Downloading page starting the NZBGet process, and a separate Enabled toggle on
-          this page registering NZBGet with the managers. Their own doc comments claimed they meant
-          the same thing; they did not, and a reader who found one of them had no way to know the
-          other existed. `UsenetRow` sets both, and shows what is actually running.
-        */}
-        <UsenetRow
-          value={draft.UsenetEnabled ?? false}
-          onValueChange={(v) => set("UsenetEnabled", v, { now: true })}
-        />
-      </ListGroup>
-
-      <View style={{ height: 12 }} />
-
-      <ListGroup title={t("server_settings.housekeeping_group_title")}>
-        <ToggleRow
-          title={t("server_settings.remove_completed_title")}
-          value={draft.RemoveCompletedDownloads ?? false}
-          onValueChange={(v) =>
-            set("RemoveCompletedDownloads", v, { now: true })
-          }
-        />
-        <ToggleRow
-          title={t("server_settings.remove_failed_title")}
-          value={draft.RemoveFailedDownloads ?? false}
-          onValueChange={(v) => set("RemoveFailedDownloads", v, { now: true })}
-        />
-      </ListGroup>
-
-      <View style={{ height: 16 }} />
-      <ExternalClients />
-      <View style={{ height: 8 }} />
-
-      <SaveStatus saving={saving || sending} />
-    </View>
-  );
-}
+import { FormSwitch } from "./fields";
 
 /**
- * Download clients somebody else runs. Gap 8 closed.
+ * The download clients this server sends grabs to. Gap 8.
  *
- * Separate from the embedded engines above on purpose: those two are toggles
- * with no address, because StingStream is the thing running them. These have a
- * host, a port and credentials, and are pushed into both arrs the same way
- * indexers are — from the app's own `downloadclient/schema`, so an
- * implementation StingStream has never heard of still works as long as the arr
- * has it.
+ * All of them run by the user: StingStream ran its own until 2026-09-23 (an
+ * in-process torrent engine and a bundled NZBGet), and this card used to lead
+ * with their switches, with the user's own clients as an extra underneath. Dan:
+ * "Remove the built in torrent client and require an external client". So this
+ * is the whole card, and a server with none shows the one action that fixes it.
+ *
+ * Pushed into both managers the same way indexers are, from each app's own
+ * `downloadclient/schema`, so an implementation StingStream has never heard of
+ * still works as long as the manager has it.
  */
-function ExternalClients() {
+export function DownloadClientsSection() {
   const { t } = useTranslation();
   const { color, accent } = useTheme();
   const clients = useExternalDownloadClients();
@@ -263,7 +144,7 @@ function ExternalClients() {
   return (
     <View>
       <ScreenHeaderRow
-        title={t("server_settings.external_clients_title")}
+        title={t("server_settings.download_clients_title")}
         accessory={
           <Button
             variant='secondary'
@@ -422,6 +303,16 @@ function ExternalClients() {
             value={form.ForSeries ?? true}
             onValueChange={(v) => set("ForSeries", v)}
           />
+          <FormSwitch
+            title={t("server_settings.remove_completed_title")}
+            value={form.RemoveCompletedDownloads ?? true}
+            onValueChange={(v) => set("RemoveCompletedDownloads", v)}
+          />
+          <FormSwitch
+            title={t("server_settings.remove_failed_title")}
+            value={form.RemoveFailedDownloads ?? true}
+            onValueChange={(v) => set("RemoveFailedDownloads", v)}
+          />
           {editing && (
             <FormSwitch
               title={t("server_settings.enabled_label")}
@@ -475,6 +366,17 @@ function ExternalClients() {
           <EmptyState
             title={t("server_settings.external_clients_empty_title")}
             detail={t("server_settings.external_clients_empty_detail")}
+            icon='download'
+            action={
+              open
+                ? undefined
+                : {
+                    label: t(
+                      "server_settings.external_clients_add_client_action",
+                    ),
+                    onPress: () => setOpen(true),
+                  }
+            }
           />
         ) : (
           <ListGroup>
@@ -548,7 +450,8 @@ function ExternalClients() {
  * The implementations NzbDrone ships, with the port each one uses by default.
  *
  * A shortlist, not the full set: these are the six somebody is realistically
- * already running. The name is matched case-insensitively against the app's own
+ * already running. NZBGet here is the user's own server; the one StingStream
+ * used to bundle is gone. The name is matched case-insensitively against the app's own
  * schema, so a client not listed here still works — it just has to be typed
  * exactly, and the test button is how you find out whether it was.
  */
@@ -589,86 +492,9 @@ const emptyClient: ExternalDownloadClientSettings = {
   MovieCategory: "radarr",
   TvCategory: "sonarr",
   Enabled: true,
-  Priority: 2,
+  Priority: 1,
   ForMovies: true,
   ForSeries: true,
   RemoveCompletedDownloads: true,
   RemoveFailedDownloads: true,
 };
-
-/**
- * Usenet: the engine process, and whether the managers are told about it.
- *
- * Two switches meant one thing here until 2026-09-10. `config.toml`'s `[children] nzbget` decides
- * whether the process runs at all, and `DownloadClients.UsenetEnabled` decides whether Radarr and
- * Sonarr are handed it as a download client. Off in the first and on in the second is a manager
- * pointed at a port with nothing behind it; the reverse is a running engine nothing ever uses.
- * Neither is a state anybody chose, so this writes both.
- *
- * The pill is the same intent-versus-fact split the libraries use: NZBGet starts within a few
- * seconds of the file changing, which is longer than the press.
- */
-function UsenetRow({
-  value,
-  onValueChange,
-}: {
-  value: boolean;
-  onValueChange: (v: boolean) => void;
-}) {
-  const { t } = useTranslation();
-  const { accent } = useTheme();
-  const downloading = useDownloading();
-  const saveDownloading = useSaveDownloading();
-  const health = useDownloadingHealth("usenet");
-
-  // The process switch is the one that can fail on its own -- an unmanaged node has no
-  // `config.toml` to write -- so it is what the row reads back, falling back to the settings flag
-  // while that answer is still on its way.
-  const on = downloading.data?.usenet ?? value;
-
-  const change = async (next: boolean) => {
-    onValueChange(next);
-    try {
-      await saveDownloading.mutateAsync({ usenet: next });
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : t("server_settings.save_error"),
-      );
-    }
-  };
-
-  const status = (() => {
-    if (!on || health.state === undefined) return null;
-    if (health.state === "healthy") {
-      return { label: t("libraries.state_running"), tone: "success" as const };
-    }
-    if (health.state === "starting") {
-      return { label: t("libraries.state_starting"), tone: "neutral" as const };
-    }
-    return { label: t("libraries.state_failed"), tone: "danger" as const };
-  })();
-
-  return (
-    <ListItem
-      title={t("server_settings.enabled_label")}
-      subtitle={
-        on && health.state !== "healthy" && health.error
-          ? health.error
-          : undefined
-      }
-    >
-      <View
-        style={{ flexDirection: "row", alignItems: "center", gap: space["2"] }}
-      >
-        {status ? (
-          <Pill label={status.label} tone={status.tone} size='sm' />
-        ) : null}
-        <SettingSwitch
-          value={on}
-          onValueChange={(next) => void change(next)}
-          trackColor={{ true: accent[500] }}
-        />
-      </View>
-    </ListItem>
-  );
-}

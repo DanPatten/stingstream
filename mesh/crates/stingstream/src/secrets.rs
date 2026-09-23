@@ -1,5 +1,6 @@
-//! Generated credentials: arr API keys, NZBGet and qBittorrent-shim passwords, the Jellyfin
-//! bootstrap admin password.
+//! Generated credentials: arr API keys, the node secret (`qbittorrent.password` in
+//! `runtime.json`, named for the qBittorrent shim it was first minted for), the Jellyfin bootstrap
+//! admin password.
 //!
 //! All of these are written once into `runtime.json` (owner-only where the OS supports it) and
 //! reused on every subsequent start, so a restart does not invalidate configuration that has
@@ -23,9 +24,10 @@ pub fn hex32() -> String {
 
 /// A password made of an unambiguous alphabet.
 ///
-/// NZBGet's `nzbget.conf` is a flat `Key=Value` file with no quoting, and the qBittorrent shim's
-/// credentials travel through Radarr's settings UI and its `config.xml`, so anything that could be
-/// read as a delimiter, a shell metacharacter or an XML entity is excluded. Look-alike characters
+/// These passwords have travelled through flat `Key=Value` files with no quoting, the arrs'
+/// settings UIs and their `config.xml`, and the node secret still ends up hashed into signed URLs,
+/// so anything that could be read as a delimiter, a shell metacharacter or an XML entity is
+/// excluded. Look-alike characters
 /// (`0`/`O`, `1`/`l`/`I`) are excluded too, since these end up being read off a screen.
 pub fn password(len: usize) -> String {
     const ALPHABET: &[u8] = b"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";

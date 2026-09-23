@@ -888,7 +888,7 @@
           "Downloading"
         ],
         "summary": "Turn downloading on or off.",
-        "description": "Omitted rather than false-by-default: a screen that only shows the film manager must not\r\nsilently turn the usenet engine off because its checkbox was not on the page.",
+        "description": "Omitted rather than false-by-default: a screen that only shows the film manager must not\r\nsilently turn the series manager off because its checkbox was not on the page.",
         "operationId": "Put",
         "requestBody": {
           "description": "What each switch should become. An omitted switch is left as it is.",
@@ -900,7 +900,7 @@
                     "$ref": "#/components/schemas/DownloadingSettings"
                   }
                 ],
-                "description": "The three switches, named for what they do rather than for what runs."
+                "description": "The two switches, named for what they do rather than for what runs."
               }
             },
             "text/json": {
@@ -910,7 +910,7 @@
                     "$ref": "#/components/schemas/DownloadingSettings"
                   }
                 ],
-                "description": "The three switches, named for what they do rather than for what runs."
+                "description": "The two switches, named for what they do rather than for what runs."
               }
             },
             "application/*+json": {
@@ -920,7 +920,7 @@
                     "$ref": "#/components/schemas/DownloadingSettings"
                   }
                 ],
-                "description": "The three switches, named for what they do rather than for what runs."
+                "description": "The two switches, named for what they do rather than for what runs."
               }
             }
           }
@@ -1029,13 +1029,13 @@
           "Downloads"
         ],
         "summary": "Remove one download.",
-        "description": "When an arr is waiting for the download, the removal goes through that arr with\r\n`removeFromClient=true`, so the queue row goes too — see\r\nM:StingStream.Core.Downloads.DownloadsService.RemoveAsync(System.String,System.String,System.Boolean,System.Boolean,System.Threading.CancellationToken) for why doing it the other way round produces a\r\nfailed-grab notification a few minutes later.",
+        "description": "The removal goes through the arr, so the queue row goes too. See\r\nM:StingStream.Core.Downloads.DownloadsService.RemoveAsync(System.String,System.String,System.Boolean,System.Boolean,System.Threading.CancellationToken).",
         "operationId": "RemoveDownload",
         "parameters": [
           {
             "name": "engine",
             "in": "path",
-            "description": "`torrent`, `usenet`, `radarr` or `sonarr`.",
+            "description": "`radarr` or `sonarr`: the app whose queue holds it.",
             "required": true,
             "schema": {
               "type": "string"
@@ -1044,7 +1044,7 @@
           {
             "name": "id",
             "in": "path",
-            "description": "The engine's own id.",
+            "description": "That app's queue id.",
             "required": true,
             "schema": {
               "type": "string"
@@ -1085,183 +1085,7 @@
             "description": "Forbidden"
           },
           "409": {
-            "description": "No such download, or the engine refused.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/downloads/{engine}/{id}/pause": {
-      "post": {
-        "tags": [
-          "Downloads"
-        ],
-        "summary": "Pause one download.",
-        "operationId": "PauseDownload",
-        "parameters": [
-          {
-            "name": "engine",
-            "in": "path",
-            "description": "`torrent` or `usenet`.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "description": "The engine's own id: an info hash, or an NZBID.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Paused.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DownloadActionResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "409": {
-            "description": "This engine cannot pause: it tracks the download rather than holding it.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "The server is currently starting or is temporarily not available.",
-            "headers": {
-              "Retry-After": {
-                "description": "A hint for when to retry the operation in full seconds.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "integer",
-                  "format": "int32"
-                }
-              },
-              "Message": {
-                "description": "A short plain-text reason why the server is not available.",
-                "allowEmptyValue": true,
-                "schema": {
-                  "type": "string",
-                  "format": "text"
-                }
-              }
-            },
-            "content": {
-              "text/html": {}
-            }
-          }
-        },
-        "security": [
-          {
-            "CustomAuthentication": [
-              "RequiresElevation"
-            ]
-          }
-        ]
-      }
-    },
-    "/stingstream/api/v1/downloads/{engine}/{id}/resume": {
-      "post": {
-        "tags": [
-          "Downloads"
-        ],
-        "summary": "Resume one download.",
-        "operationId": "ResumeDownload",
-        "parameters": [
-          {
-            "name": "engine",
-            "in": "path",
-            "description": "`torrent` or `usenet`.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "id",
-            "in": "path",
-            "description": "The engine's own id.",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Resumed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DownloadActionResult"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthorized"
-          },
-          "403": {
-            "description": "Forbidden"
-          },
-          "409": {
-            "description": "This engine cannot resume.",
+            "description": "No such download, or the app refused.",
             "content": {
               "application/json": {
                 "schema": {
@@ -14737,72 +14561,14 @@
           }
         },
         "additionalProperties": false,
-        "description": "What one pause/resume/remove did."
-      },
-      "DownloadClientSettings": {
-        "type": "object",
-        "properties": {
-          "TorrentsEnabled": {
-            "type": "boolean",
-            "description": "The in-process MonoTorrent engine, presented as qBittorrent."
-          },
-          "TorrentClientName": {
-            "type": "string",
-            "description": "Name the client is registered under in both apps."
-          },
-          "TorrentMovieCategory": {
-            "type": "string",
-            "description": "qBittorrent category for Radarr's downloads."
-          },
-          "TorrentTvCategory": {
-            "type": "string",
-            "description": "qBittorrent category for Sonarr's downloads."
-          },
-          "UsenetEnabled": {
-            "type": "boolean",
-            "description": "The supervisor-run NZBGet child."
-          },
-          "UsenetClientName": {
-            "type": "string"
-          },
-          "UsenetMovieCategory": {
-            "type": "string",
-            "description": "NZBGet category for Radarr, which must exist in nzbget.conf or the app's test fails."
-          },
-          "UsenetTvCategory": {
-            "type": "string",
-            "description": "NZBGet category for Sonarr."
-          },
-          "RemoveCompletedDownloads": {
-            "type": "boolean",
-            "description": "Let the apps delete completed downloads once they have been imported and seeded."
-          },
-          "RemoveFailedDownloads": {
-            "type": "boolean"
-          },
-          "TorrentDhtEnabled": {
-            "type": "boolean",
-            "description": "Join the public BitTorrent DHT."
-          },
-          "TorrentLocalPeerDiscovery": {
-            "type": "boolean",
-            "description": "Announce to and listen for peers on the local network."
-          },
-          "TorrentListenPort": {
-            "type": "integer",
-            "description": "Port the torrent engine listens on. 0 asks the OS for an ephemeral one.",
-            "format": "int32"
-          }
-        },
-        "additionalProperties": false,
-        "description": "The two engines StingStream runs itself. Both are always registered in both apps; there is no\r\nuser choice to make, only whether they are enabled."
+        "description": "What one removal did."
       },
       "DownloadItem": {
         "type": "object",
         "properties": {
           "Id": {
             "type": "string",
-            "description": "Stable id: `{engine}:{engineId}`."
+            "description": "`{app}:{queueId}`."
           },
           "Engine": {
             "type": "string",
@@ -14810,7 +14576,7 @@
           },
           "EngineId": {
             "type": "string",
-            "description": "The engine's own identifier: an info hash, an NZBID, or an arr queue id."
+            "description": "The arr's queue id."
           },
           "Ephemeral": {
             "type": "boolean",
@@ -14838,18 +14604,18 @@
           },
           "Progress": {
             "type": "number",
-            "description": "0 to 1. Null when the engine has not worked out a size yet (a magnet, say).",
+            "description": "0 to 1. Null when no size is known yet.",
             "format": "double",
             "nullable": true
           },
           "DownloadRate": {
             "type": "integer",
-            "description": "Bytes per second, down.",
+            "description": "Bytes per second, down, when the arr can say.",
             "format": "int64"
           },
           "UploadRate": {
             "type": "integer",
-            "description": "Bytes per second, up. Always zero for usenet.",
+            "description": "Bytes per second, up. The arrs do not report it, so this is zero.",
             "format": "int64"
           },
           "State": {
@@ -14858,22 +14624,22 @@
           },
           "StateDetail": {
             "type": "string",
-            "description": "The engine's own word for the state, kept because it is often more specific."
+            "description": "The arr's own word for the state, kept because it is often more specific."
           },
           "Eta": {
             "type": "integer",
-            "description": "Seconds remaining at the current rate, or null when that cannot be said.",
+            "description": "Seconds remaining, or null when that cannot be said.",
             "format": "int64",
             "nullable": true
           },
           "App": {
             "type": "string",
-            "description": "Which arr is waiting for this download, when one is.",
+            "description": "Which arr is waiting for this download.",
             "nullable": true
           },
           "ArrQueueId": {
             "type": "integer",
-            "description": "The arr's queue id, which is what a removal has to go through to be tidy.",
+            "description": "The arr's queue id, which is what a removal goes through.",
             "format": "int32",
             "nullable": true
           },
@@ -14887,23 +14653,17 @@
             "description": "What the arr says is wrong, when something is.",
             "nullable": true
           },
-          "CanPause": {
-            "type": "boolean"
-          },
-          "CanResume": {
-            "type": "boolean"
-          },
           "CanRemove": {
             "type": "boolean"
           },
           "AddedAt": {
             "type": "string",
-            "description": "When the download was added, RFC 3339, when the engine records it.",
+            "description": "When the download was added, RFC 3339, when the arr records it.",
             "nullable": true
           }
         },
         "additionalProperties": false,
-        "description": "One download, whichever engine is really carrying it."
+        "description": "One download, as the app waiting for it sees it."
       },
       "DownloadingSettings": {
         "type": "object",
@@ -14917,15 +14677,10 @@
             "type": "boolean",
             "description": "Whether this node fetches series.",
             "nullable": true
-          },
-          "Usenet": {
-            "type": "boolean",
-            "description": "Whether this node fetches over usenet as well as over BitTorrent.",
-            "nullable": true
           }
         },
         "additionalProperties": false,
-        "description": "The three switches, named for what they do rather than for what runs."
+        "description": "The two switches, named for what they do rather than for what runs."
       },
       "DownloadsView": {
         "type": "object",
@@ -14941,7 +14696,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "Which engines answered, so an empty list can be told from an engine that is down."
+            "description": "Which arrs answered, so an empty list can be told from one that is down."
           },
           "TotalDownloadRate": {
             "type": "integer",
@@ -15371,7 +15126,7 @@
           },
           "Priority": {
             "type": "integer",
-            "description": "1 (highest) to 50. The embedded engines register at 1, so 2 is a sensible default.",
+            "description": "1 (highest) to 50. NzbDrone's default is 1.",
             "format": "int32"
           },
           "ForMovies": {
@@ -16405,6 +16160,11 @@
           "Enabled": {
             "type": "integer",
             "description": "How many of those are switched on.",
+            "format": "int32"
+          },
+          "DownloadClients": {
+            "type": "integer",
+            "description": "How many download clients are switched on.",
             "format": "int32"
           },
           "Answered": {
@@ -19515,14 +19275,6 @@
           "CoreDatabase": {
             "type": "string",
             "nullable": true
-          },
-          "Torrents": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/TorrentEngineStatus"
-              }
-            ],
-            "description": "State of the in-process torrent engine."
           },
           "Hashing": {
             "allOf": [
@@ -23253,20 +23005,12 @@
               "$ref": "#/components/schemas/IndexerSettings"
             }
           },
-          "DownloadClients": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DownloadClientSettings"
-              }
-            ],
-            "description": "The two engines StingStream runs itself. Both are always registered in both apps; there is no\r\nuser choice to make, only whether they are enabled."
-          },
           "ExternalDownloadClients": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ExternalDownloadClientSettings"
             },
-            "description": "Download clients somebody else runs, registered in both arrs alongside the embedded ones."
+            "description": "The download clients this node sends grabs to, all of them run by the user."
           },
           "RetiredProviders": {
             "type": "array",
@@ -24551,37 +24295,6 @@
         ],
         "type": "string",
         "description": "Enum containing tonemapping ranges."
-      },
-      "TorrentEngineStatus": {
-        "type": "object",
-        "properties": {
-          "Running": {
-            "type": "boolean"
-          },
-          "Root": {
-            "type": "string"
-          },
-          "Count": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "DownloadRate": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "UploadRate": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "Categories": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          }
-        },
-        "additionalProperties": false,
-        "description": "State of the in-process torrent engine."
       },
       "TranscodeReason": {
         "enum": [

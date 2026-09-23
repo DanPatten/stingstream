@@ -1,141 +1,91 @@
 using System.Text.Json.Nodes;
-using MonoTorrent.Client;
+using StingStream.Core.Arr;
 using StingStream.Core.Downloads;
-using StingStream.Core.Torrents;
 using Xunit;
 
 namespace StingStream.Core.Tests;
 
 /// <summary>
-/// Turning three engines' idea of a download into one.
+/// Turning the arrs' queue rows into one list of downloads.
 /// </summary>
 /// <remarks>
-/// The shaping is where a unified list either tells the truth or quietly lies. The cases below are
-/// the ones that were wrong the first time: an NZB's split 64-bit sizes, a seeding torrent that is
-/// finished from the user's point of view but "downloading" from the engine's, and an ETA computed
-/// from a rate of zero.
+/// Every download is in a client the user runs, so a queue row is all StingStream sees of it. The
+/// cases below are the ones where a row either tells the truth on a Downloads screen or quietly
+/// lies: a finished payload that has not been imported, an import blocker hidden in
+/// <c>statusMessages</c>, and a size that arrives as something other than a long.
 /// </remarks>
 public class DownloadsShapeTests
 {
-    private static TorrentView Torrent(TorrentState state, double progress, bool complete = false)
-        => new()
-        {
-            Hash = "ABCDEF0123456789",
-            Name = "Big Buck Bunny (2008) 1080p",
-            Size = 1_000_000_000,
-            Progress = progress,
-            State = state,
-            Complete = complete,
-            Category = "radarr",
-            DownloadRate = 5_000_000,
-            UploadRate = 1_000,
-            SavePath = "/downloads/torrents/radarr",
-        };
+    private static JsonObject Row(string status, long size, long left, string? timeLeft = null) => new()
+    {
+        ["id"] = 7,
+        ["title"] = "Big Buck Bunny (2008) 1080p",
+        ["status"] = status,
+        ["size"] = size,
+        ["sizeleft"] = left,
+        ["timeleft"] = timeLeft,
+        ["downloadId"] = "ABCDEF0123456789",
+    };
 
     [Fact]
-    public void A_downloading_torrent_keeps_its_rate_progress_and_eta()
+    public void A_downloading_row_keeps_its_progress_and_time_left()
     {
-        var item = DownloadsService.FromTorrent(Torrent(TorrentState.Downloading, 0.25));
+        var item = DownloadsService.FromQueueRow("radarr", Row("downloading", 1_000_000_000, 750_000_000, "00:02:30"))!;
 
-        Assert.Equal("torrent:ABCDEF0123456789", item.Id);
-        Assert.Equal(DownloadEngines.Torrent, item.Engine);
+        Assert.Equal("radarr:7", item.Id);
+        Assert.Equal(DownloadEngines.Radarr, item.Engine);
+        Assert.True(item.Ephemeral);
         Assert.Equal(DownloadStates.Downloading, item.State);
-        Assert.Equal(0.25, item.Progress);
-        Assert.Equal(250_000_000, item.DownloadedBytes);
-        Assert.Equal(750_000_000, item.RemainingBytes);
+        Assert.Equal(0.25, item.Progress!.Value, 3);
         Assert.Equal(150, item.Eta);
-        Assert.True(item.CanPause);
-        Assert.False(item.CanResume);
+        Assert.Equal(5_000_000, item.DownloadRate);
+        Assert.True(item.CanRemove);
     }
 
     [Fact]
-    public void A_seeding_torrent_reads_as_completed_but_can_still_be_paused()
+    public void A_finished_payload_the_arr_has_not_imported_reads_as_importing()
     {
-        // MonoTorrent says "Seeding" for a torrent whose payload is entirely on disk. To a Downloads
-        // screen that is finished, and showing it as an active download would make the count wrong
-        // and the aggregate rate meaningless — but it is still running, and pausing it stops the
-        // upload, which is a thing somebody on a metered line very much wants to do. The state word
-        // and the available action are answering two different questions.
-        var item = DownloadsService.FromTorrent(Torrent(TorrentState.Seeding, 1.0, complete: true));
-        Assert.Equal(DownloadStates.Completed, item.State);
-        Assert.True(item.CanPause);
-        Assert.False(item.CanResume);
+        var item = DownloadsService.FromQueueRow("sonarr", Row("completed", 1000, 0))!;
+
+        Assert.Equal(DownloadStates.Importing, item.State);
+        Assert.Null(item.Eta);
     }
 
     [Fact]
-    public void A_torrent_in_error_offers_nothing_but_removal()
+    public void An_import_blocker_in_status_messages_is_the_error()
     {
-        var item = DownloadsService.FromTorrent(Torrent(TorrentState.Error, 0.3));
+        var row = Row("completed", 1000, 0);
+        row["statusMessages"] = new JsonArray
+        {
+            new JsonObject
+            {
+                ["title"] = "x",
+                ["messages"] = new JsonArray { "No files found are eligible for import" },
+            },
+        };
+
+        var item = DownloadsService.FromQueueRow("radarr", row)!;
+
         Assert.Equal(DownloadStates.Failed, item.State);
-        Assert.False(item.CanPause);
-        Assert.False(item.CanResume);
-        Assert.True(item.CanRemove);
+        Assert.Equal("No files found are eligible for import", item.ErrorMessage);
     }
 
     [Fact]
-    public void A_paused_torrent_offers_resume_and_nothing_else()
+    public void A_row_with_no_queue_id_is_skipped()
     {
-        var item = DownloadsService.FromTorrent(Torrent(TorrentState.Paused, 0.4));
-        Assert.Equal(DownloadStates.Paused, item.State);
-        Assert.False(item.CanPause);
-        Assert.True(item.CanResume);
-        Assert.True(item.CanRemove);
+        var row = Row("downloading", 1000, 500);
+        row.Remove("id");
+        Assert.Null(DownloadsService.FromQueueRow("radarr", row));
     }
 
     [Fact]
-    public void An_nzb_size_is_reassembled_from_its_two_halves()
+    public void Numbers_are_read_whatever_backs_them()
     {
-        // NZBGet splits every 64-bit number into Lo and Hi 32-bit fields. Reading the MB field
-        // instead -- the obvious shortcut -- rounds a 6 GB download to the nearest megabyte, and
-        // reading Lo alone silently wraps anything over 4 GB.
-        const long size = 6L * 1024 * 1024 * 1024;
-        const long remaining = 2L * 1024 * 1024 * 1024;
-        var group = new JsonObject
-        {
-            ["NZBID"] = 42,
-            ["NZBName"] = "Some.Release.1080p",
-            ["Category"] = "movies",
-            ["Status"] = "DOWNLOADING",
-            ["FileSizeLo"] = (long)(uint)(size & 0xFFFFFFFF),
-            ["FileSizeHi"] = size >> 32,
-            ["RemainingSizeLo"] = (long)(uint)(remaining & 0xFFFFFFFF),
-            ["RemainingSizeHi"] = remaining >> 32,
-            ["DownloadedSizeLo"] = 0,
-            ["DownloadedSizeHi"] = 0,
-            ["DownloadRate"] = 10_000_000,
-        };
-
-        var item = DownloadsService.FromNzb(group);
-
-        Assert.Equal("usenet:42", item.Id);
-        Assert.Equal(size, item.SizeBytes);
-        Assert.Equal(remaining, item.RemainingBytes);
-        // No DownloadedSize reported, so it is inferred rather than shown as zero.
-        Assert.Equal(size - remaining, item.DownloadedBytes);
-        Assert.Equal(DownloadStates.Downloading, item.State);
-        Assert.True(item.CanPause);
-    }
-
-    [Theory]
-    [InlineData("PAUSED", DownloadStates.Paused)]
-    [InlineData("QUEUED", DownloadStates.Queued)]
-    [InlineData("UNPACKING", DownloadStates.Importing)]
-    [InlineData("REPAIRING", DownloadStates.Importing)]
-    [InlineData("MOVING", DownloadStates.Importing)]
-    public void Every_nzbget_post_processing_state_reads_as_importing(string status, string expected)
-    {
-        var group = new JsonObject
-        {
-            ["NZBID"] = 1,
-            ["Status"] = status,
-            ["FileSizeLo"] = 1000,
-            ["RemainingSizeLo"] = 0,
-        };
-        var item = DownloadsService.FromNzb(group);
-        Assert.Equal(expected, item.State);
-        // The engine's own word survives, because "UNPACKING" is more use than "importing" when
-        // somebody is asking why a download has been at 100% for ten minutes.
-        Assert.Equal(status, item.StateDetail);
+        Assert.Equal(5, JsonNumber.Read(JsonValue.Create(5)));
+        Assert.Equal(5_000_000_000, JsonNumber.Read(JsonValue.Create(5_000_000_000L)));
+        Assert.Equal(12, JsonNumber.Read(JsonValue.Create("12")));
+        Assert.Equal(3, JsonNumber.Read(JsonNode.Parse("3.9")));
+        Assert.Null(JsonNumber.Read(null));
     }
 
     [Fact]
@@ -145,4 +95,35 @@ public class DownloadsShapeTests
         Assert.Null(DownloadsService.Eta(0, 1000));
         Assert.Equal(10, DownloadsService.Eta(10_000, 1_000));
     }
+
+    [Fact]
+    public void The_retired_torrent_shim_is_recognised_by_where_it_points()
+    {
+        Assert.True(OmniarrSyncService.IsRetiredBuiltIn(Client("QBittorrent", "StingStream Torrents", "127.0.0.1", "/jellyfin/stingstream/qbt")));
+        Assert.True(OmniarrSyncService.IsRetiredBuiltIn(Client("QBittorrent", "Renamed by hand", "localhost", "/stingstream/qbt/")));
+
+        // A real qBittorrent on the same machine is the user's, whatever it is called.
+        Assert.False(OmniarrSyncService.IsRetiredBuiltIn(Client("QBittorrent", "StingStream Torrents", "127.0.0.1", string.Empty)));
+        Assert.False(OmniarrSyncService.IsRetiredBuiltIn(Client("QBittorrent", "Seedbox", "10.0.0.5", "/stingstream/qbt")));
+    }
+
+    [Fact]
+    public void The_retired_nzbget_is_recognised_by_its_name_on_loopback()
+    {
+        Assert.True(OmniarrSyncService.IsRetiredBuiltIn(Client("Nzbget", "StingStream Usenet", "127.0.0.1", string.Empty)));
+        Assert.False(OmniarrSyncService.IsRetiredBuiltIn(Client("Nzbget", "My NZBGet", "127.0.0.1", string.Empty)));
+        Assert.False(OmniarrSyncService.IsRetiredBuiltIn(Client("Nzbget", "StingStream Usenet", "nas.local", string.Empty)));
+        Assert.False(OmniarrSyncService.IsRetiredBuiltIn(Client("Sabnzbd", "StingStream Usenet", "127.0.0.1", string.Empty)));
+    }
+
+    private static JsonObject Client(string implementation, string name, string host, string urlBase) => new()
+    {
+        ["implementation"] = implementation,
+        ["name"] = name,
+        ["fields"] = new JsonArray
+        {
+            new JsonObject { ["name"] = "host", ["value"] = host },
+            new JsonObject { ["name"] = "urlBase", ["value"] = urlBase },
+        },
+    };
 }

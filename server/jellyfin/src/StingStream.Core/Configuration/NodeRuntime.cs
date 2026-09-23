@@ -13,7 +13,7 @@ namespace StingStream.Core.Configuration;
 /// <remarks>
 /// This is the contract between the Rust supervisor (<c>mesh/crates/stingstream</c>) and
 /// <c>StingStream.Core</c>: it publishes what actually got assigned this run -- the children's
-/// real localhost ports, the generated arr API keys, the NZBGet and qBittorrent-shim credentials,
+/// real localhost ports, the generated arr API keys, the node secret,
 /// and the resolved media and download paths. The supervisor rewrites it on every start and passes
 /// the data directory down in <c>$STINGSTREAM_DATA</c>.
 ///
@@ -44,7 +44,7 @@ public sealed class NodeRuntime
 
     public PathsRuntime Paths { get; set; } = new();
 
-    /// <summary>Keyed by canonical child name: jellyfin, radarr, sonarr, nzbget, infinidysk.</summary>
+    /// <summary>Keyed by canonical child name: jellyfin, radarr, sonarr, infinidysk.</summary>
     public Dictionary<string, ChildRuntime> Children { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     public QbtRuntime Qbittorrent { get; set; } = new();
@@ -121,19 +121,29 @@ public sealed class ChildRuntime
 }
 
 /// <summary>
-/// Credentials the arrs use against the qBittorrent-compatible shim in this process.
+/// The node secret, under the name it has always had in <c>runtime.json</c>.
 /// </summary>
+/// <remarks>
+/// <para>
+/// This was the login for a qBittorrent-compatible shim in front of an in-process torrent engine,
+/// both removed on 2026-09-23. <see cref="Password"/> outlived them, because it is also the seed
+/// of two things that have nothing to do with torrents: the signing key for <c>/stream/*</c> URLs
+/// (<see cref="Playback.StreamUrlSigner"/>, and the gateway's <c>streamurl::key</c>), and the
+/// arrs' webhook token (<see cref="Webhooks.WebhookToken"/>). Renaming it would change both on
+/// every node and break every federated stream and every import webhook in flight.
+/// </para>
+/// <para>
+/// <see cref="Username"/> and <see cref="UrlBase"/> are still written by the supervisor and read
+/// by nothing.
+/// </para>
+/// </remarks>
 public sealed class QbtRuntime
 {
     public string Username { get; set; } = string.Empty;
 
+    /// <summary>The node secret. See the remarks on the class.</summary>
     public string Password { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Path prefix on Jellyfin where the shim answers, including Jellyfin's own BaseUrl -- ASP.NET
-    /// maps every route under it, so the shim really lives at <c>/jellyfin/stingstream/qbt</c>.
-    /// This is what the arrs are configured with as their download client's <c>urlBase</c>.
-    /// </summary>
     public string UrlBase { get; set; } = string.Empty;
 }
 

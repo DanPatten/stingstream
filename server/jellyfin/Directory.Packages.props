@@ -40,7 +40,6 @@
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.11" />
     <!-- StingStream: the in-process torrent engine behind the qBittorrent-compatible
          API subset the arrs use (docs/PATCHES.md). -->
-    <PackageVersion Include="MonoTorrent" Version="3.0.2" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.11" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />

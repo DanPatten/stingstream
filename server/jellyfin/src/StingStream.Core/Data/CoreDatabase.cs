@@ -182,25 +182,9 @@ public sealed class CoreDatabase : IDisposable
             );
             CREATE INDEX IF NOT EXISTS ix_inventory_item ON inventory (jellyfin_item_id);
 
-            -- Torrents the in-process engine holds, so the qBittorrent shim survives a restart
-            -- with the arrs' view of the queue intact.
-            CREATE TABLE IF NOT EXISTS torrents (
-                hash         TEXT PRIMARY KEY,
-                name         TEXT NOT NULL,
-                category     TEXT NOT NULL DEFAULT '',
-                save_path    TEXT NOT NULL,
-                added_on     INTEGER NOT NULL,
-                magnet       TEXT,
-                torrent_file BLOB,
-                paused       INTEGER NOT NULL DEFAULT 0,
-                tags         TEXT NOT NULL DEFAULT ''
-            );
-
-            -- Save paths for the qBittorrent categories the arrs create.
-            CREATE TABLE IF NOT EXISTS torrent_categories (
-                name      TEXT PRIMARY KEY,
-                save_path TEXT NOT NULL
-            );
+            -- The torrents and torrent_categories tables belonged to the in-process torrent
+            -- engine, removed 2026-09-23. They are no longer created; an older core.db keeps them,
+            -- unread, which costs nothing.
 
             -- Arr webhook deliveries, kept for diagnosis of an import that did not land.
             CREATE TABLE IF NOT EXISTS arr_events (

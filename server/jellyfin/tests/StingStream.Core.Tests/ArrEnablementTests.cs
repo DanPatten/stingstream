@@ -121,8 +121,9 @@ public class ArrEnablementTests
         Assert.True(ArrEnablement.ShouldRunChild(filmsOnly, "radarr"));
         Assert.False(ArrEnablement.ShouldRunChild(filmsOnly, "sonarr"));
 
-        // A child this rule does not govern is never switched on by it. NZBGet is a transfer engine
-        // rather than a manager for a library, and Jellyfin is the server doing the asking.
+        // A child this rule does not govern is never switched on by it. NZBGet was a transfer
+        // engine rather than a manager for a library (and is no longer bundled at all), and
+        // Jellyfin is the server doing the asking.
         Assert.False(ArrEnablement.ShouldRunChild(Settings(), "nzbget"));
         Assert.False(ArrEnablement.ShouldRunChild(Settings(), "jellyfin"));
     }

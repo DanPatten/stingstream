@@ -65,11 +65,8 @@ public sealed class ArrClientFactory
         return list;
     }
 
-    /// <summary>The Jellyfin child's own runtime entry, which is how the arrs reach the qBittorrent shim.</summary>
+    /// <summary>The Jellyfin child's own runtime entry, which is how the arrs reach this server's webhook.</summary>
     public ChildRuntime? Jellyfin => _runtime.Current?.EnabledChild("jellyfin");
-
-    /// <summary>The NZBGet child's runtime entry.</summary>
-    public ChildRuntime? Nzbget => _runtime.Current?.EnabledChild("nzbget");
 
     /// <summary>The current runtime, or <see langword="null"/>.</summary>
     public NodeRuntime? Runtime => _runtime.Current;

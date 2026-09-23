@@ -33,8 +33,6 @@ public sealed class OmniarrSyncService : IDisposable
 {
     // Implementation identifiers, identical in both apps (verified against
     // server/radarr/src/NzbDrone.Core and server/sonarr/src/NzbDrone.Core).
-    private const string QBittorrentImplementation = "QBittorrent";
-    private const string NzbgetImplementation = "Nzbget";
     private const string TorznabImplementation = "Torznab";
     private const string WebhookImplementation = "Webhook";
 
@@ -184,109 +182,64 @@ public sealed class OmniarrSyncService : IDisposable
         SyncStatus status,
         CancellationToken ct)
     {
-        var runtime = _factory.Runtime;
-        if (runtime is null)
-        {
-            status.Detail.Add("download clients: skipped (no runtime.json)");
-            return;
-        }
-
-        if (shared.DownloadClients.TorrentsEnabled)
-        {
-            var jellyfin = _factory.Jellyfin;
-            if (jellyfin is null)
-            {
-                status.Detail.Add("torrent client: skipped (the media server is not in runtime.json)");
-            }
-            else
-            {
-                var schema = await client.GetSchemaAsync("downloadclient", QBittorrentImplementation, ct)
-                    .ConfigureAwait(false);
-                if (schema is null)
-                {
-                    status.Detail.Add("torrent client: skipped (this app has no QBittorrent implementation)");
-                }
-                else
-                {
-                    var resource = schema.DeepClone().AsObject();
-                    resource["name"] = shared.DownloadClients.TorrentClientName;
-                    resource["enable"] = true;
-                    resource["protocol"] = "torrent";
-                    resource["priority"] = 1;
-                    resource["removeCompletedDownloads"] = shared.DownloadClients.RemoveCompletedDownloads;
-                    resource["removeFailedDownloads"] = shared.DownloadClients.RemoveFailedDownloads;
-                    resource["tags"] = new JsonArray();
-
-                    // The qBittorrent-compatible shim runs inside this very process, so the arrs
-                    // dial Jellyfin's port. Jellyfin's own BaseUrl is part of the path because
-                    // ASP.NET maps every route beneath it -- runtime.json's qbittorrent.url_base
-                    // already includes it.
-                    ArrClient.SetField(resource, "host", "127.0.0.1");
-                    ArrClient.SetField(resource, "port", jellyfin.Port);
-                    ArrClient.SetField(resource, "useSsl", false);
-                    ArrClient.SetField(resource, "urlBase", runtime.Qbittorrent.UrlBase);
-                    ArrClient.SetField(resource, "username", runtime.Qbittorrent.Username);
-                    ArrClient.SetField(resource, "password", runtime.Qbittorrent.Password);
-                    // Radarr calls this movieCategory and Sonarr tvCategory. Setting both is
-                    // harmless -- SetField only writes fields the app actually declared -- and
-                    // keeps the mapping in one place.
-                    ArrClient.SetField(resource, "movieCategory", shared.DownloadClients.TorrentMovieCategory);
-                    ArrClient.SetField(resource, "tvCategory", shared.DownloadClients.TorrentTvCategory);
-
-                    await client.UpsertProviderAsync("downloadclient", resource, ct).ConfigureAwait(false);
-                    status.Detail.Add(
-                        $"torrent client: {shared.DownloadClients.TorrentClientName} -> "
-                        + $"127.0.0.1:{jellyfin.Port}{runtime.Qbittorrent.UrlBase}");
-                }
-            }
-        }
-
-        if (shared.DownloadClients.UsenetEnabled)
-        {
-            var nzbget = _factory.Nzbget;
-            if (nzbget is null)
-            {
-                status.Detail.Add("usenet client: skipped (the Usenet engine is not enabled on this node)");
-            }
-            else
-            {
-                var schema = await client.GetSchemaAsync("downloadclient", NzbgetImplementation, ct)
-                    .ConfigureAwait(false);
-                if (schema is null)
-                {
-                    status.Detail.Add("usenet client: skipped (this app has no Nzbget implementation)");
-                }
-                else
-                {
-                    var resource = schema.DeepClone().AsObject();
-                    resource["name"] = shared.DownloadClients.UsenetClientName;
-                    resource["enable"] = true;
-                    resource["protocol"] = "usenet";
-                    resource["priority"] = 1;
-                    resource["removeCompletedDownloads"] = shared.DownloadClients.RemoveCompletedDownloads;
-                    resource["removeFailedDownloads"] = shared.DownloadClients.RemoveFailedDownloads;
-                    resource["tags"] = new JsonArray();
-
-                    ArrClient.SetField(resource, "host", "127.0.0.1");
-                    ArrClient.SetField(resource, "port", nzbget.Port);
-                    ArrClient.SetField(resource, "useSsl", false);
-                    ArrClient.SetField(resource, "urlBase", string.Empty);
-                    ArrClient.SetField(resource, "username", nzbget.Username ?? string.Empty);
-                    ArrClient.SetField(resource, "password", nzbget.Password ?? string.Empty);
-                    // The categories the supervisor wrote into nzbget.conf. Both apps validate
-                    // that the configured category exists in NZBGet's own config, so these names
-                    // must match preseed::nzbget::CATEGORY_MOVIES / CATEGORY_TV exactly.
-                    ArrClient.SetField(resource, "movieCategory", shared.DownloadClients.UsenetMovieCategory);
-                    ArrClient.SetField(resource, "tvCategory", shared.DownloadClients.UsenetTvCategory);
-
-                    await client.UpsertProviderAsync("downloadclient", resource, ct).ConfigureAwait(false);
-                    status.Detail.Add(
-                        $"usenet client: {shared.DownloadClients.UsenetClientName} -> 127.0.0.1:{nzbget.Port}");
-                }
-            }
-        }
-
+        await RemoveRetiredBuiltInsAsync(client, status, ct).ConfigureAwait(false);
         await SyncExternalDownloadClientsAsync(client, shared, status, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Take the download clients StingStream used to run itself out of one app.
+    /// </summary>
+    /// <remarks>
+    /// Until 2026-09-23 every node registered an in-process torrent engine ("StingStream Torrents",
+    /// behind a qBittorrent-compatible shim) and a supervised NZBGet ("StingStream Usenet") in both
+    /// arrs. Both are gone, and a node upgraded in place still has them registered, pointing at a
+    /// shim that now answers 404 and a port nothing listens on. Every grab sent to one fails.
+    /// Recognised by what they point at rather than by name alone, because the names were
+    /// editable and a user's own client could share one. Idempotent, so it simply runs every sync.
+    /// </remarks>
+    private async Task RemoveRetiredBuiltInsAsync(ArrClient client, SyncStatus status, CancellationToken ct)
+    {
+        foreach (var existing in await client.ListAsync("downloadclient", ct).ConfigureAwait(false))
+        {
+            if (!IsRetiredBuiltIn(existing) || existing["id"]?.GetValue<int>() is not { } id)
+            {
+                continue;
+            }
+
+            await client
+                .DeleteAsync(string.Create(CultureInfo.InvariantCulture, $"downloadclient/{id}"), ct)
+                .ConfigureAwait(false);
+            status.Detail.Add($"download client: removed retired built-in {existing["name"]?.GetValue<string>()}");
+        }
+    }
+
+    /// <summary>Whether a download client is one of the built-ins StingStream no longer runs.</summary>
+    /// <param name="provider">A <c>downloadclient</c> resource from one of the arrs.</param>
+    /// <returns>True for the old qBittorrent shim or the old bundled NZBGet.</returns>
+    public static bool IsRetiredBuiltIn(JsonObject provider)
+    {
+        ArgumentNullException.ThrowIfNull(provider);
+
+        var implementation = provider["implementation"]?.GetValue<string>();
+        var host = ArrClient.GetField(provider, "host")?.GetValue<string>() ?? string.Empty;
+        var loopback = host is "127.0.0.1" or "localhost" or "::1";
+        if (!loopback)
+        {
+            return false;
+        }
+
+        // The shim lived under Jellyfin's routes, so its urlBase always ended in this, whatever
+        // Jellyfin's own base URL was. No real qBittorrent is served from that path.
+        if (string.Equals(implementation, "QBittorrent", StringComparison.OrdinalIgnoreCase))
+        {
+            var urlBase = ArrClient.GetField(provider, "urlBase")?.GetValue<string>() ?? string.Empty;
+            return urlBase.TrimEnd('/').EndsWith("/stingstream/qbt", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The bundled NZBGet's port was assigned per run and is not recorded anywhere any more, so
+        // the name it was always registered under is what identifies it, on loopback only.
+        return string.Equals(implementation, "Nzbget", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(provider["name"]?.GetValue<string>(), "StingStream Usenet", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Push the user's own download clients into one app, the same way indexers go in.</summary>

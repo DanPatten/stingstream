@@ -25,7 +25,12 @@ import { useCanApproveRequests } from "@/lib/stingstream/requests";
  * configured", and Dan asked for it gone from this page completely (2026-09-12). Not having set one
  * up is a choice the group can make on purpose: requests still collect on the list and wait, the
  * approvals queue becomes Wanted, and the place to change it is Settings → Indexers & engines.
- * `indexerProblem` still tells the two cases apart, which is exactly what lets this draw one of them.
+ * `indexerProblem` still tells the cases apart, which is exactly what lets this draw only some.
+ *
+ * **Indexers with no download client is flagged**, as its own sentence. StingStream stopped running
+ * a download client of its own on 2026-09-23, so a node can now search, find a release, and have
+ * nowhere to send it. Unlike having no indexer that is never a choice: nothing waits usefully on
+ * it, and every request made meanwhile is looked for and dropped.
  *
  * A banner above the tabs rather than a screen instead of them, which is what `RequestsNotSetUp`
  * does for its own case: searching, browsing and reading the queue all still work, and a request
@@ -43,7 +48,14 @@ export function IndexerNotice() {
   const isAdmin = useCanApproveRequests();
   const { data } = useIndexerHealth(isAdmin);
 
-  if (!isAdmin || indexerProblem(data) !== "all-failing") return null;
+  const problem = indexerProblem(data);
+  if (
+    !isAdmin ||
+    (problem !== "all-failing" && problem !== "no-download-client")
+  ) {
+    return null;
+  }
+  const noClient = problem === "no-download-client";
 
   // On a phone the button is a row of its own. Beside the text it claimed its
   // own width first and left the sentence a ten-character column down the
@@ -65,10 +77,14 @@ export function IndexerNotice() {
         <Icon name='warning' tone='accent' size={18} />
         <View style={{ flex: 1 }}>
           <Text variant='body' weight='semibold'>
-            {t("requests.indexers_failing_title")}
+            {noClient
+              ? t("requests.no_download_client_title")
+              : t("requests.indexers_failing_title")}
           </Text>
           <Text variant='caption' tone='secondary' style={{ marginTop: 2 }}>
-            {t("requests.indexers_failing_detail")}
+            {noClient
+              ? t("requests.no_download_client_detail")
+              : t("requests.indexers_failing_detail")}
           </Text>
         </View>
       </View>

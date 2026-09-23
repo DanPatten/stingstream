@@ -46,8 +46,6 @@ export function useArrReady(
 
 export type SharedSettings = components["schemas"]["SharedSettings"];
 export type IndexerSettings = components["schemas"]["IndexerSettings"];
-export type DownloadClientSettings =
-  components["schemas"]["DownloadClientSettings"];
 export type RootFolderSettings = components["schemas"]["RootFolderSettings"];
 export type NamingSettings = components["schemas"]["NamingSettings"];
 export type NotificationSettings =
@@ -648,7 +646,6 @@ export function useDownloads() {
 }
 
 export interface DownloadActionInput {
-  action: "pause" | "resume" | "remove";
   engine: string;
   id: string;
   deleteFiles?: boolean;
@@ -656,49 +653,29 @@ export interface DownloadActionInput {
 }
 
 /**
- * Pause, resume or remove one download. Gap 7.
+ * Remove one download. Gap 7.
  *
- * The list is invalidated rather than optimistically edited: pause is a round
- * trip to another process, and a row that flips to "paused" and then flips back
- * three seconds later is worse than one that takes a moment to change.
+ * The list is invalidated rather than optimistically edited: removal is a round
+ * trip through a manager to somebody's download client, and a row that vanishes
+ * and then comes back is worse than one that takes a moment to go.
  */
 export function useDownloadAction() {
   const client = useStingStreamClient();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: DownloadActionInput) => {
-      const path = { engine: input.engine, id: input.id };
-      if (input.action === "remove") {
-        const { data, error } = await client!.DELETE(
-          "/stingstream/api/v1/downloads/{engine}/{id}",
-          {
-            params: {
-              path,
-              query: {
-                deleteFiles: input.deleteFiles ?? false,
-                blocklist: input.blocklist ?? false,
-              },
+    mutationFn: async (input: DownloadActionInput) =>
+      unwrap(
+        await client!.DELETE("/stingstream/api/v1/downloads/{engine}/{id}", {
+          params: {
+            path: { engine: input.engine, id: input.id },
+            query: {
+              deleteFiles: input.deleteFiles ?? false,
+              blocklist: input.blocklist ?? false,
             },
           },
-        );
-        if (error) throw error;
-        return data;
-      }
-      if (input.action === "pause") {
-        const { data, error } = await client!.POST(
-          "/stingstream/api/v1/downloads/{engine}/{id}/pause",
-          { params: { path } },
-        );
-        if (error) throw error;
-        return data;
-      }
-      const { data, error } = await client!.POST(
-        "/stingstream/api/v1/downloads/{engine}/{id}/resume",
-        { params: { path } },
-      );
-      if (error) throw error;
-      return data;
-    },
+        }),
+        "DELETE /downloads",
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: keys.downloads });
       queryClient.invalidateQueries({ queryKey: keys.queue });

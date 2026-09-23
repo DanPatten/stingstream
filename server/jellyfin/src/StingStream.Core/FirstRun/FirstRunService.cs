@@ -12,7 +12,6 @@ using StingStream.Core.Arr;
 using StingStream.Core.Configuration;
 using StingStream.Core.Data;
 using StingStream.Core.Inventory;
-using StingStream.Core.Torrents;
 
 namespace StingStream.Core.FirstRun;
 
@@ -23,8 +22,8 @@ namespace StingStream.Core.FirstRun;
 /// <remarks>
 /// "One install, one command, and it works" is the whole promise of a StingStream node, and this
 /// is where that promise is kept. On a fresh data directory it creates the Jellyfin administrator,
-/// the Movies and TV Shows libraries, the qBittorrent categories the arrs will use, the arrs' root
-/// folders, both download clients, the indexers, the naming rules and the import webhook.
+/// the Movies and TV Shows libraries, the arrs' root folders, the download clients and indexers
+/// the user has added, the naming rules and the import webhook.
 ///
 /// On every subsequent start it re-runs the *configuration* half. That is not belt and braces: the
 /// children's ports are assigned at start-up and can move between runs, and the arrs store their
@@ -45,7 +44,6 @@ public sealed class FirstRunService : BackgroundService
     private readonly CoreDatabase _db;
     private readonly SettingsStore _settings;
     private readonly OmniarrSyncService _sync;
-    private readonly TorrentEngine _torrents;
     private readonly IUserManager _users;
     private readonly IServerConfigurationManager _serverConfig;
     private readonly IInventoryService _inventory;
@@ -61,7 +59,6 @@ public sealed class FirstRunService : BackgroundService
         CoreDatabase db,
         SettingsStore settings,
         OmniarrSyncService sync,
-        TorrentEngine torrents,
         IUserManager users,
         IServerConfigurationManager serverConfig,
         IInventoryService inventory,
@@ -76,7 +73,6 @@ public sealed class FirstRunService : BackgroundService
         _db = db;
         _settings = settings;
         _sync = sync;
-        _torrents = torrents;
         _users = users;
         _serverConfig = serverConfig;
         _inventory = inventory;
@@ -91,12 +87,12 @@ public sealed class FirstRunService : BackgroundService
     {
         // Wait for this server's own HTTP surface, not a fixed delay.
         //
-        // Hosted services start before Kestrel accepts connections, and the first thing the wiring
-        // does is register a download client pointing at the qBittorrent shim *in this process*.
-        // Registering it while nothing is listening had Radarr reject the whole request with
-        // "Host: Unable to connect to qBittorrent" and take first-run wiring down with it. A flat
-        // five-second delay was enough on a developer's machine and not on a CI runner, which is
-        // exactly the kind of guess this replaces.
+        // Hosted services start before Kestrel accepts connections, and the wiring registers this
+        // server's own import webhook in the arrs. It used to also register a download client in
+        // this very process (a torrent engine, since removed), and doing that while nothing was
+        // listening took first-run wiring down with it. A flat five-second delay was enough on a
+        // developer's machine and not on a CI runner, which is exactly the kind of guess this
+        // replaces.
         await WaitForSelfAsync(stoppingToken).ConfigureAwait(false);
 
         try
@@ -225,7 +221,6 @@ public sealed class FirstRunService : BackgroundService
         // Every start, not only the first: it checks whether the plugin is *there* rather than
         // whether it has run, so an install that failed for want of a network repairs itself.
         await EnsureSubtitlesAsync(report, cancellationToken).ConfigureAwait(false);
-        await EnsureTorrentCategoriesAsync(report, cancellationToken).ConfigureAwait(false);
         await SyncArrsAsync(report, cancellationToken).ConfigureAwait(false);
 
         if (!firstRun)
@@ -587,38 +582,6 @@ public sealed class FirstRunService : BackgroundService
             _logger.LogInformation(ex, "Could not install the OpenSubtitles plugin");
             report.Steps.Add($"subtitles: could not install OpenSubtitles ({ex.Message})");
         }
-    }
-
-    // --- torrent categories ------------------------------------------------
-
-    private async Task EnsureTorrentCategoriesAsync(FirstRunReport report, CancellationToken cancellationToken)
-    {
-        if (!_torrents.IsRunning)
-        {
-            report.Steps.Add("torrent categories: skipped (the engine is not running)");
-            return;
-        }
-
-        var settings = _settings.Get();
-        foreach (var category in new[]
-                 {
-                     settings.DownloadClients.TorrentMovieCategory,
-                     settings.DownloadClients.TorrentTvCategory,
-                 })
-        {
-            if (string.IsNullOrWhiteSpace(category))
-            {
-                continue;
-            }
-
-            // Creating these up front means the arrs' download-client Test passes on the very
-            // first try, instead of creating the category and re-checking.
-            await _torrents.CreateCategoryAsync(category, null, cancellationToken).ConfigureAwait(false);
-        }
-
-        report.Steps.Add(
-            $"torrent categories: {settings.DownloadClients.TorrentMovieCategory}, "
-            + $"{settings.DownloadClients.TorrentTvCategory} under {_torrents.Root}");
     }
 
     // --- arrs --------------------------------------------------------------

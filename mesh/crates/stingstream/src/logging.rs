@@ -165,7 +165,7 @@ impl ChildLogger {
 
     /// Drain an async reader (a child's stdout or stderr) line by line until EOF.
     ///
-    /// Lines are read as bytes and lossily decoded, because Radarr, Sonarr and NZBGet all emit
+    /// Lines are read as bytes and lossily decoded, because Jellyfin, Radarr and Sonarr all emit
     /// whatever their platform's console encoding is and a stray non-UTF-8 byte must not kill the
     /// pump.
     pub async fn pump<R>(self, stream_name: &'static str, reader: R)
@@ -230,8 +230,8 @@ mod tests {
     #[tokio::test]
     async fn pump_splits_on_newlines_and_drops_carriage_returns() {
         let td = tempfile::tempdir().unwrap();
-        let p = td.path().join("nzbget.jsonl");
-        let l = ChildLogger::open("nzbget", &p).unwrap();
+        let p = td.path().join("sonarr.jsonl");
+        let l = ChildLogger::open("sonarr", &p).unwrap();
         // Windows line endings and a trailing partial line with no newline at all.
         let input: &[u8] = b"alpha\r\nbeta\n\ngamma";
         l.clone().pump("stdout", std::io::Cursor::new(input)).await;

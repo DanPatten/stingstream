@@ -8,6 +8,7 @@ import {
   reportSessionExpired,
   SessionExpiredError,
 } from "@/utils/sessionExpiry";
+import type { IndexerHealth } from "./indexerProblem";
 
 /**
  * Whether this node has anywhere to search, and whether it still works.
@@ -27,16 +28,8 @@ import {
 
 const PATH = "/status/indexers";
 
-export interface IndexerHealth {
-  /** Indexers configured on this node, enabled or not. */
-  configured: number;
-  /** How many of those are switched on. */
-  enabled: number;
-  /** True when at least one manager answered. An empty `failing` means nothing otherwise. */
-  answered: boolean;
-  /** The managers' own indexer health messages. */
-  failing: string[];
-}
+export type { IndexerHealth, IndexerProblem } from "./indexerProblem";
+export { indexerProblem } from "./indexerProblem";
 
 /**
  * Read it whichever case it arrives in.
@@ -56,6 +49,7 @@ const toHealth = (body: unknown): IndexerHealth => {
   return {
     configured: count("configured"),
     enabled: count("enabled"),
+    downloadClients: count("downloadClients"),
     answered: read("answered") === true,
     failing: Array.isArray(failing) ? (failing as string[]) : [],
   };
@@ -95,25 +89,4 @@ export function useIndexerHealth(enabled: boolean) {
     refetchInterval: 60000,
     retry: 1,
   });
-}
-
-/**
- * What is wrong, if anything — the one thing worth putting on a screen.
- *
- * `null` while it is unknown, and while everything is fine. The two failures are deliberately
- * separate: "there is nowhere to search" is a thing somebody never finished setting up, and
- * "everything has stopped answering" is a thing that used to work, and the sentence a person needs
- * is not the same one.
- */
-export type IndexerProblem = "none-configured" | "all-failing";
-
-export function indexerProblem(
-  health: IndexerHealth | undefined,
-): IndexerProblem | null {
-  if (!health) return null;
-  if (health.enabled === 0) return "none-configured";
-  // Only when a manager actually answered: a manager still starting has no opinion, and its
-  // silence must not be read as an all-clear or as a failure.
-  if (health.answered && health.failing.length > 0) return "all-failing";
-  return null;
 }

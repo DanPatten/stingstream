@@ -12,7 +12,6 @@ using StingStream.Core.Configuration;
 using StingStream.Core.Data;
 using StingStream.Core.FirstRun;
 using StingStream.Core.Inventory;
-using StingStream.Core.Torrents;
 using StingStream.Core.Webhooks;
 
 namespace StingStream.Core.Controllers;
@@ -23,7 +22,6 @@ public sealed class StatusController : StingStreamControllerBase
 {
     private readonly INodeRuntimeProvider _runtime;
     private readonly CoreDatabase _db;
-    private readonly TorrentEngine _torrents;
     private readonly HashingService _hashing;
     private readonly IInventoryService _inventory;
     private readonly SettingsStore _settings;
@@ -35,7 +33,6 @@ public sealed class StatusController : StingStreamControllerBase
     public StatusController(
         INodeRuntimeProvider runtime,
         CoreDatabase db,
-        TorrentEngine torrents,
         HashingService hashing,
         IInventoryService inventory,
         SettingsStore settings,
@@ -47,7 +44,6 @@ public sealed class StatusController : StingStreamControllerBase
         _versions = versions;
         _runtime = runtime;
         _db = db;
-        _torrents = torrents;
         _hashing = hashing;
         _inventory = inventory;
         _settings = settings;
@@ -79,15 +75,6 @@ public sealed class StatusController : StingStreamControllerBase
             DataDirectory = _runtime.DataDirectory,
             SupervisorDetected = runtime is not null,
             CoreDatabase = _db.DatabasePath,
-            Torrents = new TorrentEngineStatus
-            {
-                Running = _torrents.IsRunning,
-                Root = _torrents.Root,
-                Count = _torrents.IsRunning ? _torrents.List().Count : 0,
-                DownloadRate = _torrents.TotalDownloadRate,
-                UploadRate = _torrents.TotalUploadRate,
-                Categories = _torrents.IsRunning ? _torrents.Categories() : new Dictionary<string, string>(),
-            },
             Hashing = new HashingStatus
             {
                 Queued = _hashing.QueueLength,
@@ -147,11 +134,13 @@ public sealed class StatusController : StingStreamControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public async Task<ActionResult<IndexerHealth>> Indexers(CancellationToken cancellationToken)
     {
-        var configured = _settings.Get().Indexers;
+        var settings = _settings.Get();
+        var configured = settings.Indexers;
         var health = new IndexerHealth
         {
             Configured = configured.Count,
             Enabled = configured.Count(i => i.Enabled),
+            DownloadClients = settings.ExternalDownloadClients.Count(c => c.Enabled),
         };
 
         foreach (var client in _arrs.CreateAll())
@@ -219,6 +208,16 @@ public sealed class IndexerHealth
     public int Enabled { get; set; }
 
     /// <summary>
+    /// How many download clients are switched on.
+    /// </summary>
+    /// <remarks>
+    /// Here because it is the same question from the other end. StingStream runs no download
+    /// client of its own any more, so a node with indexers and no client accepts a request, finds
+    /// a release for it, and has nowhere to send it.
+    /// </remarks>
+    public int DownloadClients { get; set; }
+
+    /// <summary>
     /// True when at least one manager answered.
     /// </summary>
     /// <remarks>
@@ -251,8 +250,6 @@ public sealed class NodeStatus
 
     public string? CoreDatabase { get; set; }
 
-    public TorrentEngineStatus Torrents { get; set; } = new();
-
     public HashingStatus Hashing { get; set; } = new();
 
     public long InventoryRecords { get; set; }
@@ -262,22 +259,6 @@ public sealed class NodeStatus
     public List<SyncStatus> SyncStatuses { get; set; } = new();
 
     public List<ArrEvent> RecentArrEvents { get; set; } = new();
-}
-
-/// <summary>State of the in-process torrent engine.</summary>
-public sealed class TorrentEngineStatus
-{
-    public bool Running { get; set; }
-
-    public string Root { get; set; } = string.Empty;
-
-    public int Count { get; set; }
-
-    public long DownloadRate { get; set; }
-
-    public long UploadRate { get; set; }
-
-    public Dictionary<string, string> Categories { get; set; } = new();
 }
 
 /// <summary>State of the BLAKE3 hashing queue.</summary>

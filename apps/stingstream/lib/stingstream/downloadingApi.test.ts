@@ -39,22 +39,22 @@ describe("fetchDownloading", () => {
     // Measured against a live node: the base controller documents this API as camelCase, and
     // Jellyfin's serializer sends `Films`. A client that believed the documentation showed every
     // switch off on a server that was downloading perfectly well.
-    stub(200, { Films: true, Series: false, Usenet: false });
+    stub(200, { Films: true, Series: false });
 
     expect(await fetchDownloading(BASE)).toEqual({
       films: true,
       series: false,
-      usenet: false,
     });
   });
 
   test("reads camelCase too, so the answer does not depend on whose serializer ran", async () => {
+    // An older node still answers `usenet`, for the bundled NZBGet it no longer runs. It is not
+    // a switch any more, so it is not read.
     stub(200, { films: false, series: true, usenet: true });
 
     expect(await fetchDownloading(BASE)).toEqual({
       films: false,
       series: true,
-      usenet: true,
     });
   });
 
@@ -66,7 +66,6 @@ describe("fetchDownloading", () => {
     expect(await fetchDownloading(BASE)).toEqual({
       films: true,
       series: null,
-      usenet: null,
     });
   });
 
@@ -83,7 +82,7 @@ describe("saveDownloading", () => {
   test("sends only the switch it was given", async () => {
     // The server leaves an omitted switch alone, which is what stops one screen turning off
     // something another screen never showed.
-    const calls = stub(200, { Films: true, Series: false, Usenet: false });
+    const calls = stub(200, { Films: true, Series: false });
     await saveDownloading(BASE, { films: true });
 
     expect(calls).toHaveLength(1);

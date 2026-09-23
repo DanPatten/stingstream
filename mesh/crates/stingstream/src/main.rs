@@ -53,7 +53,7 @@ struct Cli {
     data_dir: Option<PathBuf>,
 
     /// Run children from the in-repo build outputs instead of an installed layout, and proxy the
-    /// Radarr, Sonarr and NZBGet UIs through the gateway for debugging.
+    /// Radarr and Sonarr UIs through the gateway for debugging.
     #[arg(long)]
     dev: bool,
 
@@ -726,16 +726,11 @@ fn build_runtime(
             "jellyfin" => preseed::jellyfin::BASE_URL.to_string(),
             other => format!("/{other}"),
         };
-        // NZBGet and the mesh have no URL-base concept: both always serve from the root of their
-        // own port.
-        let effective_base = if matches!(*name, "nzbget" | "mesh") { "" } else { url_base.as_str() };
-        let (api_key, username, password) = match *name {
-            "radarr" | "sonarr" => (Some(carried.api_key_for(name)), None, None),
-            "nzbget" => {
-                let (u, p) = carried.nzbget_credentials();
-                (None, Some(u), Some(p))
-            }
-            _ => (None, None, None),
+        // The mesh has no URL-base concept: it always serves from the root of its own port.
+        let effective_base = if *name == "mesh" { "" } else { url_base.as_str() };
+        let api_key = match *name {
+            "radarr" | "sonarr" => Some(carried.api_key_for(name)),
+            _ => None,
         };
         children.insert(
             (*name).to_string(),
@@ -745,15 +740,18 @@ fn build_runtime(
                 url_base: url_base.clone(),
                 base_url: format!("http://127.0.0.1:{port}{effective_base}"),
                 api_key,
-                username,
-                password,
+                username: None,
+                password: None,
             },
         );
     }
 
-    // The qBittorrent-compatible shim lives inside Jellyfin, so the arrs dial Jellyfin's port with
-    // this as their UrlBase. Jellyfin's own BaseUrl is part of that path because ASP.NET maps
-    // every route under it.
+    // The node secret, under a historical name. This block once held the login for the
+    // qBittorrent-compatible shim inside Jellyfin (removed 2026-09-23, with the torrent engine
+    // behind it), and its password went on to seed `gateway::streamurl::key` and Core's arr
+    // webhook token. Those still depend on it, so it is carried forward and written exactly as
+    // before -- renaming or regenerating it would break every federated stream. `url_base` is kept
+    // only so the file keeps its shape; nothing answers there any more.
     let mut qbt = carried.qbt_or_new();
     qbt.url_base = format!("{}/stingstream/qbt", preseed::jellyfin::BASE_URL);
 
@@ -916,7 +914,7 @@ fn print_banner(
         }
     }
     if dev {
-        lines.push("  Mode         --dev (child UIs proxied at /radarr/, /sonarr/, /nzbget/)".into());
+        lines.push("  Mode         --dev (child UIs proxied at /radarr/, /sonarr/)".into());
     }
     // The bootstrap password is removed from runtime.json the moment somebody creates their own
     // account (`crate::setup`), so its presence is the supervisor's own best answer to "has this

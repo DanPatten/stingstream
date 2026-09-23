@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { Pressable, View } from "react-native";
 import { toast } from "sonner-native";
 import { Icon, type IconName } from "@/components/common/Icon";
-import { Pill, type PillTone } from "@/components/common/Pill";
 import { Text } from "@/components/common/Text";
 import { ListGroup } from "@/components/list/ListGroup";
 import { ListItem } from "@/components/list/ListItem";
@@ -17,8 +16,7 @@ import {
   useDownloads,
   useNodeStatus,
 } from "@/lib/stingstream/hooks";
-import { useHealthz } from "@/lib/stingstream/status";
-import { arrAppLabelWithArticle } from "../shared/arrLabels";
+import { arrAppLabel } from "../shared/arrLabels";
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { EmptyState, QueryState } from "../shared/ScreenState";
@@ -27,54 +25,12 @@ function rate(bytesPerSec: number): string {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
-function EngineCard({
-  title,
-  tone,
-  state,
-  detail,
-}: {
-  title: string;
-  tone: PillTone;
-  state: string;
-  detail?: string;
-}) {
-  const { color } = useTheme();
-  return (
-    <View
-      style={{
-        flex: 1,
-        borderRadius: radius.md,
-        backgroundColor: color.bg["1"],
-        padding: 12,
-      }}
-    >
-      <Text weight='semibold' numberOfLines={1}>
-        {title}
-      </Text>
-      <Pill
-        label={state}
-        tone={tone}
-        size='sm'
-        style={{ marginTop: 8, alignSelf: "flex-start" }}
-      />
-      {detail ? (
-        <Text variant='caption' tone='secondary' style={{ marginTop: 8 }}>
-          {detail}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
 export function DownloadsScreen() {
   const { t } = useTranslation();
   const status = useNodeStatus();
-  const healthz = useHealthz();
   const downloads = useDownloads();
   const router = useRouter();
 
-  const nzbget = healthz.data?.children.find((c) => c.name === "nzbget");
-  const torrents = status.data?.Torrents;
   const hashing = status.data?.Hashing;
   const items = downloads.data?.Items ?? [];
 
@@ -84,68 +40,6 @@ export function DownloadsScreen() {
       error={status.error}
       onRetry={status.refetch}
     >
-      <ScreenHeaderRow title={t("transfers.engine_health_title")} />
-      <View
-        testID='transfers-engine-cards'
-        style={{ flexDirection: "row", gap: 12, marginBottom: 12 }}
-      >
-        <EngineCard
-          title={t("transfers.torrent_engine")}
-          tone={torrents?.Running ? "success" : "danger"}
-          state={
-            torrents?.Running
-              ? t("transfers.engine_running")
-              : t("transfers.engine_stopped")
-          }
-          detail={
-            torrents?.Running
-              ? t("transfers.torrent_engine_running", {
-                  count: torrents.Count ?? 0,
-                  down: rate(torrents.DownloadRate ?? 0),
-                  up: rate(torrents.UploadRate ?? 0),
-                })
-              : undefined
-          }
-        />
-        <EngineCard
-          title={t("transfers.usenet_engine")}
-          tone={
-            !nzbget
-              ? "neutral"
-              : nzbget.state === "healthy"
-                ? "success"
-                : "danger"
-          }
-          state={
-            nzbget
-              ? nzbget.state
-              : healthz.isLoading
-                ? t("transfers.checking")
-                : t("transfers.unknown")
-          }
-          detail={[
-            nzbget?.version
-              ? t("transfers.engine_version", { version: nzbget.version })
-              : null,
-            nzbget?.restarts
-              ? t("transfers.restart_count", { count: nzbget.restarts })
-              : null,
-          ]
-            .filter(Boolean)
-            .join(" • ")}
-        />
-      </View>
-      <ListGroup>
-        <ListItem
-          title={t("transfers.hashing_queue")}
-          subtitle={t("transfers.hashing_queue_detail", {
-            count: hashing?.Queued ?? 0,
-          })}
-        />
-      </ListGroup>
-
-      <View style={{ height: 16 }} />
-
       <ScreenHeaderRow
         title={t("transfers.title")}
         accessory={
@@ -195,16 +89,27 @@ export function DownloadsScreen() {
           {engineNote(t, downloads.data.Engines)}
         </Text>
       )}
+
+      <View style={{ height: 16 }} />
+      <ListGroup>
+        <ListItem
+          title={t("transfers.hashing_queue")}
+          subtitle={t("transfers.hashing_queue_detail", {
+            count: hashing?.Queued ?? 0,
+          })}
+        />
+      </ListGroup>
     </QueryState>
   );
 }
 
 /**
- * Which engines answered, spelled out.
+ * Which queues answered, spelled out.
  *
  * An empty list means one of two completely different things — nothing is
- * downloading, or the engine that would have said so is down — and a screen that
+ * downloading, or the queue that would have said so is down — and a screen that
  * cannot tell them apart sends somebody looking for a bug that is not there.
+ * The keys are the managers' own names, so they are shown as Movies and TV shows.
  */
 function engineNote(
   t: TFunction,
@@ -213,11 +118,13 @@ function engineNote(
   const bad = Object.entries(engines).filter(([, v]) => v !== "ok");
   if (bad.length === 0) {
     return t("transfers.engines_reporting", {
-      engines: Object.keys(engines).join(", "),
+      engines: Object.keys(engines)
+        .map((k) => arrAppLabel(t, k))
+        .join(", "),
     });
   }
   return t("transfers.engines_not_reporting", {
-    engines: bad.map(([k, v]) => `${k} (${v})`).join(", "),
+    engines: bad.map(([k]) => arrAppLabel(t, k)).join(", "),
   });
 }
 
@@ -226,33 +133,27 @@ function DownloadRow({ item }: { item: DownloadItem }) {
   const { t } = useTranslation();
   const action = useDownloadAction();
 
-  const run = async (
-    kind: "pause" | "resume" | "remove",
-    deleteFiles = false,
-  ) => {
-    if (kind === "remove") {
-      const ok = await confirmDestructive(
-        t("transfers.remove_confirm_title", { title: item.Title }),
-        deleteFiles
-          ? t("transfers.remove_confirm_message_files")
-          : t("transfers.remove_confirm_message"),
-        deleteFiles
-          ? t("transfers.remove_with_files_action")
-          : t("common.remove"),
-      );
-      if (!ok) return;
-    }
+  const remove = async (deleteFiles: boolean) => {
+    const ok = await confirmDestructive(
+      t("transfers.remove_confirm_title", { title: item.Title }),
+      deleteFiles
+        ? t("transfers.remove_confirm_message_files")
+        : t("transfers.remove_confirm_message"),
+      deleteFiles
+        ? t("transfers.remove_with_files_action")
+        : t("common.remove"),
+    );
+    if (!ok) return;
     try {
       const result = await action.mutateAsync({
-        action: kind,
         engine: item.Engine ?? "",
         id: item.EngineId ?? "",
         deleteFiles,
       });
       toast.success(result?.Message ?? t("transfers.action_done"));
     } catch (err) {
-      // A 409 is the engine's honest answer ("this one tracks the download
-      // rather than holding it"), not a crash, so it is shown as a message.
+      // A 409 is the server's honest answer ("that download is gone"), not a
+      // crash, so it is shown as a message.
       toast.error(
         err instanceof Error ? err.message : t("transfers.action_refused"),
       );
@@ -276,22 +177,6 @@ function DownloadRow({ item }: { item: DownloadItem }) {
       >
         <ProgressBar item={item} />
         <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
-          {item.CanPause && (
-            <IconAction
-              icon='pause'
-              label={t("transfers.pause_action")}
-              busy={action.isPending}
-              onPress={() => void run("pause")}
-            />
-          )}
-          {item.CanResume && (
-            <IconAction
-              icon='play'
-              label={t("transfers.resume_action")}
-              busy={action.isPending}
-              onPress={() => void run("resume")}
-            />
-          )}
           {item.CanRemove && (
             <>
               <IconAction
@@ -299,7 +184,7 @@ function DownloadRow({ item }: { item: DownloadItem }) {
                 label={t("transfers.remove_action_for", { title: item.Title })}
                 tone='red'
                 busy={action.isPending}
-                onPress={() => void run("remove", false)}
+                onPress={() => void remove(false)}
               />
               <IconAction
                 icon='delete'
@@ -308,7 +193,7 @@ function DownloadRow({ item }: { item: DownloadItem }) {
                 })}
                 tone='red'
                 busy={action.isPending}
-                onPress={() => void run("remove", true)}
+                onPress={() => void remove(true)}
               />
             </>
           )}
@@ -361,12 +246,7 @@ function describe(t: TFunction, item: DownloadItem): string {
   }
   if (item.DownloadRate) bits.push(rate(item.DownloadRate));
   if (item.Eta) bits.push(eta(t, item.Eta));
-  bits.push(engineLabel(t, item.Engine));
-  if (item.App && item.App !== item.Engine) {
-    bits.push(
-      t("transfers.tracked_by", { app: arrAppLabelWithArticle(t, item.App) }),
-    );
-  }
+  bits.push(arrAppLabel(t, item.App ?? item.Engine));
   if (item.ErrorMessage) bits.push(item.ErrorMessage);
   return bits.filter(Boolean).join(" • ");
 }
@@ -392,12 +272,6 @@ function stateLabel(t: TFunction, state: string | null | undefined): string {
   }
 }
 
-function engineLabel(t: TFunction, engine: string | null | undefined): string {
-  if (engine === "torrent") return t("transfers.engine_torrent");
-  if (engine === "usenet") return t("transfers.engine_usenet");
-  return engine ?? "";
-}
-
 function eta(t: TFunction, seconds: number): string {
   if (seconds < 60)
     return t("transfers.eta_seconds", { count: Math.round(seconds) });
@@ -408,7 +282,7 @@ function eta(t: TFunction, seconds: number): string {
   return t("transfers.eta_days", { count: Math.round(seconds / 86_400) });
 }
 
-/** A round icon button for a per-row transfer action — pause, resume, remove. */
+/** A round icon button for a per-row transfer action. */
 function IconAction({
   icon,
   label,

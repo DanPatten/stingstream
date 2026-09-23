@@ -27,9 +27,10 @@ pub struct ChildDef {
     pub env: BTreeMap<String, String>,
     /// URL the health checker polls.
     pub health_url: String,
-    /// Optional HTTP Basic credentials for the health probe (NZBGet).
+    /// Optional HTTP Basic credentials for the health probe. No current child needs them; they
+    /// were added for the NZBGet child the supervisor ran until 2026-09-23.
     pub health_basic_auth: Option<(String, String)>,
-    /// A JSON body to POST instead of issuing a GET (NZBGet's JSON-RPC).
+    /// A JSON body to POST instead of issuing a GET, for a health endpoint that is an RPC call.
     pub health_post_body: Option<String>,
     /// How to ask this child which build it is, when it can be asked.
     pub version_probe: Option<VersionProbe>,
@@ -37,11 +38,11 @@ pub struct ChildDef {
 
 /// One request that answers "which build is this child running?".
 ///
-/// Four children, four dialects — Jellyfin has `/System/Info/Public`, the arrs
-/// have `/api/v3/system/status` behind an API key, NZBGet has a JSON-RPC
-/// `version` method behind HTTP Basic — so this is a small description of a
-/// request and where in the answer the version sits, rather than four bespoke
-/// probes. `docs/UI-API-GAPS.md` gap 10.
+/// Every child speaks its own dialect — Jellyfin has `/System/Info/Public`, the
+/// arrs have `/api/v3/system/status` behind an API key, the mesh has its own
+/// status route — so this is a small description of a request and where in the
+/// answer the version sits, rather than one bespoke probe per child.
+/// `docs/UI-API-GAPS.md` gap 10.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionProbe {
     pub url: String,
@@ -307,41 +308,13 @@ pub fn resolve_prod_dotnet(install_root: &Path, child: &str) -> Result<DotnetEnt
         .with_context(|| format!("{child}: no executable in {}", dir.display()))
 }
 
-/// Locate the NZBGet binary fetched by `third_party/nzbget/fetch-nzbget.ps1`.
+/// Find `cloudflared`.
 ///
-/// The distribution's shape differs per platform and per release, so this searches rather than
-/// hard-coding a path.
-pub fn find_nzbget(repo_root: Option<&Path>, install_root: Option<&Path>) -> Option<PathBuf> {
-    let exe = format!("nzbget{}", std::env::consts::EXE_SUFFIX);
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Some(r) = install_root {
-        roots.push(r.join("bin").join("nzbget"));
-    }
-    if let Some(r) = repo_root {
-        let tp = r.join("third_party").join("nzbget").join("bin");
-        // The fetch script drops a per-platform directory; the archive then extracts into a
-        // versioned subdirectory of that.
-        for platform in ["win64", "linux-x64", "macos"] {
-            roots.push(tp.join(platform));
-        }
-        roots.push(tp);
-    }
-    for root in roots {
-        if let Some(found) = find_file_shallow(&root, &exe, 3) {
-            return Some(found);
-        }
-    }
-    // Fall back to whatever is on PATH.
-    which(&exe)
-}
-
-/// Find `cloudflared`, the same way [`find_nzbget`] finds its binary.
-///
-/// The two are the only non-.NET children, so they share a shape: a per-platform directory under
-/// `third_party/` in a checkout, `<install>/bin/<child>/` in an installed node, and whatever is on
-/// `PATH` as the last resort. That last fallback matters more here than it does for nzbget --
-/// `cloudflared` is packaged by Homebrew, winget and most distributions, so somebody may well
-/// already have a copy the node can simply use.
+/// It is a fetched native binary rather than a .NET build output, so it is looked for where the
+/// fetch script and the installer put one: a per-platform directory under `third_party/` in a
+/// checkout, `<install>/bin/cloudflared/` in an installed node, and whatever is on `PATH` as the last resort.
+/// That last fallback matters -- `cloudflared` is packaged by Homebrew, winget and most
+/// distributions, so somebody may well already have a copy the node can simply use.
 ///
 /// Returning `None` is an ordinary outcome, not an error: a node without it cannot offer to set up
 /// a tunnel and says so on the Domains page, which is a sentence rather than a fault.
@@ -503,7 +476,7 @@ mod tests {
             || dev_output_dirs(r, "radarr")[0].ends_with("_output\\net8.0"));
         assert!(dev_output_dirs(r, "sonarr")[0].ends_with("_output/net10.0")
             || dev_output_dirs(r, "sonarr")[0].ends_with("_output\\net10.0"));
-        assert!(dev_output_dirs(r, "nzbget").is_empty());
+        assert!(dev_output_dirs(r, "cloudflared").is_empty());
     }
 
     #[test]
@@ -580,16 +553,16 @@ mod tests {
     fn find_file_shallow_respects_its_depth_limit() {
         let td = tempfile::tempdir().unwrap();
         let deep = td.path().join("a").join("b").join("c").join("d");
-        touch(&deep.join("nzbget"));
-        assert!(find_file_shallow(td.path(), "nzbget", 3).is_none());
-        assert!(find_file_shallow(td.path(), "nzbget", 4).is_some());
+        touch(&deep.join("cloudflared"));
+        assert!(find_file_shallow(td.path(), "cloudflared", 3).is_none());
+        assert!(find_file_shallow(td.path(), "cloudflared", 4).is_some());
     }
 
     #[test]
     fn find_file_shallow_finds_a_versioned_subdirectory() {
         let td = tempfile::tempdir().unwrap();
-        touch(&td.path().join("win64").join("nzbget-26.3").join("nzbget.exe"));
-        assert!(find_file_shallow(td.path(), "nzbget.exe", 3).is_some());
+        touch(&td.path().join("win64").join("cloudflared-2026.9.0").join("cloudflared.exe"));
+        assert!(find_file_shallow(td.path(), "cloudflared.exe", 3).is_some());
     }
 
     #[test]

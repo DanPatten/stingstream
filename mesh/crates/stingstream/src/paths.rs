@@ -135,23 +135,23 @@ impl Layout {
     pub fn sonarr(&self) -> PathBuf {
         self.root.join("sonarr")
     }
-    pub fn nzbget(&self) -> PathBuf {
-        self.root.join("nzbget")
-    }
-    pub fn nzbget_conf(&self) -> PathBuf {
-        self.nzbget().join("nzbget.conf")
-    }
 
     // --- shared media / downloads -----------------------------------------
 
     pub fn downloads(&self) -> PathBuf {
         self.root.join("downloads")
     }
-    /// MonoTorrent's download directory, hosted inside `StingStream.Core`.
+    /// Where the torrent engine inside `StingStream.Core` downloaded to, until the node stopped
+    /// bundling a download client on 2026-09-23.
+    ///
+    /// Still created and still published in `runtime.json`, because it still means something:
+    /// `LibraryPathValidator` refuses it (and [`Layout::downloads_usenet`]) as a library folder,
+    /// and a node that ran the engine may have files in it. The name is historical.
     pub fn downloads_torrents(&self) -> PathBuf {
         self.downloads().join("torrents")
     }
-    /// NZBGet's `MainDir`.
+    /// Where the bundled NZBGet child downloaded to, until 2026-09-23. Kept for the same reasons
+    /// as [`Layout::downloads_torrents`].
     pub fn downloads_usenet(&self) -> PathBuf {
         self.downloads().join("usenet")
     }
@@ -182,7 +182,6 @@ impl Layout {
             self.jellyfin_log(),
             self.radarr(),
             self.sonarr(),
-            self.nzbget(),
             self.downloads(),
             self.downloads_torrents(),
             self.downloads_usenet(),

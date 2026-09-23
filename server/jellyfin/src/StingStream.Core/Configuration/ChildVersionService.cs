@@ -5,7 +5,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using StingStream.Core.Arr;
-using StingStream.Core.Downloads;
 using StingStream.Core.Mesh;
 
 namespace StingStream.Core.Configuration;
@@ -16,14 +15,13 @@ namespace StingStream.Core.Configuration;
 /// <remarks>
 /// <para>
 /// <c>docs/UI-API-GAPS.md</c> gap 10. Every child can answer the question, but each in its own
-/// dialect: Jellyfin is this very process, the arrs answer <c>system/status</c>, NZBGet has a
-/// JSON-RPC <c>version</c> method, and the mesh reports its crate version on <c>/mesh/v1/status</c>.
-/// This is the one place that knows all four.
+/// dialect: Jellyfin is this very process, the arrs answer <c>system/status</c>, and the mesh
+/// reports its crate version on <c>/mesh/v1/status</c>. This is the one place that knows all three.
 /// </para>
 /// <para>
 /// <strong>Cached, and that is the point.</strong> A version does not change while a process runs,
-/// and the Node status screen polls every ten seconds — probing four children on every poll would
-/// mean four HTTP round trips per client per ten seconds for a string that is the same every time.
+/// and the Node status screen polls every ten seconds — probing every child on every poll would
+/// mean several HTTP round trips per client per ten seconds for a string that is the same every time.
 /// The cache is keyed on the child's base URL, so a restart that moves a port re-probes on its own;
 /// <see cref="Ttl"/> catches an in-place upgrade that kept the port.
 /// </para>
@@ -35,7 +33,6 @@ public sealed class ChildVersionService
 
     private readonly INodeRuntimeProvider _runtime;
     private readonly ArrClientFactory _arrs;
-    private readonly NzbgetClientFactory _nzbget;
     private readonly IMeshClient _mesh;
     private readonly ILogger<ChildVersionService> _logger;
 
@@ -44,13 +41,11 @@ public sealed class ChildVersionService
     public ChildVersionService(
         INodeRuntimeProvider runtime,
         ArrClientFactory arrs,
-        NzbgetClientFactory nzbget,
         IMeshClient mesh,
         ILogger<ChildVersionService> logger)
     {
         _runtime = runtime;
         _arrs = arrs;
-        _nzbget = nzbget;
         _mesh = mesh;
         _logger = logger;
     }
@@ -78,20 +73,6 @@ public sealed class ChildVersionService
             if (version is not null)
             {
                 result[client.Name] = version;
-            }
-        }
-
-        var nzbget = _nzbget.Create();
-        if (nzbget is not null)
-        {
-            var version = await CachedAsync(
-                    "nzbget",
-                    nzbget.BaseUrl,
-                    () => nzbget.VersionAsync(cancellationToken))
-                .ConfigureAwait(false);
-            if (version is not null)
-            {
-                result["nzbget"] = version;
             }
         }
 

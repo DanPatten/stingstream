@@ -10,8 +10,8 @@ namespace StingStream.Core.Configuration;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Downloading is three of the supervisor's child processes — the film manager, the series manager
-/// and the usenet engine — and <c>config.toml</c> is where a node records whether they run. The
+/// Downloading is two of the supervisor's child processes — the film manager and the series
+/// manager — and <c>config.toml</c> is where a node records whether they run. The
 /// supervisor watches that file while it is up (<c>supervisor::downloading</c>) and starts or stops
 /// them to match, so writing a line here is the whole of turning downloading on.
 /// </para>
@@ -40,7 +40,7 @@ public static class DownloadingSwitch
     /// server doing the asking, and the mesh runs inside it. Neither is something an app served by
     /// them may switch off.
     /// </remarks>
-    public static readonly IReadOnlyList<string> Keys = new[] { "radarr", "sonarr", "nzbget" };
+    public static readonly IReadOnlyList<string> Keys = new[] { "radarr", "sonarr" };
 
     /// <summary>Where <c>config.toml</c> lives for a given data directory.</summary>
     public static string PathFor(string dataDirectory) => Path.Combine(dataDirectory, "config.toml");

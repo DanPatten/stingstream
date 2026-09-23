@@ -3,7 +3,7 @@
 //! This file is the single place where "what actually got assigned this run" is published: the
 //! real bound ports, the generated API keys and passwords, the resolved media/download paths, and
 //! whether this is the node's first run. `StingStream.Core` (inside Jellyfin) reads it to reach
-//! Radarr, Sonarr and NZBGet; `tools/e2e-m1.ps1` reads it to drive the node.
+//! Radarr and Sonarr; `tools/e2e-m1.ps1` reads it to drive the node.
 //!
 //! It is rewritten on every start. Generated secrets are *carried forward* from the previous file
 //! rather than regenerated, so configuration already pushed into a child stays valid across
@@ -36,8 +36,8 @@ pub struct Runtime {
     /// `#[serde(default)]` so that a `runtime.json` written before the rename is *read* rather
     /// than thrown away. There is no alias and the old `node_name` is not honoured -- the name
     /// falls back to the config and is set again on the next rename -- but the rest of this file
-    /// is the node's carried secrets: the Jellyfin administrator's password, API keys, the
-    /// download client's credentials. Refusing the whole document over one renamed field
+    /// is the node's carried secrets: the Jellyfin administrator's password, API keys, the node
+    /// secret in `qbittorrent.password`. Refusing the whole document over one renamed field
     /// regenerates all of it, which is a far larger thing to lose than a name.
     #[serde(default)]
     pub server_name: String,
@@ -50,11 +50,21 @@ pub struct Runtime {
     pub data_dir: PathBuf,
     pub gateway: GatewayRuntime,
     pub paths: PathsRuntime,
-    /// Keyed by canonical child name: `jellyfin`, `radarr`, `sonarr`, `nzbget`, `infinidysk`.
+    /// Keyed by canonical child name: `jellyfin`, `radarr`, `sonarr`, `mesh`, `infinidysk`.
+    ///
+    /// A file written before 2026-09-23 also has an `nzbget` entry, from the download client the
+    /// supervisor used to run. It is read like any other entry and dropped at the next start,
+    /// because start-up rebuilds this map from `supervisor::CHILD_ORDER` and that no longer names
+    /// it.
     pub children: BTreeMap<String, ChildRuntime>,
-    /// Credentials the arrs use to talk to the qBittorrent-compatible shim that fronts the
-    /// in-process MonoTorrent engine. The shim itself lives in `StingStream.Core`, so it is
-    /// reached at the Jellyfin child's port.
+    /// The node secret. The name is historical and has to stay.
+    ///
+    /// This used to be the login the arrs used for the qBittorrent-compatible shim in front of the
+    /// torrent engine inside `StingStream.Core`. Both were removed on 2026-09-23, when the node
+    /// stopped bundling a download client. But by then `password` had also become the seed for
+    /// `gateway::streamurl::key` (the signing key for `/stream/*` URLs) and for Core's arr webhook
+    /// token, so it is carried forward and written exactly as before. Renaming the block or
+    /// regenerating the password breaks every federated stream this node signs.
     pub qbittorrent: QbtRuntime,
     /// Where the mesh node's local API is. `stingstream-mesh` reads `mesh.api_port` from here
     /// before it falls back to `children.mesh.port` or its own default.
@@ -103,7 +113,9 @@ pub struct ChildRuntime {
     /// API key for the arrs (`X-Api-Key`). `None` for children that do not use one.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub api_key: Option<String>,
-    /// Control credentials for NZBGet.
+    /// HTTP Basic credentials for a child that is controlled with a username and password rather
+    /// than an API key. No current child is; this was the bundled NZBGet's until 2026-09-23, and
+    /// stays so an older file round-trips.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -113,9 +125,11 @@ pub struct ChildRuntime {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QbtRuntime {
     pub username: String,
+    /// The node secret. See [`Runtime::qbittorrent`].
     pub password: String,
-    /// Path prefix on the Jellyfin child where the shim answers, i.e. `/stingstream/qbt`. The arrs
-    /// are configured with the Jellyfin child's host/port plus this as their `UrlBase`.
+    /// Path prefix on the Jellyfin child where the shim used to answer, i.e.
+    /// `/stingstream/stingstream/qbt`. Nothing answers there now; still written so the block keeps
+    /// the shape every existing reader expects.
     pub url_base: String,
 }
 
@@ -378,8 +392,6 @@ pub struct CarriedSecrets {
     pub server_name: Option<String>,
     pub first_run: bool,
     pub api_keys: BTreeMap<String, String>,
-    pub nzbget_username: Option<String>,
-    pub nzbget_password: Option<String>,
     pub qbt: Option<QbtRuntime>,
     pub jellyfin_admin: Option<AdminRuntime>,
 }
@@ -394,15 +406,9 @@ impl CarriedSecrets {
             };
         };
         let mut api_keys = BTreeMap::new();
-        let mut nzbget_username = None;
-        let mut nzbget_password = None;
         for (name, child) in &prev.children {
             if let Some(k) = &child.api_key {
                 api_keys.insert(name.clone(), k.clone());
-            }
-            if name == "nzbget" {
-                nzbget_username.clone_from(&child.username);
-                nzbget_password.clone_from(&child.password);
             }
         }
         Self {
@@ -410,8 +416,6 @@ impl CarriedSecrets {
             server_name: Some(prev.server_name.clone()).filter(|n| !n.trim().is_empty()),
             first_run: prev.first_run,
             api_keys,
-            nzbget_username,
-            nzbget_password,
             qbt: Some(prev.qbittorrent.clone()),
             jellyfin_admin: prev.jellyfin_admin.clone(),
         }
@@ -424,23 +428,14 @@ impl CarriedSecrets {
             .unwrap_or_else(secrets::api_key)
     }
 
+    /// The `qbittorrent` block, which is to say the node secret: carried forward if a previous
+    /// file had one, minted once otherwise. See [`Runtime::qbittorrent`] for why the name stays.
     pub fn qbt_or_new(&self) -> QbtRuntime {
         self.qbt.clone().unwrap_or_else(|| QbtRuntime {
             username: "stingstream".to_string(),
             password: secrets::password(secrets::PASSWORD_LEN),
             url_base: "/stingstream/qbt".to_string(),
         })
-    }
-
-    pub fn nzbget_credentials(&self) -> (String, String) {
-        (
-            self.nzbget_username
-                .clone()
-                .unwrap_or_else(|| "stingstream".to_string()),
-            self.nzbget_password
-                .clone()
-                .unwrap_or_else(|| secrets::password(secrets::PASSWORD_LEN)),
-        )
     }
 }
 
@@ -484,15 +479,15 @@ mod tests {
             },
         );
         children.insert(
-            "nzbget".to_string(),
+            "sonarr".to_string(),
             ChildRuntime {
                 enabled: true,
-                port: 6789,
-                url_base: "/nzbget".into(),
-                base_url: "http://127.0.0.1:6789".into(),
-                api_key: None,
-                username: Some("stingstream".into()),
-                password: Some("hunter2hunter2hunter2aa".into()),
+                port: 8989,
+                url_base: "/sonarr".into(),
+                base_url: "http://127.0.0.1:8989/sonarr".into(),
+                api_key: Some("cafef00d".repeat(4)),
+                username: None,
+                password: None,
             },
         );
         Runtime {
@@ -567,10 +562,9 @@ mod tests {
             carried.api_key_for("radarr"),
             r.children["radarr"].api_key.clone().unwrap()
         );
-        assert_eq!(carried.nzbget_credentials().0, "stingstream");
         assert_eq!(
-            carried.nzbget_credentials().1,
-            r.children["nzbget"].password.clone().unwrap()
+            carried.api_key_for("sonarr"),
+            r.children["sonarr"].api_key.clone().unwrap()
         );
         assert_eq!(carried.qbt_or_new(), r.qbittorrent);
         assert!(carried.first_run);
@@ -685,9 +679,10 @@ mod tests {
         assert_eq!(after.node_id, r.node_id);
         assert_eq!(after.children, r.children);
 
-        // `qbittorrent.password` is the one that must never be caught by this. It is not just the
-        // shim's login: `StingStream.Core` seeds the arr webhook token from it, and
-        // `gateway::streamurl::key` derives this node's signing key for `/stream/*` URLs from it.
+        // `qbittorrent.password` is the one that must never be caught by this. It was once the
+        // download-client shim's login, and outlived it: `StingStream.Core` seeds the arr webhook
+        // token from it, and `gateway::streamurl::key` derives this node's signing key for
+        // `/stream/*` URLs from it.
         // Removing it would silently break every federated stream and every arr import on the
         // node, at the moment somebody finished setting it up.
         assert_eq!(after.qbittorrent, r.qbittorrent);
@@ -695,7 +690,7 @@ mod tests {
         assert!(std::fs::read_to_string(&p).unwrap().contains("\"password\": \"pw\""));
         // ...and so are the children's own secrets, for the same reason.
         assert_eq!(after.children["radarr"].api_key, r.children["radarr"].api_key);
-        assert_eq!(after.children["nzbget"].password, r.children["nzbget"].password);
+        assert_eq!(after.children["sonarr"].api_key, r.children["sonarr"].api_key);
 
         assert!(
             !Runtime::scrub_admin_password(&p).unwrap(),

@@ -380,6 +380,22 @@ const SHARED_GROUP_SCREENS = [
 ];
 
 /**
+ * Whether the route is a tab group's own landing page: its `index`, or the
+ * named route that gives it an address (`library` for `/library`, see
+ * `TAB_PATHS`).
+ */
+const isTabRoot = (segments: string[]): boolean => {
+  const tabIndex = segments.findIndex(isTabKey);
+  if (tabIndex === -1) return false;
+  const rest = segments.slice(tabIndex + 1);
+  if (rest.length === 0) return true;
+  if (rest.length > 1) return false;
+  return (
+    rest[0] === "index" || `/${rest[0]}` === tabPath(segments[tabIndex] ?? "")
+  );
+};
+
+/**
  * Which row is the current one.
  *
  * Three rules, most specific first: an explicit segment match (Settings sits
@@ -410,7 +426,13 @@ export function activeSidebarKey(
     .sort((a, b) => (b.match?.length ?? 0) - (a.match?.length ?? 0));
   if (matched[0]) return matched[0].key;
 
-  if (libraryId) {
+  // A tab root is never "inside" a library, whatever the params say. expo-router
+  // flattens a navigation's params onto every level of the route it builds, so
+  // opening Movies from the sidebar leaves `libraryId` on the `(libraries)` tab
+  // route itself, and `useGlobalSearchParams` keeps reporting it after the stack
+  // pops back to the library list. Trusting it there lit Movies and titled the
+  // page "Movies" over the list of libraries.
+  if (libraryId && !isTabRoot(segments)) {
     const library = items.find((item) => item.libraryId === libraryId);
     if (library) return library.key;
   }

@@ -7,7 +7,7 @@
 //! |---|---|
 //! | Jellyfin | `GET /jellyfin/health` (ASP.NET health checks, mapped inside `app.Map(BaseUrl)`) |
 //! | Radarr, Sonarr | `GET {UrlBase}/ping` (NzbDrone's unauthenticated liveness endpoint) |
-//! | NZBGet | `POST /jsonrpc` `{"method":"version"}` with HTTP Basic |
+//! | the mesh, when run as a child | `GET /healthz` |
 //!
 //! A child gets `health_grace_secs` to answer for the first time before it is reported unhealthy:
 //! Jellyfin's first start migrates a fresh database and can take minutes on a slow disk, and a
@@ -179,8 +179,7 @@ pub async fn read_version(client: &reqwest::Client, def: &ChildDef) -> Option<St
     let found = body.pointer(&probe.pointer)?;
     match found {
         serde_json::Value::String(s) if !s.is_empty() => Some(s.clone()),
-        // NZBGet answers `{"result": "26.3"}`; a child that answered a number rather than a
-        // string is still telling us its version.
+        // A child that answered a number rather than a string is still telling us its version.
         serde_json::Value::Number(n) => Some(n.to_string()),
         _ => None,
     }

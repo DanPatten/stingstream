@@ -55,7 +55,7 @@ pub struct GatewayConfig {
     /// Address the gateway binds. `0.0.0.0` so other devices on the LAN can reach the node.
     pub bind: String,
     pub port: u16,
-    /// Proxy `/radarr/*`, `/sonarr/*` and `/nzbget/*` through the gateway. Forced off outside
+    /// Proxy `/radarr/*` and `/sonarr/*` through the gateway. Forced off outside
     /// `--dev`: those UIs are never the front door (see `docs/ARCHITECTURE.md`).
     pub expose_child_uis_in_dev: bool,
     /// Serve HTTPS on [`GatewayConfig::port`] whenever `$STINGSTREAM_DATA/tls/` holds a
@@ -132,7 +132,17 @@ pub struct ChildrenConfig {
     pub jellyfin: bool,
     pub radarr: bool,
     pub sonarr: bool,
-    pub nzbget: bool,
+    /// `nzbget = ...` from a config.toml written before 2026-09-23. Accepted and ignored.
+    ///
+    /// StingStream used to supervise an NZBGet child and this switched it on. It no longer bundles
+    /// any download client -- people connect their own, which the arrs have always supported -- but
+    /// every node that ever started has this key in its `[children]` table, and this struct is
+    /// `deny_unknown_fields`, so dropping the field outright would turn an upgrade into a node that
+    /// refuses to read its own config file. Nothing reads the value, and `skip_serializing` means a
+    /// freshly written file never grows the key back. Its twin is
+    /// [`PortsConfig::retired_nzbget`].
+    #[serde(rename = "nzbget", skip_serializing)]
+    pub retired_nzbget: Option<bool>,
     /// The mesh node.
     ///
     /// Run as a child only until M3b embeds `stingstream-mesh` in this process. A node whose mesh
@@ -153,7 +163,11 @@ pub struct PortsConfig {
     pub jellyfin: u16,
     pub radarr: u16,
     pub sonarr: u16,
-    pub nzbget: u16,
+    /// `nzbget = ...` from a config.toml written before 2026-09-23. Accepted and ignored, for the
+    /// same reason as [`ChildrenConfig::retired_nzbget`]: the child it gave a port to is gone, the
+    /// key is in every existing file, and an unknown key here is a hard parse error.
+    #[serde(rename = "nzbget", skip_serializing)]
+    pub retired_nzbget: Option<u16>,
     pub mesh: u16,
     pub infinidysk: u16,
 }
@@ -265,13 +279,9 @@ impl Default for ChildrenConfig {
             jellyfin: true,
             radarr: true,
             sonarr: true,
-            // Off, unlike the two managers above it. Usenet is a paid subscription and a set of
-            // server credentials nobody has yet on a first run, so a node that started nzbget by
-            // default would run a process that can only fail, and put a red row on the one
-            // settings page a new administrator is most likely to open. BitTorrent needs no
-            // account, so the default path works out of the box and this switch is what somebody
-            // turns on once they have somewhere to turn it on *for*.
-            nzbget: false,
+            // Never written, only tolerated on the way in. The node no longer bundles a download
+            // client of any kind; see the field's doc.
+            retired_nzbget: None,
             mesh: true,
             infinidysk: false,
         }
@@ -286,7 +296,7 @@ impl Default for PortsConfig {
             jellyfin: 8096,
             radarr: 7878,
             sonarr: 8989,
-            nzbget: 6789,
+            retired_nzbget: None,
             // The mesh's own documented default (docs/MESH.md, "Local API").
             mesh: 8791,
             infinidysk: 8484,
@@ -416,7 +426,6 @@ impl Config {
             "jellyfin" => self.ports.jellyfin,
             "radarr" => self.ports.radarr,
             "sonarr" => self.ports.sonarr,
-            "nzbget" => self.ports.nzbget,
             "mesh" => self.ports.mesh,
             "infinidysk" => self.ports.infinidysk,
             _ => 0,
@@ -429,7 +438,6 @@ impl Config {
             "jellyfin" => self.children.jellyfin,
             "radarr" => self.children.radarr,
             "sonarr" => self.children.sonarr,
-            "nzbget" => self.children.nzbget,
             "mesh" => self.children.mesh,
             "infinidysk" => self.children.infinidysk,
             _ => false,
@@ -557,9 +565,56 @@ embedded = false
         assert_eq!(cfg.preferred_port("nope"), 0);
         assert!(cfg.child_enabled("radarr"));
         assert!(cfg.child_enabled("sonarr"));
-        // Usenet needs an account before it can do anything; see ChildrenConfig::default.
+        // A retired child is just an unknown name now, whatever an old config.toml says about it.
         assert!(!cfg.child_enabled("nzbget"));
+        assert_eq!(cfg.preferred_port("nzbget"), 0);
         assert!(cfg.child_enabled("mesh"));
         assert!(!cfg.child_enabled("nope"));
+    }
+
+    #[test]
+    fn a_config_written_before_nzbget_was_removed_still_loads() {
+        // Every node that ever started wrote both of these keys. Both tables are
+        // deny_unknown_fields, so this is the difference between an upgrade and a node that will
+        // not start.
+        let td = tempfile::tempdir().unwrap();
+        let p = td.path().join("config.toml");
+        // Exactly what an older node's generated file holds for these two keys.
+        std::fs::write(
+            &p,
+            r#"
+server_name = "attic"
+
+[children]
+jellyfin = true
+radarr = true
+sonarr = true
+nzbget = true
+mesh = true
+infinidysk = false
+
+[ports]
+jellyfin = 8096
+radarr = 7878
+sonarr = 8989
+nzbget = 6789
+mesh = 8791
+infinidysk = 8484
+"#,
+        )
+        .unwrap();
+        let cfg = Config::read(&p).unwrap();
+        assert_eq!(cfg.server_name, "attic");
+        assert_eq!(cfg.children.retired_nzbget, Some(true));
+        assert_eq!(cfg.ports.retired_nzbget, Some(6789));
+        // Read, but never acted on.
+        assert!(!cfg.child_enabled("nzbget"));
+        assert_eq!(cfg.preferred_port("nzbget"), 0);
+
+        // And the key never comes back out, from an old file or a new one.
+        for c in [cfg, Config::default()] {
+            let text = toml::to_string_pretty(&c).unwrap();
+            assert!(!text.contains("nzbget"), "{text}");
+        }
     }
 }
