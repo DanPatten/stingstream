@@ -599,6 +599,27 @@ everything not yet finished, declined and failed included, which is the same lis
 (`counts.mineOpen` counts only what is in flight and would have said nothing about three films that
 could not be grabbed).
 
+**Every request list has a filter bar at the top** (`components/filters/RequestListFilterBar.tsx`),
+built from the library's pieces: `FilterButton` and its sheet, `FilterChip`, the Clear chip. Each
+section offers only what can narrow it. My requests: **Status** (Waiting, In progress, Ready,
+Declined or failed, four buckets over the store's seven states, `wanted` counted as waiting),
+**Type** (Movies, TV shows) and **Sort by** (newest, oldest, title). Approvals and Wanted: Type,
+**Requested by** (the members who have a row in that list) and Sort by, and no Status, because each
+of their lists is already one state; Approvals' one bar narrows both its halves. Activity is the
+transfer queue rather than requests and has none. A chip that has been set reads its value,
+"Status: Waiting", so the bar says exactly what the list is filtered by; Clear appears once anything
+is set, a count ("3 of 12") sits beside it, and a filter that matches nothing says so with a Clear
+filters action rather than reading like an empty list. Filtering is client side: `GET /requests`
+is not paged. If it ever is, these become query params on it, not a filter over one page.
+
+The filters live in the URL beside `?tab=`: `?status=`, `?type=`, `?by=` (a member id) and
+`?sort=`, defaults omitted, so a filtered list is linkable and survives a reload. The URL holds the
+open section's; `requestListFiltersAtom` remembers the others for as long as the app is open, and a
+tab press writes the next section's filters in the same `setParams` as the tab, so one section's
+`?status=` never lingers on another. The rules (buckets, what each section offers, the chip
+labels, reading and writing the params) are pure and tested in
+`components/stingstream/requests/requestListFilters.ts`.
+
 **Discover is where asking happens, it is the first tab, and it is where Requests opens.** Its
 route key is still `find`, so every existing `?tab=find` link keeps working. With nothing typed it
 shows one line of your own requests, when there are any, with each request's state in the corner,

@@ -3,8 +3,16 @@ import { type QueryKey, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner-native";
+import {
+  continueWatchingRowDrop,
+  mapItemsInData,
+} from "@/utils/continueWatching";
 import { logAndCaptureError } from "@/utils/log";
-import { patchWatchedInData, watchedInvalidationKeys } from "@/utils/watched";
+import {
+  isAffectedBy,
+  patchWatchedInData,
+  watchedInvalidationKeys,
+} from "@/utils/watched";
 import { useHaptic } from "./useHaptic";
 import { usePlaybackManager } from "./usePlaybackManager";
 import { useInvalidatePlaybackProgressCache } from "./useRevalidatePlaybackProgressCache";
@@ -50,7 +58,18 @@ export const useSetWatched = () => {
       for (const query of queryClient.getQueryCache().getAll()) {
         const data = query.state.data;
         if (data === undefined) continue;
-        const patched = patchWatchedInData(data, targets, played);
+        // Watched leaves Continue watching at once (Plex's "Mark as watched" on that row); the
+        // episode after it arrives with the refetch.
+        const leavesRow =
+          played &&
+          continueWatchingRowDrop(query.queryKey, targets[0], "watched");
+        const patched = leavesRow
+          ? mapItemsInData(data, (item) =>
+              targets.some((target) => isAffectedBy(item, target))
+                ? null
+                : item,
+            )
+          : patchWatchedInData(data, targets, played);
         if (patched === data) continue;
         previous.push([query.queryKey, data]);
         queryClient.setQueryData(query.queryKey, patched);

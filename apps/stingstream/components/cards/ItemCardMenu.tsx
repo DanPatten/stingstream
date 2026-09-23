@@ -5,18 +5,22 @@ import { Platform, type View } from "react-native";
 import { AnchoredMenu, MenuItem } from "@/components/common/Menu";
 import { MENU_SHEET_HANDOFF_MS } from "@/constants/animation";
 import useRouter from "@/hooks/useAppRouter";
+import { useClearResume } from "@/hooks/useClearResume";
 import { useFavorite } from "@/hooks/useFavorite";
 import { useSetWatched } from "@/hooks/useSetWatched";
 import { useDownload } from "@/providers/DownloadProvider";
 import { useOfflineMode } from "@/providers/OfflineModeProvider";
+import {
+  canRemoveFromContinueWatching,
+  type ItemCardMenuContext,
+} from "@/utils/continueWatching";
 import {
   canMarkWatched,
   isWatched,
   watchedToggleLabelKey,
 } from "@/utils/watched";
 
-/** The row a card sits in, for the menu rows only that row has. */
-export type ItemCardMenuContext = "continueWatching" | "nextUp";
+export type { ItemCardMenuContext };
 
 interface Props {
   item: BaseItemDto;
@@ -36,10 +40,16 @@ interface Props {
  *
  * Mounted only while open, keyed by the item, so its hooks are bound to one item at a time.
  */
-export const ItemCardMenu: React.FC<Props> = ({ item, anchorRef, onClose }) => {
+export const ItemCardMenu: React.FC<Props> = ({
+  item,
+  context,
+  anchorRef,
+  onClose,
+}) => {
   const { t } = useTranslation();
   const router = useRouter();
   const setWatched = useSetWatched();
+  const clearResume = useClearResume();
   const { isFavorite, toggleFavorite } = useFavorite(item);
   const isOffline = useOfflineMode();
   const { deleteFile } = useDownload();
@@ -73,6 +83,18 @@ export const ItemCardMenu: React.FC<Props> = ({ item, anchorRef, onClose }) => {
           label={t(watchedToggleLabelKey([item]))}
           testID='card-menu-watched'
           onPress={run(() => void setWatched([item], !played))}
+        />
+      ) : null}
+      {/*
+        Plex's other way off Continue watching: forget the position without marking anything
+        watched, so Play starts from the beginning again. See `utils/continueWatching.ts`.
+      */}
+      {canRemoveFromContinueWatching(item, context) && !isOffline ? (
+        <MenuItem
+          icon='close'
+          label={t("item.remove_from_continue_watching")}
+          testID='card-menu-remove-continue'
+          onPress={run(() => void clearResume(item))}
         />
       ) : null}
       <MenuItem

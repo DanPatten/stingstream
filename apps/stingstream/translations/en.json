@@ -1250,6 +1250,8 @@
     "mark_watched": "Mark as watched",
     "mark_unwatched": "Mark as unwatched",
     "watched_update_failed": "Could not update watched status. Try again.",
+    "remove_from_continue_watching": "Remove from Continue watching",
+    "continue_watching_remove_failed": "Could not remove it from Continue watching. Try again.",
     "more_actions": "More actions",
     "more": "More",
     "less": "Less",

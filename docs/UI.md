@@ -308,6 +308,7 @@ feature with no endpoint — there is simply no such feature on these screens an
 | A title's own page → Manage on this server | **monitor toggle**; **per-item quality profile**; **delete, with or without files**, behind a confirmation. Offered only when this node's manager tracks the title (`useArrTitle`) |
 | A request row → Manage on this server | the same sheet, on the card in My requests and on a failed row in Approvals, for the window between asked-for and arrived when there is no library page yet |
 | Requests → Find | **search-as-you-type add** (`/requests/search` over `/movies/lookup`, `/series/lookup`), with **add-by-id** kept as an escape hatch behind the no-match empty state: it resolves `tmdb:550` to a title and files an ordinary request |
+| Requests → My requests, Approvals, Wanted | a **filter bar** over each list (`RequestListFilterBar`): Status, Type and Sort by on My requests; Type, Requested by and Sort by on Approvals and Wanted. A set chip reads its value ("Status: Waiting"), Clear resets it, and the filters are the route's `?status=`, `?type=`, `?by=`, `?sort=` |
 | Requests → Activity | Queue (both apps), **History** merged and paged, and **Upcoming** — the merged calendar grouped by day, week/month window |
 | Downloads | aggregate engine health, and the **unified per-item list** across the torrent engine, NZBGet and both arr queues, with per-item progress and pause / resume / remove |
 | Server settings → Indexers | full CRUD, and a **connectivity test** run against every app the indexer applies to |

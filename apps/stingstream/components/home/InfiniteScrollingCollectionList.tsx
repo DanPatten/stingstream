@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import type { ViewProps } from "react-native";
 import { CardRow } from "@/components/cards/CardRow";
 import { useSettings } from "@/utils/atoms/settings";
+import { homeRowMenuContext } from "@/utils/continueWatching";
 
 interface Props extends ViewProps {
   title?: string | null;
@@ -104,6 +105,8 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
   return (
     <CardRow
       enableActionSheet
+      // Continue watching gets "Remove from Continue watching" in its card menu.
+      menuContext={homeRowMenuContext(queryKey)}
       {...props}
       title={title}
       kind={orientation === "horizontal" ? "wide" : "portrait"}
