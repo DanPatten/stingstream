@@ -351,7 +351,11 @@ build, only for an administrator, and only when the node's `GET /stingstream/rev
 `localhost`, on Windows (`lib/stingstream/reveal.ts`, `shouldShowReveal`). Success says nothing,
 because the window opening is the answer; a refusal is a toast. Not on a subtitle's path. Empty values and empty
 sections are dropped, so a title held by another server shows what is known. Not on TV, whose
-details page has no "..." menu.
+details page has no "..." menu. Get info is also the only place the web and phone title page shows a
+file's technical facts: the collapsible "Details" block that used to close the page (size, video,
+audio and subtitle chips, `ItemTechnicalDetails`) was removed on 2026-09-23, since Get info already
+shows every one of them. The TV details page keeps its inline technical section
+(`TVTechnicalDetails`), because TV has no Get info.
 
 **Play on a title already begun asks first**, the way Plex does: "Resume from 1:02:33" (on top,
 focused) or "Play from beginning", and dismissing plays nothing (`components/item/ResumeChooser.tsx`
