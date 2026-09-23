@@ -1462,7 +1462,11 @@ Invoke-Step 'Switching a library off keeps its files' {
     # would notice if that stopped being true, and a person only finds out when the files are gone.
     #
     # Last, deliberately. It stops radarr for a few seconds, and every earlier step wants it.
-    $movies = Invoke-StingStream -Path '/stingstream/api/v1/Libraries' |
+    # Into a variable first, then piped. Under Windows PowerShell 5.1 ConvertFrom-Json emits a JSON
+    # array as one Object[], so piping the call straight into Where-Object tests the whole array as
+    # a single item and finds no Name on it. Piping a *variable* unrolls it in both editions.
+    $libraries = Invoke-StingStream -Path '/stingstream/api/v1/Libraries'
+    $movies = $libraries |
         Where-Object { (Get-Member-Value $_ 'Name') -eq 'Movies' } |
         Select-Object -First 1
     if (-not $movies) { throw 'No Movies library to switch off.' }
@@ -1473,7 +1477,8 @@ Invoke-Step 'Switching a library off keeps its files' {
     # way and `LibraryLayoutPlan` falls back to the supervisor's path, which is what makes a node
     # nobody has configured still have working libraries (`LibraryLayoutPlanTests`). Reading the
     # row asserted a folder that a default install is never going to have.
-    $folders = @(Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders))
+    $allFolders = Invoke-Json -Uri "$script:GatewayUrl/jellyfin/Library/VirtualFolders" -Headers (Get-AuthHeaders)
+    $folders = @($allFolders | ForEach-Object { $_ })
     $moviesFolder = @($folders | Where-Object { (Get-Member-Value $_ 'Name') -eq 'Movies' }) | Select-Object -First 1
     if (-not $moviesFolder) { throw 'The media server has no Movies library to switch off.' }
     # Its own folder, not the pointer tree beside it: the federated tree holds peers' `.strm` files
@@ -1494,10 +1499,21 @@ Invoke-Step 'Switching a library off keeps its files' {
         @(Get-ChildItem -LiteralPath $folder -Recurse -File -ErrorAction SilentlyContinue |
             ForEach-Object { [pscustomobject]@{
                 FullName = $_.FullName
-                Hash     = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+                # .NET rather than Get-FileHash: that cmdlet is autoloaded from a module, and a
+                # Windows PowerShell started from pwsh 7 inherits a PSModulePath that cannot find it.
+                Hash     = & {
+                    param($path)
+                    $sha = [System.Security.Cryptography.SHA256]::Create()
+                    $stream = [System.IO.File]::OpenRead($path)
+                    try { [BitConverter]::ToString($sha.ComputeHash($stream)) }
+                    finally { $stream.Dispose(); $sha.Dispose() }
+                } $_.FullName
             } } | Sort-Object FullName)
     }
-    $before = & $shape $paths[0]
+    # @() at the call as well as inside: a script block's output is unrolled on the way out, so one
+    # file comes back as a scalar, and under Windows PowerShell 5.1's strict mode a scalar has no
+    # .Count.
+    $before = @(& $shape $paths[0])
     if ($before.Count -eq 0) { throw "Nothing in $($paths[0]) to keep; the import step should have left a film there." }
     Write-Host "      $($before.Count) file(s) under $($paths[0]), hashed"
 
@@ -1518,7 +1534,7 @@ Invoke-Step 'Switching a library off keeps its files' {
     # happened. LastWriteTime is deliberately not among the properties -- a metadata refresh that
     # rewrites no bytes still touches it, and a step that fails for that teaches everyone to ignore
     # it.
-    $after = & $shape $paths[0]
+    $after = @(& $shape $paths[0])
     $changed = @(Compare-Object -ReferenceObject $before -DifferenceObject $after -Property FullName, Hash)
     if ($changed.Count -gt 0) {
         $what = ($changed | ForEach-Object { "$($_.SideIndicator) $($_.FullName)" }) -join '; '
