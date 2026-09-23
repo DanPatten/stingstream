@@ -39,7 +39,10 @@ $versionFile = Join-Path $NodeDir 'VERSION'
 if (-not (Test-Path $versionFile)) { throw "No $versionFile -- run tools/package-node.ps1 -Rid win-x64 first, or drop -SkipPackage." }
 $version = (Get-Content $versionFile -Raw).Trim()
 
-$iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
+# A path string either way: Get-Command yields a CommandInfo (.Source), Get-Item a FileInfo
+# (.FullName), and reading .Path off the second was null -- "the expression after '&' ... was not
+# valid" on every machine where winget had put Inno Setup under LOCALAPPDATA.
+$iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
 if (-not $iscc) {
     foreach ($candidate in @(
         "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
@@ -47,7 +50,7 @@ if (-not $iscc) {
         # winget installs it per-user here, not under Program Files -- found doing this for real.
         "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     )) {
-        if (Test-Path $candidate) { $iscc = Get-Item $candidate; break }
+        if (Test-Path $candidate) { $iscc = $candidate; break }
     }
 }
 if (-not $iscc) {
@@ -57,7 +60,7 @@ if (-not $iscc) {
 New-Item -ItemType Directory -Force -Path (Join-Path $RepoRoot 'dist\installers') | Out-Null
 
 Write-Host "== Compiling the Windows installer (version $version) =="
-& $iscc.Path `
+& $iscc `
     "/DSourceDir=$NodeDir" `
     "/DMyAppVersion=$version" `
     (Join-Path $PSScriptRoot 'StingStream.iss')
