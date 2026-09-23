@@ -22,6 +22,7 @@ import {
 import { confirmDestructive } from "../shared/confirm";
 import { ScreenHeaderRow } from "../shared/ScreenHeaderRow";
 import { QueryState } from "../shared/ScreenState";
+import { nameForType } from "./clientName";
 import { FormSwitch, SectionEmptyState } from "./fields";
 
 /**
@@ -64,6 +65,25 @@ export function DownloadClientsSection() {
     setVerdict(null);
     setShowPassword(false);
     setOpen(false);
+  };
+
+  // Names the other clients already use, so a name the form suggests is free.
+  const takenNames = (except?: string | null) =>
+    (clients.data ?? [])
+      .filter((c) => c.Id !== except)
+      .map((c) => c.Name ?? "");
+
+  const openAdd = () => {
+    const label =
+      IMPLEMENTATIONS.find((i) => i.value === emptyClient.Implementation)
+        ?.label ?? "";
+    setForm({
+      ...emptyClient,
+      Name: nameForType("", label, LABELS, takenNames()),
+    });
+    setVerdict(null);
+    setShowPassword(false);
+    setOpen(true);
   };
 
   const openEdit = (client: ExternalDownloadClientSettings) => {
@@ -150,7 +170,7 @@ export function DownloadClientsSection() {
             variant='secondary'
             size='sm'
             icon={open ? "close" : "add"}
-            onPress={() => (open ? close() : setOpen(true))}
+            onPress={() => (open ? close() : openAdd())}
           >
             {open
               ? t("common.cancel")
@@ -185,11 +205,20 @@ export function DownloadClientsSection() {
             {IMPLEMENTATIONS.map((impl) => (
               <Pressable
                 key={impl.value}
-                onPress={() => {
-                  set("Implementation", impl.value);
-                  set("Protocol", impl.protocol);
-                  set("Port", impl.port);
-                }}
+                onPress={() =>
+                  setForm((f) => ({
+                    ...f,
+                    Implementation: impl.value,
+                    Protocol: impl.protocol,
+                    Port: impl.port,
+                    Name: nameForType(
+                      f.Name ?? "",
+                      impl.label,
+                      LABELS,
+                      takenNames(f.Id),
+                    ),
+                  }))
+                }
                 style={{
                   paddingHorizontal: 12,
                   paddingVertical: 6,
@@ -468,6 +497,8 @@ const IMPLEMENTATIONS: {
   { value: "Sabnzbd", label: "SABnzbd", protocol: "usenet", port: 8080 },
   { value: "Nzbget", label: "NZBGet", protocol: "usenet", port: 6789 },
 ];
+
+const LABELS = IMPLEMENTATIONS.map((i) => i.label);
 
 const emptyClient: ExternalDownloadClientSettings = {
   Name: "",
