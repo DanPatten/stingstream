@@ -6,7 +6,8 @@
 ;   - registers and starts StingStream as a proper Windows service (--service mode; see
 ;     mesh/crates/stingstream/src/service.rs and install-service.ps1 next to this file)
 ;   - opens the firewall for TCP 8790
-;   - adds a Start Menu shortcut to http://localhost:8790
+;   - adds a Start Menu shortcut (and, if ticked, a desktop one) that opens http://localhost:8790
+;   - offers to open http://localhost:8790 on its last page, so nobody has to know the address
 ;   - uninstalls cleanly, leaving %ProgramData%\StingStream behind by default
 ;
 ; Build:
@@ -28,6 +29,7 @@
 #define MyAppName "StingStream"
 #define MyAppURL "https://github.com/DanPatten/stingstream"
 #define MyAppExeName "bin\stingstream.exe"
+#define MyAppLocalURL "http://localhost:8790"
 
 [Setup]
 ; Fixed once and never changed: Inno/Windows use this GUID, not the app name, to recognise
@@ -51,7 +53,8 @@ SolidCompression=yes
 WizardStyle=modern
 ; GPL-3.0-or-later, same as the repository root.
 LicenseFile=..\..\LICENSE
-UninstallDisplayIcon={app}\{#MyAppExeName}
+SetupIconFile=StingStream.ico
+UninstallDisplayIcon={app}\StingStream.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -67,17 +70,35 @@ Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 ; node itself, and package-node.ps1 has no reason to know about them.
 Source: "install-service.ps1"; DestDir: "{app}\service"; Flags: ignoreversion
 Source: "uninstall-service.ps1"; DestDir: "{app}\service"; Flags: ignoreversion
-Source: "StingStream.url"; DestDir: "{app}"; Flags: ignoreversion
+Source: "StingStream.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+[InstallDelete]
+; What v0.2.0 and earlier installed: a StingStream folder under Programs holding a shortcut to a
+; .url file, which Start never listed. An upgrade would otherwise leave both behind.
+Type: filesandordirs; Name: "{autoprograms}\{#MyAppName}"
+Type: files; Name: "{app}\StingStream.url"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\StingStream.url"
-Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+; A shortcut to explorer.exe with the URL as its argument, not a shortcut to a .url file: Start's
+; "All apps" list leaves out shortcuts whose target is a document or an internet shortcut, which is
+; how v0.2.0 installed a Start Menu entry nobody could find. Explorer hands the URL to the default
+; browser. Top level of Programs rather than a folder, so it sits under S like any other app.
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{win}\explorer.exe"; Parameters: "{#MyAppLocalURL}"; \
+    IconFilename: "{app}\StingStream.ico"; Comment: "Open StingStream"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{win}\explorer.exe"; Parameters: "{#MyAppLocalURL}"; \
+    IconFilename: "{app}\StingStream.ico"; Comment: "Open StingStream"; Tasks: desktopicon
 
 [Run]
 Filename: "{code:GetPowerShellExe}"; \
     Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\service\install-service.ps1"" -InstallDir ""{app}"" -DataDir ""{code:GetDataDir}"""; \
     Flags: runhidden waituntilterminated; \
     StatusMsg: "Registering and starting the StingStream service..."
+; Ticked by default on the last page. skipifsilent keeps winget and CI from opening a browser.
+Filename: "{#MyAppLocalURL}"; Description: "Open StingStream"; \
+    Flags: postinstall shellexec nowait skipifsilent
 
 [UninstallRun]
 ; RunOnceId so this only ever runs once per uninstall even if Inno retries a step.

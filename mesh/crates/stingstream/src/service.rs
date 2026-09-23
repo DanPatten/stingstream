@@ -67,12 +67,33 @@ pub fn run(cli: Cli) -> Result<()> {
 
 fn service_main(_scm_args: Vec<OsString>) {
     if let Err(e) = run_service() {
-        // Nothing reads stderr when the SCM starts this process; by the time run_service gets far
-        // enough to matter, `run`'s own logging is already writing to
-        // <data-dir>/logs/stingstream.jsonl, so this is a last-resort net for a failure before
-        // that point (a bad --install-root, a port already bound, etc).
-        eprintln!("StingStream service stopped with an error: {e:#}");
+        // Nothing reads stderr when the SCM starts this process, and a failure before `run` has
+        // set up logging (an unreadable config.toml, a bad --install-root) otherwise leaves no
+        // trace at all. That is how v0.2.0 on top of a v0.1.0 data directory looked: the service
+        // stopped with exit code 0 and an empty log. So the error goes to a file of its own.
+        let message = format!("StingStream service stopped with an error: {e:#}");
+        eprintln!("{message}");
+        write_startup_error(&message);
     }
+}
+
+/// Best effort: `<data-dir>/logs/service-error.txt`, overwritten on each failed start and removed
+/// on a good one, so its presence alone says the last start failed.
+fn write_startup_error(message: &str) {
+    let Some(path) = startup_error_path() else { return };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let stamp = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_default();
+    let _ = std::fs::write(&path, format!("{stamp} {message}\n"));
+}
+
+fn startup_error_path() -> Option<std::path::PathBuf> {
+    let cli = CLI.get()?;
+    let data_dir = crate::paths::resolve_data_dir(cli.data_dir.as_deref()).ok()?;
+    Some(data_dir.join("logs").join("service-error.txt"))
 }
 
 fn run_service() -> Result<()> {
@@ -101,7 +122,7 @@ fn run_service() -> Result<()> {
     let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)
         .context("registering the service control handler")?;
 
-    let set_status = |state: ServiceState, wait_hint: Duration| {
+    let set_status = |state: ServiceState, wait_hint: Duration, exit_code: ServiceExitCode| {
         // Errors here are not fatal to the node itself -- worst case the Services console shows a
         // stale state for a moment -- so they are swallowed rather than aborting a running node
         // over a status-reporting hiccup.
@@ -112,14 +133,15 @@ fn run_service() -> Result<()> {
                 ServiceState::Running | ServiceState::StopPending => ServiceControlAccept::STOP,
                 _ => ServiceControlAccept::empty(),
             },
-            exit_code: ServiceExitCode::Win32(0),
+            exit_code,
             checkpoint: 0,
             wait_hint,
             process_id: None,
         });
     };
 
-    set_status(ServiceState::StartPending, Duration::from_secs(5));
+    const OK: ServiceExitCode = ServiceExitCode::Win32(0);
+    set_status(ServiceState::StartPending, Duration::from_secs(5), OK);
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -134,16 +156,22 @@ fn run_service() -> Result<()> {
             tracing::info!("received a stop control from the Service Control Manager");
         });
 
-    set_status(ServiceState::Running, Duration::ZERO);
+    set_status(ServiceState::Running, Duration::ZERO, OK);
+    if let Some(path) = startup_error_path() {
+        let _ = std::fs::remove_file(path);
+    }
     // StopPending before the graceful shutdown actually finishes: `run` only returns once every
     // child has been asked to stop and the gateway listener has closed, which can take longer than
     // the SCM's default wait, hence the wait_hint above.
     let result = rt.block_on(async move {
         let r = crate::run(cli, shutdown_signal).await;
-        set_status(ServiceState::StopPending, Duration::from_secs(10));
+        set_status(ServiceState::StopPending, Duration::from_secs(10), OK);
         r
     });
 
-    set_status(ServiceState::Stopped, Duration::ZERO);
+    // A non-zero exit code on a failed run, so `sc query` and Start-Service say it failed rather
+    // than reporting a clean stop (v0.2.0 said WIN32_EXIT_CODE 0 for a node that never started).
+    let exit_code = if result.is_ok() { OK } else { ServiceExitCode::ServiceSpecific(1) };
+    set_status(ServiceState::Stopped, Duration::ZERO, exit_code);
     result
 }

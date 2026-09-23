@@ -73,7 +73,7 @@ are what the release version actually flows through.
 
 | Job | Runs on | Produces | Verified how |
 |---|---|---|---|
-| `windows-installer` | `windows-latest` | `StingStream-Setup-<v>-win-x64.exe` | Builds and packages for real; the installer itself is compiled by Inno Setup on the runner. **Not** silently installed in CI (needs elevation a CI runner does not casually grant); see "Known gaps" for what that leaves unverified. |
+| `windows-installer` | `windows-latest` | `StingStream-Setup-<v>-win-x64.exe` | Builds and packages for real; the installer itself is compiled by Inno Setup on the runner. Then installed silently on the runner (GitHub's Windows runners are already elevated), which must bring the service up answering `/healthz` on :8790 and leave a Start Menu shortcut that opens `http://localhost:8790`; the SCM state, event log, install log and node logs are printed either way. |
 | `linux-packages` (linux-x64) | `ubuntu-latest` | `stingstream_<v>_amd64.deb`, `StingStream-<v>-x86_64.AppImage` | The `.deb` is genuinely installed on the runner (a real Ubuntu VM with real systemd — not a container, not emulated) and `stingstream.service` is checked against `/healthz` and `journalctl`, then removed again with a check that `/var/lib/stingstream` survives. |
 | `linux-packages` (linux-arm64) | `ubuntu-latest` (cross-compiled) | `stingstream_<v>_arm64.deb`, `StingStream-<v>-aarch64.AppImage` | Build-verified only — an arm64 binary cannot execute on the runner's x86_64 CPU, and QEMU-emulating a full five-process boot for a CI smoke test was judged not worth its time cost against what the linux-x64 leg already proves about the same postinst/unit file. |
 | `macos` (osx-arm64, osx-x64) | `macos-14` (both legs) | `StingStream-<v>-osx-*.tar.gz` | Builds on **real Mac hardware** (GitHub-hosted macOS runners — the one place in this whole project that is true) and runs `stingstream --version` and `--print-runtime` for real. osx-arm64 runs natively; osx-x64 is cross-compiled (`rustup target add x86_64-apple-darwin`; .NET's self-contained publish cross-publishes for any RID regardless of host) and smoke-tested under Rosetta 2 on the same Apple Silicon runner, not on native Intel silicon — GitHub retired the `macos-13` hosted runner image in 2025, which is what stalled `v0.1.0-rc1`'s release run for over an hour before it was cancelled (a `queued` job's wait time is not covered by the job's own `timeout-minutes`, which only budgets time after a runner actually picks it up). Full multi-child startup is **not** verified anywhere; see "Known gaps". |
@@ -415,12 +415,11 @@ fields name.
   — only the binary launching and resolving its own config has been proven, on real CI hardware.
   The first real macOS user is, today, the first person to find out whether Jellyfin/Radarr/Sonarr/
   NZBGet actually come up together there.
-- **Windows installer silent-install verification.** `deploy/windows/build-installer.ps1` compiles
-  the installer and CI runs it, but nothing runs the installer **itself** (elevation, service
-  registration, firewall rule) end-to-end in an automated way — that needs either a self-hosted
-  Windows runner willing to grant a CI job admin rights, or continued manual verification on a real
-  machine before each release. Verified manually on Dan's own machine for this milestone's initial
-  build (see the M8a session's own report for what "manually" covered); not automated.
+- **Windows upgrades.** The `windows-installer` job installs onto a clean runner, so it proves a
+  first install and nothing about installing over an existing data directory. v0.2.0 over a v0.1.0
+  data directory failed exactly there: the old `config.toml` has sections v0.2 rejects, and the
+  service stopped before its logging was up. Upgrades from 0.1 are not supported; nothing yet
+  tests an upgrade from one supported version to the next.
 
 ---
 

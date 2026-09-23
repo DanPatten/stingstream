@@ -18,8 +18,11 @@ running Jellyfin, Radarr, Sonarr, NZBGet and the StingStream mesh behind a singl
    port, and writes to `%ProgramFiles%`.
 3. It installs to `%ProgramFiles%\StingStream`, creates `%ProgramData%\StingStream` as the data
    directory, registers and starts **StingStream** as a Windows service, opens TCP 8790 in Windows
-   Firewall, and adds a Start Menu shortcut.
-4. Open the Start Menu shortcut, or go to <http://localhost:8790>. There is nothing to type in but
+   Firewall, and adds a **StingStream** shortcut to the Start Menu (and to the desktop, if that box
+   was ticked). Both open <http://localhost:8790> in the default browser.
+4. The last page of the installer has **Open StingStream** ticked; leave it and your browser opens
+   the node when you click Finish. Later, use the Start Menu shortcut or go to
+   <http://localhost:8790>. There is nothing to type in but
    the account you want: the page comes from the node, so it connects to itself and shows **Create
    your StingStream account**. On a first run it may say "Starting your server" for up to a minute
    or two while the media server behind the gateway comes up — that screen moves on by itself.
@@ -37,8 +40,20 @@ Restart-Service StingStream
 Stop-Service StingStream    # graceful: every child gets its stop signal and a grace period first
 ```
 
-**Uninstalling**: Settings → Apps → StingStream → Uninstall, or the Start Menu's own uninstall
-shortcut. This stops and removes the service, removes the firewall rule, and deletes
+**If it does not start**: a service that fails before its logging is up writes the error to
+`%ProgramData%\StingStream\logs\service-error.txt` and stops with a non-zero exit code
+(`sc.exe query StingStream`). Running the node in the foreground prints the same error to the
+console:
+
+```powershell
+& "$env:ProgramFiles\StingStreamin\stingstream.exe" --install-root "$env:ProgramFiles\StingStream" --data-dir "$env:ProgramData\StingStream"
+```
+
+A data directory left by v0.1.x is not readable by v0.2 (its `config.toml` carries sections that
+were since removed). Upgrades from 0.1 are not supported: move `%ProgramData%\StingStream` aside
+before installing.
+
+**Uninstalling**: Settings → Apps → StingStream → Uninstall. This stops and removes the service, removes the firewall rule, and deletes
 `%ProgramFiles%\StingStream`. **`%ProgramData%\StingStream` (your data, config and media) is left
 behind by default** — delete it by hand (`Remove-Item -Recurse -Force
 "$env:ProgramData\StingStream"`) for a truly clean uninstall.

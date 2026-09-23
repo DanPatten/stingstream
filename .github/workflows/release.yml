@@ -283,8 +283,14 @@ jobs:
             Write-Host "== $($_.Name)"; Get-Content $_.FullName -Tail 40
           }
           if (-not $ok) { Write-Host '::error::the StingStream service never answered on :8790 after install'; exit 1 }
-          $menu = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs"
-          Get-ChildItem $menu -Recurse -Filter 'StingStream*' | ForEach-Object { Write-Host "start menu: $($_.FullName)" }
+          # Top level of Programs, targeting explorer.exe: Start hides shortcuts to .url files.
+          $lnk = "$env:ProgramData\Microsoft\Windows\Start Menu\Programs\StingStream.lnk"
+          if (-not (Test-Path $lnk)) { Write-Host "::error::no Start Menu shortcut at $lnk"; exit 1 }
+          $target = (New-Object -ComObject WScript.Shell).CreateShortcut($lnk)
+          Write-Host "start menu: $lnk -> $($target.TargetPath) $($target.Arguments)"
+          if ($target.TargetPath -notlike '*explorer.exe' -or $target.Arguments -ne 'http://localhost:8790') {
+            Write-Host '::error::the Start Menu shortcut does not open http://localhost:8790'; exit 1
+          }
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
