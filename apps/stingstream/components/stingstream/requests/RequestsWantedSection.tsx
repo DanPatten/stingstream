@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Text } from "@/components/common/Text";
+import { RequestListFilterBar } from "@/components/filters/RequestListFilterBar";
 import {
   requestTitle,
   useDecideRequest,
@@ -11,6 +13,14 @@ import {
 } from "@/lib/stingstream/requests";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
 import { RequestsErrorState } from "./RequestsErrorState";
+import { RequestsFilteredEmpty } from "./RequestsFilteredEmpty";
+import {
+  applyRequestListFilters,
+  DEFAULT_REQUEST_LIST_FILTERS,
+  type RequestListFilters,
+  requesterOptions,
+  requestListFiltersActive,
+} from "./requestListFilters";
 
 /**
  * What people want, on a server that fetches nothing by itself.
@@ -24,11 +34,43 @@ import { RequestsErrorState } from "./RequestsErrorState";
  * one action, for something that is never going to be added. It is the same call behind Decline,
  * which is deliberate. Making people live with a list they cannot clear turns the one screen that
  * is supposed to say what to do next into a pile.
+ *
+ * Filtered by type, who asked and order, from the route through `RequestsScreen`. No status chip:
+ * everything here is wanted.
  */
-export function RequestsWantedSection() {
+export function RequestsWantedSection({
+  filters = DEFAULT_REQUEST_LIST_FILTERS,
+  onFilters,
+}: {
+  filters?: RequestListFilters;
+  onFilters?: (filters: RequestListFilters) => void;
+} = {}) {
   const { t } = useTranslation();
   const wanted = useRequests({ state: "wanted" });
   const decide = useDecideRequest();
+
+  const all = wanted.data ?? [];
+  const requesters = useMemo(
+    () => requesterOptions(wanted.data ?? []),
+    [wanted.data],
+  );
+  const rows = useMemo(
+    () => applyRequestListFilters(wanted.data ?? [], filters),
+    [wanted.data, filters],
+  );
+  const filtered = requestListFiltersActive(filters);
+
+  // Drawn over the skeleton too, so the rows land where the placeholders were.
+  const bar = (
+    <RequestListFilterBar
+      section='wanted'
+      filters={filters}
+      set={(next) => onFilters?.(next)}
+      requesters={requesters}
+      shown={rows.length}
+      total={all.length}
+    />
+  );
 
   const dismiss = async (id: string, title: string) => {
     try {
@@ -39,19 +81,32 @@ export function RequestsWantedSection() {
     }
   };
 
-  if (wanted.isLoading) return <RequestCardSkeletonList />;
+  if (wanted.isLoading) {
+    return (
+      <View>
+        {bar}
+        <Text variant='heading' weight='semibold' style={{ marginBottom: 10 }}>
+          {t("requests.wanted_heading")}
+        </Text>
+        <RequestCardSkeletonList />
+      </View>
+    );
+  }
   if (wanted.error) {
     return <RequestsErrorState error={wanted.error} onRetry={wanted.refetch} />;
   }
 
-  const rows = wanted.data ?? [];
-
   return (
     <View testID='requests-list'>
+      {bar}
       <Text variant='heading' weight='semibold' style={{ marginBottom: 10 }}>
         {t("requests.wanted_heading")}
       </Text>
-      {rows.length === 0 ? (
+      {rows.length === 0 && filtered && all.length > 0 ? (
+        <RequestsFilteredEmpty
+          onClear={() => onFilters?.(DEFAULT_REQUEST_LIST_FILTERS)}
+        />
+      ) : rows.length === 0 ? (
         <EmptyState
           icon='requests'
           title={t("requests.wanted_empty_title")}

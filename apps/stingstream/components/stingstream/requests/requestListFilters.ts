@@ -121,7 +121,9 @@ export const REQUEST_LIST_DIMENSIONS: Record<
 };
 
 /** Anything narrowing or reordering the list, which is when Clear shows. */
-export const requestListFiltersActive = (filters: RequestListFilters): boolean =>
+export const requestListFiltersActive = (
+  filters: RequestListFilters,
+): boolean =>
   filters.status !== DEFAULT_REQUEST_LIST_FILTERS.status ||
   filters.type !== DEFAULT_REQUEST_LIST_FILTERS.type ||
   filters.requester !== DEFAULT_REQUEST_LIST_FILTERS.requester ||
@@ -210,6 +212,14 @@ export interface RequestListParams {
   sort?: string;
 }
 
+/** What is written to the route: every key present, `undefined` removing it. */
+export interface WrittenRequestListParams {
+  status: string | undefined;
+  type: string | undefined;
+  by: string | undefined;
+  sort: string | undefined;
+}
+
 const pick = <T extends string>(
   options: readonly T[],
   value: string | undefined,
@@ -232,7 +242,9 @@ export const requestListFiltersFromParams = (
     dimensions.includes(dimension);
   const d = DEFAULT_REQUEST_LIST_FILTERS;
   return {
-    status: has("status") ? pick(STATUS_OPTIONS, params.status, d.status) : d.status,
+    status: has("status")
+      ? pick(STATUS_OPTIONS, params.status, d.status)
+      : d.status,
     type: has("type") ? pick(TYPE_OPTIONS, params.type, d.type) : d.type,
     requester: has("requester") && params.by ? params.by : d.requester,
     sort: has("sort") ? pick(SORT_OPTIONS, params.sort, d.sort) : d.sort,
@@ -247,7 +259,7 @@ export const requestListFiltersFromParams = (
  */
 export const requestListFiltersToParams = (
   filters: RequestListFilters | undefined,
-): Required<{ [K in keyof RequestListParams]: string | undefined }> => {
+): WrittenRequestListParams => {
   const f = filters ?? DEFAULT_REQUEST_LIST_FILTERS;
   const d = DEFAULT_REQUEST_LIST_FILTERS;
   return {
@@ -259,7 +271,10 @@ export const requestListFiltersToParams = (
 };
 
 /** A translator, narrowed to what the labels need, so tests can pass a stub. */
-export type Translate = (key: string, options?: Record<string, unknown>) => string;
+export type Translate = (
+  key: string,
+  options?: Record<string, unknown>,
+) => string;
 
 /** The key naming each dimension, which is the chip's label while it is at its default. */
 export const DIMENSION_LABEL_KEYS: Record<RequestListDimension, string> = {

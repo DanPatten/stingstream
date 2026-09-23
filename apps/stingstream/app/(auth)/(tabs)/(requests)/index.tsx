@@ -3,6 +3,7 @@ import { useLocalSearchParams } from "expo-router";
 import { useCallback, useState } from "react";
 import { Platform } from "react-native";
 import { RequestsScreen } from "@/components/stingstream/requests/RequestsScreen";
+import type { RequestListParams } from "@/components/stingstream/requests/requestListFilters";
 import { kindFromRoute } from "@/components/stingstream/requests/requestsSections";
 import { RefreshScreen } from "@/components/stingstream/shared/RefreshScreen";
 import useRouter from "@/hooks/useAppRouter";
@@ -25,19 +26,34 @@ import useRouter from "@/hooks/useAppRouter";
  * `setParams`, not `push`: the sections are flat halves of one screen rather than deep routes, and
  * pushing would put a back step between two halves of the same errand — the same reasoning as
  * Search's `Request "…"` button using `replace`.
+ *
+ * Four more narrow a request list: `status`, `type`, `by` and `sort`, the filters of the list on
+ * screen (My requests, Approvals or Wanted), so a filtered view is linkable and survives a reload.
+ * `RequestsScreen` decides what they mean for its section and hands back what to write; a tab
+ * press writes the new section's filters in the same `setParams`, so one section's never linger
+ * on another.
  */
 export default function StingStreamRequestsPage() {
-  const { q, tab, kind } = useLocalSearchParams<{
+  const { q, tab, kind, status, type, by, sort } = useLocalSearchParams<{
     q?: string;
     tab?: string;
     kind?: string;
+    status?: string;
+    type?: string;
+    by?: string;
+    sort?: string;
   }>();
   const [refreshing, setRefreshing] = useState(false);
   const queryClient = useQueryClient();
   const router = useRouter();
 
   const selectTab = useCallback(
-    (key: string) => router.setParams({ tab: key }),
+    (key: string, listParams?: RequestListParams) =>
+      router.setParams({ tab: key, ...listParams }),
+    [router],
+  );
+  const setListParams = useCallback(
+    (listParams: RequestListParams) => router.setParams({ ...listParams }),
     [router],
   );
 
@@ -63,6 +79,8 @@ export default function StingStreamRequestsPage() {
         term={q ?? ""}
         kind={kindFromRoute(kind)}
         onSelectTab={selectTab}
+        listParams={{ status, type, by, sort }}
+        onSetListParams={setListParams}
       />
     </RefreshScreen>
   );

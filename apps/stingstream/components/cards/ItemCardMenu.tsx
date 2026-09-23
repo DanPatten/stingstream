@@ -15,8 +15,12 @@ import {
   watchedToggleLabelKey,
 } from "@/utils/watched";
 
+/** The row a card sits in, for the menu rows only that row has. */
+export type ItemCardMenuContext = "continueWatching" | "nextUp";
+
 interface Props {
   item: BaseItemDto;
+  context?: ItemCardMenuContext;
   /** What it opens from: the card's "..." on the web, the card itself after a long press. */
   anchorRef: RefObject<View | null>;
   onClose: () => void;
@@ -56,7 +60,11 @@ export const ItemCardMenu: React.FC<Props> = ({ item, anchorRef, onClose }) => {
       visible
       onClose={onClose}
       anchorRef={anchorRef}
-      title={item.Type === "Episode" ? (item.SeriesName ?? item.Name ?? undefined) : (item.Name ?? undefined)}
+      title={
+        item.Type === "Episode"
+          ? (item.SeriesName ?? item.Name ?? undefined)
+          : (item.Name ?? undefined)
+      }
       minWidth={220}
     >
       {canMarkWatched(item) ? (

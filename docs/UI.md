@@ -342,7 +342,13 @@ the control: the round badges that used to sit at the end of Versions and Play o
 opened the same thing and are gone, and the pickers open from the "..." itself. Get info
 (`components/item/ItemInfoDialog.tsx`, the rows built by the pure `components/item/mediaInfo.ts`) is
 Plex's dialog of the same name: IDs and added date, then per version the file (path for
-administrators only, copyable), and every video, audio and subtitle stream. Empty values and empty
+administrators only, copyable), and every video, audio and subtitle stream. Beside "Copy path" on a
+version's file, **"Show in Explorer"** opens the server's File Explorer with that file selected
+(`POST /stingstream/reveal`, `docs/ARCHITECTURE.md` "Show in Explorer"). It is drawn only in the web
+build, only for an administrator, and only when the node's `GET /stingstream/reveal` says
+`canReveal`, which it does only for a browser on the server itself, reached by `127.0.0.1` or
+`localhost`, on Windows (`lib/stingstream/reveal.ts`, `shouldShowReveal`). Success says nothing,
+because the window opening is the answer; a refusal is a toast. Not on a subtitle's path. Empty values and empty
 sections are dropped, so a title held by another server shows what is known. Not on TV, whose
 details page has no "..." menu.
 
@@ -385,6 +391,43 @@ profile says when the two apps disagree about it rather than showing one app's a
 both.
 
 ---
+
+## Watched and unwatched
+
+Plex's model: every movie, show, season and episode can be marked watched or unwatched, and
+marking a show or a season marks every episode in it. Unwatched also clears the resume position.
+A partly watched item offers "Mark as watched", which finishes it; there is no separate "clear
+progress".
+
+| Where | What it is |
+|---|---|
+| Title page (movie, episode, show) | The check beside the heart (`components/item/ActionRow.tsx`), and the first row of its "...". Both say what a press does next: "Mark as watched", or "Mark as unwatched" once it is watched. On the web the icon buttons there show their label on hover. |
+| Show page, season | The check beside the season picker marks the season item itself (`components/series/SeasonPicker.tsx`), so the server marks every episode in it. |
+| Show page, episode rows | A "..." at the end of each row opens the card menu for that episode. |
+| Cards (home rows, library grids, collections, favorites, search results, a show's rows) | The card menu, `components/cards/ItemCardMenu.tsx`: the watched toggle, favorite, and "View show" for an episode or season. A hover "..." on the artwork's bottom corner on the web, a long press on touch. It is an `AnchoredMenu`, so a dropdown in a browser and the one bottom sheet on a device. Rows opt in with `enableActionSheet`. |
+| TV | The long press on a card keeps the TV's own `Alert` with the one toggle (`hooks/useTVItemActionModal.ts`), and the details page keeps `TVPlayedButton`. The card menu never draws on TV. |
+
+Badges (`CardArtwork`, from `watchedBadge` in `utils/watched.ts`): a check in the top corner once
+something is watched all the way through, the count of unwatched episodes on a show, season or
+collection until it is, and the progress bar along the bottom edge for a partly watched movie or
+episode. An unwatched movie has no mark.
+
+**One implementation.** Every surface calls `hooks/useSetWatched.ts` (`useMarkAsPlayed` binds it
+to a component's items). It patches every cached query holding a copy of an affected item first,
+episodes inside a marked show or season included (`patchWatchedInData`), so badges and toggles
+flip together. It then sends one request per item and invalidates every key
+`watchedInvalidationKeys` names: the item, Continue watching, Next up, the home rows, library and
+collection grids, search, favorites, and for anything in a show the show page's seasons and
+episode lists. A failure rolls the patch back and shows a toast. `utils/watched.test.ts` pins
+the label, the badge, the patch and the keys.
+
+**The server does the recursion.** `POST`/`DELETE /UserPlayedItems/{id}` on a Series or Season
+walks every non-folder child for the user (`Folder.MarkPlayed`/`MarkUnplayed`), and
+`BaseItem.MarkUnplayed` resets the play count and the position. The client never loops over
+episodes. Watched state is per user on the reader's own node: a title held by a connected server
+is materialised as a local item, so marking it is the same local request.
+
+There is no multi-select in a library grid yet, so there is no "mark N items".
 
 ## Web bundle
 

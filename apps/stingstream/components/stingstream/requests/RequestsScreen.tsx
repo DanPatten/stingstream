@@ -1,4 +1,5 @@
 import { Image } from "expo-image";
+import { useAtom } from "jotai";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform, ScrollView, View } from "react-native";
@@ -25,6 +26,7 @@ import {
   stateLabel,
   stateTone,
 } from "@/lib/stingstream/requestsApi";
+import { requestListFiltersAtom } from "@/utils/atoms/requestListFilters";
 import { scaleSize } from "@/utils/scaleSize";
 import { ActivitySection } from "../arr/ActivitySection";
 import { ApprovalsSection } from "./ApprovalsSection";
@@ -36,6 +38,13 @@ import { NotificationsSection } from "./NotificationsSection";
 import { RequestPolicySection } from "./RequestPolicySection";
 import { RequestsNotSetUp } from "./RequestsNotSetUp";
 import { RequestsWantedSection } from "./RequestsWantedSection";
+import {
+  isRequestListSection,
+  type RequestListFilters,
+  type RequestListParams,
+  requestListFiltersFromParams,
+  requestListFiltersToParams,
+} from "./requestListFilters";
 import {
   type RequestSegmentKey,
   sectionFromRoute,
@@ -322,17 +331,25 @@ function TVRequestsScreen() {
  * `kind` is the `kind` route param, handed over by an empty Movies or TV shows library. It narrows
  * Find's bar on arrival rather than choosing a section, because the entry point that sets it always
  * names `tab=find` as well: it says what is being asked for, not where to ask.
+ *
+ * `listParams` are the filters of the request list on screen, read from the URL and written back
+ * through `onSetListParams`. The URL holds the open section's; `requestListFiltersAtom` remembers
+ * the rest, so switching tabs and back finds a list as it was left.
  */
 export function RequestsScreen({
   tab,
   term = "",
   kind,
   onSelectTab,
+  listParams = {},
+  onSetListParams,
 }: {
   tab?: string;
   term?: string;
   kind?: RequestKind;
-  onSelectTab?: (key: string) => void;
+  onSelectTab?: (key: string, listParams?: RequestListParams) => void;
+  listParams?: RequestListParams;
+  onSetListParams?: (listParams: RequestListParams) => void;
 } = {}) {
   const { t } = useTranslation();
   const canApprove = useCanApproveRequests();
@@ -344,6 +361,7 @@ export function RequestsScreen({
   // exactly the kind this member most needs telling about.
   const userId = useCurrentUserId();
   const myRequests = useRequests({ mine: true });
+  const [savedFilters, setSavedFilters] = useAtom(requestListFiltersAtom);
 
   // Called before the branch so the hooks above run on both platforms; the TV
   // screen owns its own state because its section list is a different shape,
@@ -401,7 +419,29 @@ export function RequestsScreen({
   // Derived, never held: the URL is the one place the open section is written
   // down, so there is no second copy to fall out of step with it.
   const section = sectionFromRoute(segments, tab);
-  const select = (key: string) => onSelectTab?.(key);
+  const listSection = isRequestListSection(section) ? section : null;
+  const listFilters = listSection
+    ? requestListFiltersFromParams(listSection, listParams)
+    : null;
+  // A tab press writes the next section's remembered filters, or clears them, in the same
+  // `setParams` as the tab: one section's `?status=` never lingers on the next. What is on screen
+  // now is remembered first, which also covers a list that arrived filtered from a link.
+  const select = (key: string) => {
+    if (listSection && listFilters) {
+      setSavedFilters((saved) => ({ ...saved, [listSection]: listFilters }));
+    }
+    onSelectTab?.(
+      key,
+      requestListFiltersToParams(
+        isRequestListSection(key) ? savedFilters[key] : undefined,
+      ),
+    );
+  };
+  const setListFilters = (filters: RequestListFilters) => {
+    if (!listSection) return;
+    setSavedFilters((saved) => ({ ...saved, [listSection]: filters }));
+    onSetListParams?.(requestListFiltersToParams(filters));
+  };
 
   // The gate, ahead of the section bar rather than inside it.
   //
@@ -460,10 +500,23 @@ export function RequestsScreen({
           onSeeAllRequests={() => select("mine")}
         />
       )}
-      {section === "mine" && <MyRequestsSection variant='list' />}
+      {section === "mine" && listFilters && (
+        <MyRequestsSection
+          variant='list'
+          filters={listFilters}
+          onFilters={setListFilters}
+        />
+      )}
       {section === "alerts" && <NotificationsSection />}
-      {section === "approvals" && canApprove && <ApprovalsSection />}
-      {section === "wanted" && canApprove && <RequestsWantedSection />}
+      {section === "approvals" && canApprove && listFilters && (
+        <ApprovalsSection filters={listFilters} onFilters={setListFilters} />
+      )}
+      {section === "wanted" && canApprove && listFilters && (
+        <RequestsWantedSection
+          filters={listFilters}
+          onFilters={setListFilters}
+        />
+      )}
       {section === "activity" && canApprove && <ActivitySection />}
       {section === "policy" && canApprove && <RequestPolicySection />}
     </PageContainer>

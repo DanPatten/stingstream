@@ -147,10 +147,12 @@ export function useItemCardBehavior({
   const closeMenu = useCallback(() => setMenu(null), []);
 
   // Only media items have a played/favorite state to act on — but a screen
-  // that handles the long press itself always gets it.
+  // that handles the long press itself always gets it. The menu never draws
+  // on TV, whose screens pass their own long press.
   const allowLongPress =
     Boolean(onLongPressId) ||
-    (Boolean(items) && (Boolean(onLongPressItem) || enableActionSheet));
+    (Boolean(items) &&
+      (Boolean(onLongPressItem) || (enableActionSheet && !Platform.isTV)));
 
   // The menu itself, as opposed to a screen's own long press. Never on TV,
   // whose screens pass their own (`useTVItemActionModal`).

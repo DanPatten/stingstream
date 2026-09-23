@@ -115,7 +115,7 @@ export function useCardGrid({
     return Math.floor(usable / columns);
   }, [available, columns, layout.spacing]);
 
-  const { cards, handlePress, handleLongPress, actionSheet } =
+  const { cards, handlePress, handleLongPress, handleOpenMenu, actionSheet } =
     useItemCardBehavior({
       items,
       cards: providedCards,
@@ -207,6 +207,11 @@ export function useCardGrid({
             onLongPress={
               handleLongPress ? () => handleLongPress(item.id) : undefined
             }
+            onOpenMenu={
+              handleOpenMenu
+                ? (anchor) => handleOpenMenu(item.id, anchor)
+                : undefined
+            }
           />
         </View>
       </View>
@@ -222,6 +227,7 @@ export function useCardGrid({
       kind,
       handlePress,
       handleLongPress,
+      handleOpenMenu,
     ],
   );
 

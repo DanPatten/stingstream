@@ -3,7 +3,11 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { Alert } from "react-native";
 import { useSetWatched } from "@/hooks/useSetWatched";
-import { canMarkWatched, isWatched, watchedToggleLabelKey } from "@/utils/watched";
+import {
+  canMarkWatched,
+  isWatched,
+  watchedToggleLabelKey,
+} from "@/utils/watched";
 
 /**
  * The TV long-press on a card: one choice, the watched toggle.

@@ -28,6 +28,7 @@ import {
   defaultTextPlacement,
 } from "./CardData";
 import { CardRowSkeleton } from "./CardRowSkeleton";
+import type { ItemCardMenuContext } from "./ItemCardMenu";
 import { useCardLayout } from "./useCardLayout";
 import { useItemCardBehavior } from "./useItemCardBehavior";
 
@@ -96,6 +97,8 @@ interface Props extends ViewProps {
    * row never adds an affordance behind the user's back.
    */
   enableActionSheet?: boolean;
+  /** Which row this is, for the card menu rows only it has (Continue watching's). */
+  menuContext?: ItemCardMenuContext;
 }
 
 const isWeb = Platform.OS === "web";
@@ -131,6 +134,7 @@ export const CardRow: React.FC<Props> = ({
   onLongPressId,
   headerAccessory,
   enableActionSheet = false,
+  menuContext,
   ...props
 }) => {
   const layout = useCardLayout(kind);
@@ -146,7 +150,7 @@ export const CardRow: React.FC<Props> = ({
     footerHeight ??
     (placement === "below" ? cardTextBlockHeight(breakpoint) : 0);
 
-  const { cards, handlePress, handleLongPress, actionSheet } =
+  const { cards, handlePress, handleLongPress, handleOpenMenu, actionSheet } =
     useItemCardBehavior({
       items,
       cards: providedCards,
@@ -159,6 +163,7 @@ export const CardRow: React.FC<Props> = ({
       onLongPressItem,
       onLongPressId,
       enableActionSheet,
+      menuContext,
     });
 
   const listRef = useRef<FlashListRef<CardData>>(null);
@@ -256,9 +261,14 @@ export const CardRow: React.FC<Props> = ({
         onLongPress={
           handleLongPress ? () => handleLongPress(item.id) : undefined
         }
+        onOpenMenu={
+          handleOpenMenu
+            ? (anchor) => handleOpenMenu(item.id, anchor)
+            : undefined
+        }
       />
     ),
-    [kind, placement, slots, handlePress, handleLongPress],
+    [kind, placement, slots, handlePress, handleLongPress, handleOpenMenu],
   );
 
   const isEmpty = cards.length === 0;

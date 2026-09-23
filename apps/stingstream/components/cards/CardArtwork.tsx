@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PixelRatio, View } from "react-native";
+import { Icon } from "@/components/common/Icon";
 import { Pill } from "@/components/common/Pill";
 import { Image } from "@/components/common/ServerImage";
 import { Skeleton } from "@/components/common/Skeleton";
@@ -8,6 +9,9 @@ import { useTheme } from "@/hooks/useTheme";
 import type { CardData } from "./CardData";
 import { CardPlaceholderTile } from "./CardPlaceholderTile";
 import { sizedPosterUrl } from "./posterSize";
+
+/** The watched check's disc. The height of a small `Pill`, so the two corner marks match. */
+const WATCHED_BADGE_SIZE = 20;
 
 type Props = {
   card: CardData;
@@ -164,10 +168,11 @@ export const CardArtwork: React.FC<Props> = ({
       )}
 
       {/*
-        The only corner badge left, and it is always a number that means
-        something: episodes you have not watched yet. A single unwatched movie
-        used to draw a bare accent dot here — a bright mark on nearly every
-        poster in a library, saying nothing you could act on.
+        One corner, two marks, both Plex's: a number for episodes you have not
+        watched yet, or a check once something is watched all the way through
+        (`watchedBadge`). A single *unwatched* movie gets nothing. It used to
+        draw a bare accent dot here, a bright mark on nearly every poster in a
+        library, saying nothing you could act on.
       */}
       {badgeLabel ? (
         <Pill
@@ -177,6 +182,27 @@ export const CardArtwork: React.FC<Props> = ({
           size='sm'
           style={{ position: "absolute", top: 6, right: 6 }}
         />
+      ) : card.watched ? (
+        // Plex's watched mark: a check in the same corner the count uses, so a show reads as
+        // "5 left" until it is done and then as done. Decorative: the menu's own label and the
+        // title page's toggle say the state in words.
+        <View
+          pointerEvents='none'
+          testID='card-watched'
+          style={{
+            position: "absolute",
+            top: 6,
+            right: 6,
+            width: WATCHED_BADGE_SIZE,
+            height: WATCHED_BADGE_SIZE,
+            borderRadius: WATCHED_BADGE_SIZE / 2,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: accent[500],
+          }}
+        >
+          <Icon name='check' size={13} color={accent.onAccent} />
+        </View>
       ) : null}
     </View>
   );

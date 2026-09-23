@@ -33,9 +33,13 @@ export const useSetWatched = () => {
 
   return useCallback(
     async (items: BaseItemDto[], played: boolean) => {
-      const targets = items.filter((item): item is BaseItemDto & {
-        Id: string;
-      } => Boolean(item.Id));
+      const targets = items.filter(
+        (
+          item,
+        ): item is BaseItemDto & {
+          Id: string;
+        } => Boolean(item.Id),
+      );
       if (targets.length === 0) return;
 
       lightHapticFeedback();

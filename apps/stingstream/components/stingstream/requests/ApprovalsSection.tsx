@@ -1,9 +1,11 @@
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Text } from "@/components/common/Text";
+import { RequestListFilterBar } from "@/components/filters/RequestListFilterBar";
 import {
   requestTitle,
   useDecideRequest,
@@ -11,6 +13,14 @@ import {
 } from "@/lib/stingstream/requests";
 import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
 import { RequestsErrorState } from "./RequestsErrorState";
+import { RequestsFilteredEmpty } from "./RequestsFilteredEmpty";
+import {
+  applyRequestListFilters,
+  DEFAULT_REQUEST_LIST_FILTERS,
+  type RequestListFilters,
+  requesterOptions,
+  requestListFiltersActive,
+} from "./requestListFilters";
 
 /**
  * The administrator's queue: everything waiting for a decision, plus anything that gave up.
@@ -19,12 +29,50 @@ import { RequestsErrorState } from "./RequestsErrorState";
  * and usually the same one action. A request fails when no node could grab it — nobody had an
  * indexer for it, or the one that claimed it searched for hours and found nothing — and Retry puts
  * it back in the queue for a group whose shape may since have changed.
+ *
+ * One filter bar over both halves (type, who asked, order), from the route through
+ * `RequestsScreen`. No status chip: each half is already one state.
  */
-export function ApprovalsSection() {
+export function ApprovalsSection({
+  filters = DEFAULT_REQUEST_LIST_FILTERS,
+  onFilters,
+}: {
+  filters?: RequestListFilters;
+  onFilters?: (filters: RequestListFilters) => void;
+} = {}) {
   const { t } = useTranslation();
   const pending = useRequests({ state: "pending" });
   const failed = useRequests({ state: "failed" });
   const decide = useDecideRequest();
+
+  const allWaiting = pending.data ?? [];
+  const allGivenUp = failed.data ?? [];
+  const requesters = useMemo(
+    () => requesterOptions([...(pending.data ?? []), ...(failed.data ?? [])]),
+    [pending.data, failed.data],
+  );
+  const waiting = useMemo(
+    () => applyRequestListFilters(pending.data ?? [], filters),
+    [pending.data, filters],
+  );
+  const givenUp = useMemo(
+    () => applyRequestListFilters(failed.data ?? [], filters),
+    [failed.data, filters],
+  );
+  const filtered = requestListFiltersActive(filters);
+  const clear = () => onFilters?.(DEFAULT_REQUEST_LIST_FILTERS);
+
+  // Drawn over the skeleton too, so the rows land where the placeholders were.
+  const bar = (
+    <RequestListFilterBar
+      section='approvals'
+      filters={filters}
+      set={(next) => onFilters?.(next)}
+      requesters={requesters}
+      shown={waiting.length + givenUp.length}
+      total={allWaiting.length + allGivenUp.length}
+    />
+  );
 
   const act = async (
     id: string,
@@ -45,22 +93,42 @@ export function ApprovalsSection() {
     }
   };
 
-  if (pending.isLoading) return <RequestCardSkeletonList />;
+  if (pending.isLoading) {
+    return (
+      <View>
+        {bar}
+        <Text variant='heading' weight='semibold' style={{ marginBottom: 10 }}>
+          {t("requests.approvals_waiting_title")}
+        </Text>
+        <RequestCardSkeletonList />
+      </View>
+    );
+  }
   if (pending.error) {
     return (
       <RequestsErrorState error={pending.error} onRetry={pending.refetch} />
     );
   }
 
-  const waiting = pending.data ?? [];
-  const givenUp = failed.data ?? [];
+  // Filters that empty both halves say so once, rather than under each heading.
+  if (filtered && waiting.length === 0 && givenUp.length === 0) {
+    return (
+      <View testID='requests-list'>
+        {bar}
+        <RequestsFilteredEmpty onClear={clear} />
+      </View>
+    );
+  }
 
   return (
     <View testID='requests-list'>
+      {bar}
       <Text variant='heading' weight='semibold' style={{ marginBottom: 10 }}>
         {t("requests.approvals_waiting_title")}
       </Text>
-      {waiting.length === 0 ? (
+      {waiting.length === 0 && filtered && allWaiting.length > 0 ? (
+        <RequestsFilteredEmpty onClear={clear} />
+      ) : waiting.length === 0 ? (
         <EmptyState
           icon='requests'
           title={t("requests.approvals_empty_title")}

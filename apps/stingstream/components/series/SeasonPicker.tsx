@@ -2,14 +2,16 @@ import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { getTvShowsApi } from "@jellyfin/sdk/lib/utils/api";
 import { useQuery } from "@tanstack/react-query";
 import { atom, useAtom } from "jotai";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { HeaderIcon } from "@/components/common/HeaderIcon";
+import { Icon } from "@/components/common/Icon";
 import {
   SeasonDropdown,
   type SeasonIndexState,
 } from "@/components/series/SeasonDropdown";
+import { usePressableStates } from "@/hooks/usePressableStates";
 import { useTheme } from "@/hooks/useTheme";
 import { useDownload } from "@/providers/DownloadProvider";
 import { apiAtom, userAtom } from "@/providers/JellyfinProvider";
@@ -77,16 +79,15 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
     enabled: isOffline || (!!api && !!user?.Id && !!item.Id),
   });
 
-  const selectedSeasonId: string | null = useMemo(() => {
-    const season: BaseItemDto = seasons?.find(
-      (s: BaseItemDto) =>
-        s.IndexNumber === seasonIndex || s.Name === seasonIndex,
-    );
-
-    if (!season?.Id) return null;
-
-    return season.Id!;
-  }, [seasons, seasonIndex]);
+  const selectedSeason: BaseItemDto | null = useMemo(
+    () =>
+      seasons?.find(
+        (s: BaseItemDto) =>
+          s.IndexNumber === seasonIndex || s.Name === seasonIndex,
+      ) ?? null,
+    [seasons, seasonIndex],
+  );
+  const selectedSeasonId: string | null = selectedSeason?.Id ?? null;
 
   // For offline mode, we use season index number instead of ID
   const selectedSeasonNumber = useMemo(() => {
@@ -168,7 +169,7 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
     }));
   }, [episodes, api, episodeById]);
 
-  const { cards, handlePress, handleLongPress, actionSheet } =
+  const { cards, handlePress, handleLongPress, handleOpenMenu, actionSheet } =
     useItemCardBehavior({
       items: episodes ?? [],
       cards: episodeCards,
@@ -181,8 +182,23 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
     () => ({
       trailing: (card: CardData) => {
         const episode = episodeById.get(card.id);
-        if (isOffline || !episode) return null;
-        return <DownloadSingleItem item={episode} />;
+        if (!episode) return null;
+        const download = !isOffline ? (
+          <DownloadSingleItem item={episode} />
+        ) : null;
+        const menu = handleOpenMenu ? (
+          <EpisodeMenuButton
+            label={t("item.more_actions")}
+            onOpen={(anchor) => handleOpenMenu(card.id, anchor)}
+          />
+        ) : null;
+        if (!download && !menu) return null;
+        return (
+          <View style={{ flexDirection: "row", alignItems: "center" }}>
+            {download}
+            {menu}
+          </View>
+        );
       },
       footer: (card: CardData) => {
         const overview = episodeById.get(card.id)?.Overview;
@@ -194,7 +210,7 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
         );
       },
     }),
-    [episodeById, isOffline],
+    [episodeById, isOffline, handleOpenMenu, t],
   );
 
   return (
@@ -234,7 +250,11 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
                 />
               )}
             />
-            <PlayedStatus items={episodes || []} />
+            {/* The season itself when it is known: the server then marks every episode in it,
+                including any not loaded here, and the season's own count updates with them. */}
+            <PlayedStatus
+              items={selectedSeason ? [selectedSeason] : episodes || []}
+            />
           </View>
         ) : null}
       </View>
@@ -271,6 +291,43 @@ export const SeasonPicker: React.FC<Props> = ({ item, initialSeasonIndex }) => {
         ) : null}
       </View>
       {actionSheet}
+    </View>
+  );
+};
+
+/**
+ * The "..." at the end of an episode row: the card menu (watched, favorite) for that episode. Its
+ * own button beside the row's, so the row keeps one press and this one opens the menu from here.
+ */
+const EpisodeMenuButton: React.FC<{
+  label: string;
+  onOpen: (anchor: React.RefObject<View | null>) => void;
+}> = ({ label, onOpen }) => {
+  const anchor = useRef<View>(null);
+  const states = usePressableStates();
+  return (
+    <View ref={anchor} collapsable={false}>
+      <Pressable
+        testID='episode-menu'
+        accessibilityRole='button'
+        accessibilityLabel={label}
+        onPress={() => onOpen(anchor)}
+        hitSlop={6}
+        {...states.handlers}
+        style={[
+          {
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            alignItems: "center",
+            justifyContent: "center",
+            backgroundColor: states.overlay ?? "transparent",
+          },
+          states.webStyle,
+        ]}
+      >
+        <Icon name='more' size={18} tone='secondary' />
+      </Pressable>
     </View>
   );
 };

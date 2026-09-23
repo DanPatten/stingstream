@@ -218,85 +218,85 @@ export const Card: React.FC<CardProps> = ({
           }
         : null)}
     >
-    <Pressable
-      testID={testID}
-      accessibilityRole='button'
-      // "Title (Year)", the same label the artwork carries — a poster card's
-      // title is drawn text now, but a banded one still has it over the image,
-      // and a screen reader should hear the same thing either way.
-      accessibilityLabel={card.imageAlt ?? card.title}
-      onPress={onPress}
-      onLongPress={handleLongPress}
-      {...states.handlers}
-      style={[
-        {
-          width: cardWidth,
-          opacity: card.dimmed ? 0.5 : 1,
-          transform: [{ scale: lifted ? tokens.motion.hoverScale : 1 }],
-        },
-        // Cursor, the fast transition and the keyboard focus ring, from the
-        // one hook every interactive surface uses.
-        states.webStyle,
-        isWeb && lifted ? (elevation(1) as ViewStyle) : null,
-      ]}
-    >
-      <View>
-        <CardArtwork
-          card={card}
-          width={cardWidth}
-          height={height}
-          cornerRadius={layout.cornerRadius}
-          edgeProgress={!isOver}
-          overlay={
+      <Pressable
+        testID={testID}
+        accessibilityRole='button'
+        // "Title (Year)", the same label the artwork carries — a poster card's
+        // title is drawn text now, but a banded one still has it over the image,
+        // and a screen reader should hear the same thing either way.
+        accessibilityLabel={card.imageAlt ?? card.title}
+        onPress={onPress}
+        onLongPress={handleLongPress}
+        {...states.handlers}
+        style={[
+          {
+            width: cardWidth,
+            opacity: card.dimmed ? 0.5 : 1,
+            transform: [{ scale: lifted ? tokens.motion.hoverScale : 1 }],
+          },
+          // Cursor, the fast transition and the keyboard focus ring, from the
+          // one hook every interactive surface uses.
+          states.webStyle,
+          isWeb && lifted ? (elevation(1) as ViewStyle) : null,
+        ]}
+      >
+        <View>
+          <CardArtwork
+            card={card}
+            width={cardWidth}
+            height={height}
+            cornerRadius={layout.cornerRadius}
+            edgeProgress={!isOver}
+            overlay={
+              <>
+                {stateWash}
+                {playGlyph}
+                {slots?.overlay?.(card)}
+              </>
+            }
+          />
+
+          {isOver && (
             <>
-              {stateWash}
-              {playGlyph}
-              {slots?.overlay?.(card)}
-            </>
-          }
-        />
-
-        {isOver && (
-          <>
-            {/* Frosted band, faded in from nothing so the text stays readable. */}
-            <LinearGradient
-              colors={["transparent", "rgba(0,0,0,0.85)"]}
-              pointerEvents='none'
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                bottom: 0,
-                height: height * layout.frostFraction,
-                borderBottomLeftRadius: layout.cornerRadius,
-                borderBottomRightRadius: layout.cornerRadius,
-              }}
-            />
-            <View
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                bottom: 0,
-                paddingHorizontal: 10,
-                paddingBottom: 9,
-              }}
-            >
-              <Text variant='caption' weight='semibold' numberOfLines={1}>
-                {card.title}
-              </Text>
-              {Boolean(card.subtitle) && (
-                <Text variant='micro' tone='secondary' numberOfLines={1}>
-                  {card.subtitle}
+              {/* Frosted band, faded in from nothing so the text stays readable. */}
+              <LinearGradient
+                colors={["transparent", "rgba(0,0,0,0.85)"]}
+                pointerEvents='none'
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: height * layout.frostFraction,
+                  borderBottomLeftRadius: layout.cornerRadius,
+                  borderBottomRightRadius: layout.cornerRadius,
+                }}
+              />
+              <View
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  paddingHorizontal: 10,
+                  paddingBottom: 9,
+                }}
+              >
+                <Text variant='caption' weight='semibold' numberOfLines={1}>
+                  {card.title}
                 </Text>
-              )}
-              {bandProgressBar}
-            </View>
-          </>
-        )}
-      </View>
+                {Boolean(card.subtitle) && (
+                  <Text variant='micro' tone='secondary' numberOfLines={1}>
+                    {card.subtitle}
+                  </Text>
+                )}
+                {bandProgressBar}
+              </View>
+            </>
+          )}
+        </View>
 
-      {/*
+        {/*
         Title and year on the page's own surface, under clean artwork. Two lines
         before the title ellipses: a poster is 118 px wide on a phone, and one
         line turned most of them into "Sita Sings th…" with the space for a
@@ -304,9 +304,9 @@ export const Card: React.FC<CardProps> = ({
         lines whether or not this title needs them (`cardTextBlockHeight`), so
         the cards in a row stay aligned.
       */}
-      {!isOver && (
-        <View style={{ paddingTop: CARD_TEXT_GAP }}>
-          {/*
+        {!isOver && (
+          <View style={{ paddingTop: CARD_TEXT_GAP }}>
+            {/*
             Left to flow, not padded out to both lines. The row above reserves
             the taller block either way (`cardTextBlockHeight`), so the next row
             of posters lands where it always did — but forcing the second line
@@ -314,84 +314,84 @@ export const Card: React.FC<CardProps> = ({
             and with the grid's row gap under it the year then read as a caption
             on the poster below rather than the one it belongs to.
           */}
-          <Text
-            variant='caption'
-            weight='medium'
-            numberOfLines={CARD_TITLE_LINES}
-          >
-            {card.title}
-          </Text>
-
-          {/* What it is, when it came out, and what it scored. */}
-          {(Boolean(card.subtitle) || rating !== null || kindGlyph) && (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 5,
-                marginTop: CARD_META_GAP,
-              }}
+            <Text
+              variant='caption'
+              weight='medium'
+              numberOfLines={CARD_TITLE_LINES}
             >
-              {kindGlyph && card.placeholder ? (
-                <Ionicons
-                  name={CONTENT_GLYPHS[card.placeholder]}
-                  size={11}
-                  color={metaColor}
-                />
-              ) : null}
-              {Boolean(card.subtitle) && (
-                // Shrinks, so a long subtitle — an episode title, where a year
-                // would be on a movie — ellipses inside the card rather than
-                // pushing the score off the end of it.
-                <Text
-                  variant='micro'
-                  tone='tertiary'
-                  numberOfLines={1}
-                  style={{ flexShrink: 1 }}
-                >
-                  {card.subtitle}
-                </Text>
-              )}
-              {rating !== null && (
-                /*
+              {card.title}
+            </Text>
+
+            {/* What it is, when it came out, and what it scored. */}
+            {(Boolean(card.subtitle) || rating !== null || kindGlyph) && (
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 5,
+                  marginTop: CARD_META_GAP,
+                }}
+              >
+                {kindGlyph && card.placeholder ? (
+                  <Ionicons
+                    name={CONTENT_GLYPHS[card.placeholder]}
+                    size={11}
+                    color={metaColor}
+                  />
+                ) : null}
+                {Boolean(card.subtitle) && (
+                  // Shrinks, so a long subtitle — an episode title, where a year
+                  // would be on a movie — ellipses inside the card rather than
+                  // pushing the score off the end of it.
+                  <Text
+                    variant='micro'
+                    tone='tertiary'
+                    numberOfLines={1}
+                    style={{ flexShrink: 1 }}
+                  >
+                    {card.subtitle}
+                  </Text>
+                )}
+                {rating !== null && (
+                  /*
                   Text, not a link. The score is a way out to IMDb on the sheet, where there is room
                   for a target a thumb can hit and where somebody has already stopped to decide; on
                   a tile it would be a second destination inside a card whose whole point is the one
                   press that opens it. Dan: *"lets NOT have clicking the star from the CARD view
                   open IMDB - only from the modal."*
                 */
-                <Text
-                  variant='micro'
-                  tone='tertiary'
-                  numberOfLines={1}
-                  accessibilityLabel={`${rating} out of 10`}
-                  style={{ flexShrink: 0 }}
-                >
-                  <Ionicons name='star' size={10} color={RATING_STAR_COLOR} />
-                  {` ${rating}`}
-                </Text>
-              )}
-            </View>
-          )}
+                  <Text
+                    variant='micro'
+                    tone='tertiary'
+                    numberOfLines={1}
+                    accessibilityLabel={`${rating} out of 10`}
+                    style={{ flexShrink: 0 }}
+                  >
+                    <Ionicons name='star' size={10} color={RATING_STAR_COLOR} />
+                    {` ${rating}`}
+                  </Text>
+                )}
+              </View>
+            )}
 
-          {card.scores !== undefined && hasRatings(card.scores) && (
-            <RatingChips
-              {...card.scores}
-              size='micro'
-              style={{ marginTop: CARD_META_GAP }}
-            />
-          )}
+            {card.scores !== undefined && hasRatings(card.scores) && (
+              <RatingChips
+                {...card.scores}
+                size='micro'
+                style={{ marginTop: CARD_META_GAP }}
+              />
+            )}
 
-          {Boolean(card.detail) && (
-            <Text variant='micro' tone='tertiary' numberOfLines={1}>
-              {card.detail}
-            </Text>
-          )}
-        </View>
-      )}
+            {Boolean(card.detail) && (
+              <Text variant='micro' tone='tertiary' numberOfLines={1}>
+                {card.detail}
+              </Text>
+            )}
+          </View>
+        )}
 
-      {slots?.footer?.(card)}
-    </Pressable>
+        {slots?.footer?.(card)}
+      </Pressable>
 
       {/*
         Plex's hover "..." in the artwork's bottom corner, web only: touch has the long press. Kept

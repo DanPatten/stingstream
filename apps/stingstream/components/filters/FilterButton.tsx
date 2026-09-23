@@ -9,6 +9,12 @@ interface FilterButtonProps<T> {
   queryKey: string;
   values: T[];
   title: string;
+  /**
+   * What the chip reads, when it should say more than the dimension. The request lists pass the
+   * chosen value ("Status: Waiting") so the bar spells out what the list is filtered by; the sheet
+   * keeps `title`. Defaults to `title`.
+   */
+  label?: string;
   set: (value: T[]) => void;
   queryFn: (params: any) => Promise<any>;
   renderItemLabel: (item: T) => string;
@@ -44,6 +50,7 @@ export const FilterButton = <T,>({
   set,
   values, // selected values
   title,
+  label,
   renderItemLabel,
   multiple = false,
   icon = "filter",
@@ -87,7 +94,7 @@ export const FilterButton = <T,>({
 
   return (
     <FilterChip
-      label={title}
+      label={label ?? title}
       icon={icon}
       active={active}
       disabled={disabled}

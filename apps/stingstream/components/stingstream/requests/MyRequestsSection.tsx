@@ -1,16 +1,15 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, View } from "react-native";
+import { View } from "react-native";
 import { toast } from "sonner-native";
 import { Button } from "@/components/Button";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SectionHeader } from "@/components/common/SectionHeader";
-import { FilterChip } from "@/components/filters/FilterChip";
+import { RequestListFilterBar } from "@/components/filters/RequestListFilterBar";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   cardScores,
   type MemberRequest,
-  type RequestState,
   requestAsSearchResult,
   requestTitle,
   scoresFor,
@@ -26,16 +25,12 @@ import { RequestCard, RequestCardSkeletonList } from "./RequestCard";
 import { RequestPosterGrid } from "./RequestPosterGrid";
 import { RequestSheet } from "./RequestSheet";
 import { RequestsErrorState } from "./RequestsErrorState";
-
-const FILTERS: { key: RequestState | "all"; labelKey: string }[] = [
-  { key: "all", labelKey: "requests.filter_all" },
-  { key: "pending", labelKey: "requests.filter_pending" },
-  { key: "approved", labelKey: "requests.filter_approved" },
-  { key: "fulfilling", labelKey: "requests.filter_fulfilling" },
-  { key: "available", labelKey: "requests.filter_available" },
-  { key: "declined", labelKey: "requests.filter_declined" },
-  { key: "failed", labelKey: "requests.filter_failed" },
-];
+import { RequestsFilteredEmpty } from "./RequestsFilteredEmpty";
+import {
+  applyRequestListFilters,
+  DEFAULT_REQUEST_LIST_FILTERS,
+  type RequestListFilters,
+} from "./requestListFilters";
 
 /**
  * What this member has asked for, and where each one got to. Two shapes.
@@ -49,24 +44,29 @@ const FILTERS: { key: RequestState | "all"; labelKey: string }[] = [
  * with the grid below it"*). A poster opens that request's sheet, which edits its seasons or deletes
  * it; See all opens the My requests tab. With nothing asked for yet it draws nothing.
  *
- * **`list`** is the My requests tab: the state chips, and Edit and Delete on every row.
+ * **`list`** is the My requests tab: the filter bar (status, type, sort), and Edit and Delete on
+ * every row. The filters are the route's (`RequestsScreen` reads and writes them), so a filtered
+ * list is linkable.
  *
  * The node already filters to the caller's own for a non-administrator, so `selectMine` is for the
  * administrator case only — an administrator's list is everybody's, and their own requests still
- * belong on their own screen. The state filter is client-side: the whole list is never more than a
- * few dozen rows, and a chip is cheaper to answer from what is already on screen than from a fresh
+ * belong on their own screen. Filtering is client-side: the whole list is never more than a few
+ * dozen rows, and a chip is cheaper to answer from what is already on screen than from a fresh
  * request to the node.
  */
 export function MyRequestsSection({
   variant,
   onSeeAll,
+  filters = DEFAULT_REQUEST_LIST_FILTERS,
+  onFilters,
 }: {
   variant: "row" | "list";
   onSeeAll?: () => void;
+  filters?: RequestListFilters;
+  onFilters?: (filters: RequestListFilters) => void;
 }) {
   const { t } = useTranslation();
   const { gutter } = useBreakpoint();
-  const [filter, setFilter] = useState<RequestState | "all">("all");
   const requests = useRequests({ mine: true });
   const userId = useCurrentUserId();
   const remove = useDeleteRequest();
@@ -77,8 +77,8 @@ export function MyRequestsSection({
     [requests.data, userId],
   );
   const rows = useMemo(
-    () => (filter === "all" ? mine : mine.filter((r) => r.state === filter)),
-    [mine, filter],
+    () => applyRequestListFilters(mine, filters),
+    [mine, filters],
   );
   const byId = useMemo(
     () => new Map(mine.map((request) => [request.id, request])),
@@ -166,7 +166,26 @@ export function MyRequestsSection({
     );
   }
 
-  if (requests.isLoading) return <RequestCardSkeletonList />;
+  // The bar is drawn over the skeleton as well, so the rows arrive where the placeholders were
+  // rather than a bar's height further down.
+  const bar = (
+    <RequestListFilterBar
+      section='mine'
+      filters={filters}
+      set={(next) => onFilters?.(next)}
+      shown={rows.length}
+      total={mine.length}
+    />
+  );
+
+  if (requests.isLoading) {
+    return (
+      <View>
+        {bar}
+        <RequestCardSkeletonList />
+      </View>
+    );
+  }
   if (requests.error) {
     return (
       <RequestsErrorState error={requests.error} onRetry={requests.refetch} />
@@ -174,32 +193,16 @@ export function MyRequestsSection({
   }
 
   if (mine.length === 0) {
-    return (
-      <EmptyState icon='requests' title={t("requests.my_filter_empty_title")} />
-    );
+    return <EmptyState icon='requests' title={t("requests.my_empty_title")} />;
   }
 
   return (
     <View testID='requests-mine-list'>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 8, paddingBottom: 12 }}
-      >
-        {FILTERS.map((entry) => (
-          <FilterChip
-            key={entry.key}
-            label={t(entry.labelKey)}
-            active={filter === entry.key}
-            onPress={() => setFilter(entry.key)}
-          />
-        ))}
-      </ScrollView>
+      {bar}
 
       {rows.length === 0 ? (
-        <EmptyState
-          icon='requests'
-          title={t("requests.my_filter_empty_title")}
+        <RequestsFilteredEmpty
+          onClear={() => onFilters?.(DEFAULT_REQUEST_LIST_FILTERS)}
         />
       ) : (
         <View testID='requests-list'>

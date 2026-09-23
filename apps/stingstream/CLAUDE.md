@@ -60,7 +60,7 @@ UI and headers:
 
 State and data:
 - `use-network-aware-query-client-limitations` | Object.create breaks private fields; only for invalidateQueries
-- `mark-as-played-flow` | PlayedStatus -> useMarkAsPlayed -> playbackManager with optimistic updates
+- `mark-as-played-flow` | Every watched toggle -> useSetWatched -> playbackManager; patches every cached copy, then invalidates watchedInvalidationKeys
 - `three-api-clients-one-session` | axios, raw fetch and openapi-fetch all reach the server; session expiry only covered axios. New client? Wire it to utils/sessionExpiry.ts
 
 Native modules:

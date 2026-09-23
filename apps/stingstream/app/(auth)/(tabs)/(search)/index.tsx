@@ -745,6 +745,7 @@ export default function SearchPage() {
             <CardRow
               title={t("search.movies")}
               items={moviesQuery.data}
+              enableActionSheet
               kind='portrait'
               loading={moviesQuery.isFetching}
               hideIfEmpty
@@ -752,6 +753,7 @@ export default function SearchPage() {
             <CardRow
               title={t("search.series")}
               items={seriesQuery.data}
+              enableActionSheet
               kind='portrait'
               loading={seriesQuery.isFetching}
               hideIfEmpty
@@ -759,6 +761,7 @@ export default function SearchPage() {
             <CardRow
               title={t("search.episodes")}
               items={episodesQuery.data}
+              enableActionSheet
               kind='wide'
               loading={episodesQuery.isFetching}
               hideIfEmpty
@@ -766,6 +769,7 @@ export default function SearchPage() {
             <CardRow
               title={t("search.collections")}
               items={collectionsQuery.data}
+              enableActionSheet
               kind='portrait'
               loading={collectionsQuery.isFetching}
               hideIfEmpty

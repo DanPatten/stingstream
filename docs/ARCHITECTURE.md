@@ -776,6 +776,7 @@ its entire pipeline underneath that — so `StingStream.Core`'s routes really li
 |---|---|
 | `/healthz` | the gateway: JSON child states, 200 when healthy and 503 when not |
 | `/stingstream/mesh/*` | the mesh's loopback API, minus the `/stingstream` half — **from 127.0.0.1 only** (M3b) |
+| `/stingstream/reveal` | the gateway itself: "Show in Explorer" from Get info. `GET` says whether this browser can use it, `POST` opens the file's folder on the server's desktop. **This machine, administrators, Windows only**; see "Show in Explorer" below |
 | `/stingstream/api/*`, `/stingstream/qbt/*` | Core inside Jellyfin, rewritten to `/stingstream/stingstream/*` |
 | `/stingstream/*` (anything else) | Jellyfin at its own `BaseUrl`, unchanged: where its absolute links point |
 | `/stream/*` | the mesh: ranged reads of a peer's file, proxied byte for byte (M3b) |
@@ -796,6 +797,54 @@ it binds `127.0.0.1` and anything that can reach it is already on the machine �
 binds `0.0.0.0` so phones and TVs can reach the node, and proxying an API that creates groups and
 mints invite codes onto that address would hand the group to anyone on the same Wi-Fi. The app uses
 `/stingstream/api/v1/mesh/*` instead: the same operations behind Jellyfin's own authentication.
+
+**Show in Explorer** (`gateway/reveal.rs`, 2026-09-23). Get info's "Show in Explorer" opens the
+server's own file manager with a title's file selected. A web page cannot do that; the node can,
+because it runs on the machine holding the file.
+
+```
+GET  /stingstream/reveal  ->  200 {"canReveal": true|false, "platform": "windows"|null}
+POST /stingstream/reveal  {"itemId": "<id>", "mediaSourceId"?: "<id>"}  ->  204 | {"error","message"}
+```
+
+The `POST` refuses, in this order:
+
+1. **Not this machine** (403 `not_local`): the TCP peer must be loopback *and* carry no relay
+   header (`is_local_request`, the same test the mesh route uses). A LAN browser, including one on
+   the server itself that opened the node by its LAN address, and anything through the side door's
+   tunnel, is refused. The window would open on a desktop the caller is not sitting at.
+2. **Not Windows** (501 `unsupported`). `open -R` on macOS and `xdg-open` on Linux are the obvious
+   follow-ups, but a daemon there has the same "whose desktop" problem and nothing here solves it yet.
+3. **Not an administrator** (401 `not_signed_in` with no or a bad token, 403 `not_admin`): the
+   caller's own Jellyfin credential headers are forwarded to `GET /Users/Me` on the local Jellyfin
+   and `Policy.IsAdministrator` decides. That is the same rule that decides who sees a path in Get
+   info at all.
+4. **The path is never the client's.** The body names an item (a GUID, checked before it goes into
+   a URL) and optionally one of its versions; the node reads `GET /Items/{id}` with the caller's
+   token and takes that version's `Path`. So the endpoint can only reach files Jellyfin already
+   knows about and the caller can already see. A version whose `Protocol` is not `File` (a title
+   held by another server) is 422 `no_local_file`.
+5. **The file must exist** (404 `file_missing`), and the path must be an absolute drive or UNC path
+   with none of the characters Windows forbids in a file name. `"` is one of them, which is the
+   whole reason the quoting below is safe.
+
+Then Explorer is started as `"%SystemRoot%\explorer.exe" /select,"<path>"`, with the quotes around
+the path only. Explorer parses its own command line, and both obvious alternatives are wrong,
+checked by hand: quoting the whole argument (what `std::process::Command::arg` does) opens
+Documents, and leaving the path unquoted breaks at the first comma and opens This PC.
+
+**Which desktop.** The node checks its own session id (`ProcessIdToSessionId`). In session 1 or
+later, a console run such as `tools/dev.ps1`, a plain spawn is right. In **session 0**, the Windows
+service running as LocalSystem, there is no interactive desktop, and a window created there is
+invisible while the call still "succeeds". So the service starts Explorer as the signed-in user:
+`WTSGetActiveConsoleSessionId` (falling back to the first active session, for Remote Desktop), then
+`WTSQueryUserToken` (LocalSystem holds `SeTcbPrivilege`), then `CreateEnvironmentBlock`, then
+`CreateProcessAsUserW` with `lpDesktop = "winsta0\default"`. With nobody signed in, it answers 500
+`launch_failed`.
+
+`GET` answers `canReveal: true` only where the first two gates pass, and the app additionally
+requires the web build (not a phone or TV) and an administrator before drawing the button
+(`apps/stingstream/lib/stingstream/reveal.ts`).
 
 **Data directory.** One tree per node under `$STINGSTREAM_DATA` (`%LOCALAPPDATA%\StingStream` on
 Windows, `~/.local/share/stingstream` elsewhere): `config.toml` (written once with defaults, never

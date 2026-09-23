@@ -8,6 +8,7 @@ import {
 import { type BreakpointName, typeStyle } from "@/constants/theme";
 import { getPortraitImageUrl } from "@/utils/jellyfin/image/getPortraitImageUrl";
 import { getWideImageUrl } from "@/utils/jellyfin/image/getWideImageUrl";
+import { watchedBadge } from "@/utils/watched";
 import { serverPosterWidth } from "./posterSize";
 
 /** One card. Everything is prebuilt here; the card view is presentational. */
@@ -35,6 +36,11 @@ export type CardData = {
    * count on a series does say something: how much of it is left.
    */
   unplayedCount?: number;
+  /**
+   * Watched all the way through: a check in the corner, Plex's watched mark. Set for a movie or an
+   * episode that is watched, and for a show or season with nothing left. See `watchedBadge`.
+   */
+  watched?: boolean;
   /**
    * Text for the corner pill when it isn't an unplayed count — the number of
    * downloaded episodes, say. Takes precedence over `unplayedCount`.
@@ -379,9 +385,6 @@ export const cardImageAlt = (item: BaseItemDto): string => {
   return item.ProductionYear ? `${title} (${item.ProductionYear})` : title;
 };
 
-const isAggregate = (item: BaseItemDto) =>
-  item.Type === "Series" || item.Type === "BoxSet";
-
 /**
  * Which placeholder tile stands in for an item with no artwork.
  *
@@ -557,7 +560,7 @@ export function buildItemCards(
 
     const subtitle = cardSubtitle(item);
 
-    const unplayed = item.UserData?.UnplayedItemCount ?? 0;
+    const badge = watchedBadge(item);
     const imageUrl = !hasArtwork(item, kind, useEpisodePoster)
       ? undefined
       : kind === "portrait"
@@ -565,8 +568,8 @@ export function buildItemCards(
         : getWideImageUrl({ api, item, useEpisodePoster, width });
 
     const progress = itemProgressFraction(item);
-    const unplayedCount =
-      isAggregate(item) && !item.UserData?.Played ? unplayed : 0;
+    const unplayedCount = badge?.kind === "unwatchedCount" ? badge.count : 0;
+    const watched = badge?.kind === "watched";
     const dimmed = selectedId != null && item.Id !== selectedId;
     // Only portrait rows and grids mix in items without a poster.
     const aspectRatio =
@@ -581,6 +584,7 @@ export function buildItemCards(
         imageAlt: cardImageAlt(item),
         progress,
         unplayedCount,
+        watched,
         dimmed,
         aspectRatio,
         placeholder: cardPlaceholder(item),

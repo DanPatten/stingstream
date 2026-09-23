@@ -1,15 +1,23 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { type RefObject, useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Linking, type StyleProp, View, type ViewStyle } from "react-native";
+import {
+  Linking,
+  Platform,
+  Pressable,
+  type StyleProp,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { Button } from "@/components/Button";
 import { Icon, type IconName } from "@/components/common/Icon";
+import { Text } from "@/components/common/Text";
 import { PlayButton } from "@/components/PlayButton";
 import {
   WatchlistSheet,
   type WatchlistSheetRef,
 } from "@/components/watchlists/WatchlistSheet";
-import { tokens } from "@/constants/theme";
+import { radius, tokens } from "@/constants/theme";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useFavorite } from "@/hooks/useFavorite";
 import { useMarkAsPlayed } from "@/hooks/useMarkAsPlayed";
@@ -19,6 +27,7 @@ import {
   useStreamystatsEnabled,
 } from "@/hooks/useWatchlists";
 import { useSettings } from "@/utils/atoms/settings";
+import { canMarkWatched, watchedToggleLabelKey } from "@/utils/watched";
 import type { SelectedOptions } from "../ItemContent";
 import { MoreMenu, type MoreMenuAction } from "./MoreMenu";
 
@@ -79,6 +88,26 @@ export const ActionRow: React.FC<Props> = ({
   const { isFavorite, toggleFavorite } = useFavorite(item);
   const togglePlayed = useMarkAsPlayed(useMemo(() => [item], [item]));
   const played = Boolean(item.UserData?.Played);
+  const markable = canMarkWatched(item);
+  const watchedLabel = t(watchedToggleLabelKey([item]));
+
+  // Plex has the watched toggle both as the check and as the first row of the "...": the check is
+  // for a glance, the row is where somebody looking for the words finds them.
+  const menuActions = useMemo<MoreMenuAction[]>(
+    () =>
+      markable
+        ? [
+            {
+              key: "watched",
+              icon: "check",
+              label: watchedLabel,
+              onPress: () => void togglePlayed(!played),
+            },
+            ...moreActions,
+          ]
+        : moreActions,
+    [markable, watchedLabel, togglePlayed, played, moreActions],
+  );
 
   const streamystatsEnabled = useStreamystatsEnabled();
   const watchlistSheet = useRef<WatchlistSheetRef>(null);
@@ -162,16 +191,18 @@ export const ActionRow: React.FC<Props> = ({
             onPress={toggleFavorite}
           />
 
-          <IconAction
-            name='check'
-            active={played}
-            activeColor={accent[500]}
-            label={played ? t("item.mark_unwatched") : t("item.mark_watched")}
-            testID='details-watched'
-            onPress={() => void togglePlayed(!played)}
-          />
+          {markable ? (
+            <IconAction
+              name='check'
+              active={played}
+              activeColor={accent[500]}
+              label={watchedLabel}
+              testID='details-watched'
+              onPress={() => void togglePlayed(!played)}
+            />
+          ) : null}
 
-          {moreActions.length > 0 ? (
+          {menuActions.length > 0 ? (
             // A plain View to measure, because `Button` does not forward a ref and the menu opens
             // from here.
             <View ref={moreAnchor} collapsable={false}>
@@ -186,12 +217,12 @@ export const ActionRow: React.FC<Props> = ({
         </View>
       </View>
 
-      {moreActions.length > 0 ? (
+      {menuActions.length > 0 ? (
         <MoreMenu
           visible={moreOpen}
           onClose={() => setMoreOpen(false)}
           title={t("item.more_actions")}
-          actions={moreActions}
+          actions={menuActions}
           anchorRef={moreAnchor}
         />
       ) : null}
@@ -216,22 +247,83 @@ const IconAction: React.FC<{
   active?: boolean;
   activeColor?: string;
 }> = ({ name, label, testID, onPress, active = false, activeColor }) => (
-  <Button
-    variant='ghost'
-    size='md'
-    onPress={onPress}
-    testID={testID}
-    accessibilityLabel={label}
-    accessibilityState={{ selected: active }}
-    style={{
-      minWidth: tokens.control.minTouchTarget,
-      paddingHorizontal: 10,
-    }}
-    iconLeft={
-      <IconGlyph name={name} active={active} activeColor={activeColor} />
-    }
-  />
+  <HoverTooltip label={label}>
+    <Button
+      variant='ghost'
+      size='md'
+      onPress={onPress}
+      testID={testID}
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+      style={{
+        minWidth: tokens.control.minTouchTarget,
+        paddingHorizontal: 10,
+      }}
+      iconLeft={
+        <IconGlyph name={name} active={active} activeColor={activeColor} />
+      }
+    />
+  </HoverTooltip>
 );
+
+/**
+ * The words for an icon-only button, under it on hover, in a browser.
+ *
+ * Drawn rather than a DOM `title`, which react-native-web has no prop for (`accessibilityLabel`
+ * is `aria-label`, which a pointer never shows); `IconAction` in `stingstream/shared` made the
+ * same choice. The label says what a press does next, so the check reads "Mark as unwatched" once
+ * a title is watched. The wrapper is a `Pressable` only for its hover events: no role, never
+ * focusable, never pressed, so the button inside stays the one control. Decorative, since the
+ * button already carries the same string as its accessible name.
+ */
+const HoverTooltip: React.FC<{ label: string; children: React.ReactNode }> = ({
+  label,
+  children,
+}) => {
+  const { color } = useTheme();
+  const [hovered, setHovered] = useState(false);
+  if (Platform.OS !== "web" || Platform.isTV) return <>{children}</>;
+  return (
+    <Pressable
+      focusable={false}
+      accessible={false}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={{ cursor: "auto" } as ViewStyle}
+    >
+      {children}
+      {hovered ? (
+        <View
+          pointerEvents='none'
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: -120,
+            right: -120,
+            alignItems: "center",
+            marginTop: 6,
+            zIndex: 20,
+          }}
+        >
+          <View
+            style={{
+              paddingHorizontal: 8,
+              paddingVertical: 4,
+              borderRadius: radius.sm,
+              borderWidth: 1,
+              borderColor: color.border.subtle,
+              backgroundColor: color.bg["3"],
+            }}
+          >
+            <Text variant='caption' numberOfLines={1}>
+              {label}
+            </Text>
+          </View>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+};
 
 const IconGlyph: React.FC<{
   name: IconName;
