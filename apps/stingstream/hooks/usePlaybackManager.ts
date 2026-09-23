@@ -2,7 +2,11 @@ import type {
   BaseItemDto,
   PlaybackProgressInfo,
 } from "@jellyfin/sdk/lib/generated-client";
-import { getPlaystateApi, getTvShowsApi } from "@jellyfin/sdk/lib/utils/api";
+import {
+  getItemsApi,
+  getPlaystateApi,
+  getTvShowsApi,
+} from "@jellyfin/sdk/lib/utils/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 import { useMemo } from "react";
@@ -347,10 +351,52 @@ export const usePlaybackManager = ({
     }
   };
 
+  /**
+   * Forgets where the reader stopped, without touching whether the item is watched: "Remove from
+   * Continue watching". The server's resume list is every item with a position and not played, so
+   * a zero position is what takes it off. A downloaded copy is reset too, or the next two-way sync
+   * would push its old position straight back.
+   *
+   * @param itemId The ID of the item.
+   */
+  const clearItemResumePosition = async (itemId: string) => {
+    const localItem = getDownloadedItemById(itemId);
+
+    if (localItem) {
+      updateDownloadedItem(itemId, {
+        ...localItem,
+        item: {
+          ...localItem.item,
+          UserData: {
+            ...localItem.item.UserData,
+            PlaybackPositionTicks: 0,
+            PlayedPercentage: 0,
+          },
+        },
+      });
+      queryClient.invalidateQueries({ queryKey: ["item", itemId] });
+      queryClient.invalidateQueries({ queryKey: ["episodes"] });
+    }
+
+    if (isOnline && api && user) {
+      try {
+        await getItemsApi(api).updateItemUserData({
+          itemId,
+          userId: user.Id,
+          updateUserItemDataDto: { PlaybackPositionTicks: 0 },
+        });
+      } catch (error) {
+        console.error("Failed to clear the resume position on server", error);
+        throw error;
+      }
+    }
+  };
+
   return {
     reportPlaybackProgress,
     markItemPlayed,
     markItemUnplayed,
+    clearItemResumePosition,
     previousItem,
     nextItem,
   };

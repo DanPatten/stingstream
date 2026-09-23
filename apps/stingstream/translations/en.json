@@ -1324,7 +1324,12 @@
     "yes": "Yes",
     "copy_path": "Copy path",
     "copied": "Path copied",
-    "copy_failed": "Could not copy the path."
+    "copy_failed": "Could not copy the path.",
+    "show_in_explorer": "Show in Explorer",
+    "reveal_failed": "Could not open the folder.",
+    "reveal_file_missing": "The file is no longer at this path.",
+    "reveal_remote_file": "This file is on another server.",
+    "reveal_not_here": "Open StingStream on your server to do this."
   },
   "live_tv": {
     "title": "Live TV",

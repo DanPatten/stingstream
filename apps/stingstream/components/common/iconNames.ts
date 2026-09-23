@@ -70,6 +70,8 @@ export const ICONS = {
   close: "close",
   link: "link",
   copy: "copy-outline",
+  /** Opens the folder holding a file, on the server's own desktop. */
+  reveal: "folder-open-outline",
   /** Leaves the app: a box with an arrow going out of it, the web's own "new window". */
   openExternal: "open-outline",
   share: "share-social",

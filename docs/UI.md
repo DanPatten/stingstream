@@ -268,6 +268,35 @@ Radarr's/Sonarr's JSON straight through, so their real shape is hand-typed (loos
 
 ---
 
+## Waiting for a server that is starting
+
+A node's gateway serves the web bundle seconds to a minute before the media server behind it is
+ready, and an install over an older version reopens the browser in exactly that window. A browser
+still signed in from before skips the sign-in screen and lands on Home. Home's connection check
+(`providers/NetworkStatusProvider.tsx`) used to read the gateway's `503` as "not ok", so the first
+thing a returning user saw was **"Server unreachable"** with a Retry button, for a server that had
+answered and said it was starting.
+
+Now the answer is read, not just its status (`utils/jellyfin/serverReadiness.ts`, pure and tested):
+
+| The probe of `/System/Info/Public` got | The app shows |
+|---|---|
+| a Jellyfin document | the app |
+| `503`/`502`/`504`, or `x-stingstream-state: starting` | "Starting your server", spinner, no Retry, polling from 1 s backing off to 5 s |
+| still starting after 90 s, or `x-stingstream-state: failed` | the stalled card, "Your server has not answered yet", with Try again; it keeps polling every 15 s and moves on by itself |
+| nothing at all (refused, timed out) | "Server unreachable". On web, a page the node just served first gets 20 s of "starting" grace, because the node is far more likely restarting than gone |
+
+Until the server has been seen ready once since load, the signed-in shell
+(`app/(auth)/(tabs)/_layout.tsx`) shows `components/login/ServerStartingScreen.tsx` in place of
+every tab, the same card the sign-in screen uses for a cold node, and mounts the navigator the
+moment the server answers, so the user lands where they were going with their session intact. After
+that, a restart mid-session shows the same card on Home only, and never tears down the navigator
+or a player. The stored session is never ended by a `503`: only a `401` does that
+(`utils/sessionExpiry.ts`), and a saved-account sign-in against a starting server says so rather
+than deleting the credential. The timings are `constants/ServerStartup.ts`, shared with the sign-in
+screen's auto-connect. The gateway side of the contract is in `docs/ARCHITECTURE.md`, "A child that
+is not ready answers `503`".
+
 ## What's live (M4.5: everything — nothing on these screens is stubbed)
 
 All ten gaps `docs/UI-API-GAPS.md` recorded are closed, and every screen below is live against real

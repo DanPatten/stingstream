@@ -5,6 +5,7 @@
 //! | Path | Goes to | Notes |
 //! |---|---|---|
 //! | `/healthz` | the gateway itself | JSON child states, for humans and for `tools/e2e-m1.ps1` |
+//! | `/stingstream/reveal` | the gateway itself | "Show in Explorer": admin, this machine, Windows only. See [`reveal`]. |
 //! | `/stingstream/mesh/*` | the mesh node | its loopback API, minus the `/stingstream` half. **Loopback clients only** — see [`proxy_to_mesh`]. |
 //! | `/stream/*` | the mesh node | ranged reads of a peer's file, proxied byte for byte |
 //! | `/stingstream/api/*`, `/stingstream/qbt/*` | Jellyfin | `StingStream.Core` lives inside Jellyfin's process |
@@ -23,6 +24,7 @@ pub mod brand;
 pub mod discovery;
 pub mod listen;
 pub mod proxy;
+pub mod reveal;
 pub mod web;
 pub mod streamurl;
 
@@ -33,7 +35,7 @@ use axum::body::Body;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{any, get};
+use axum::routing::{any, get, post};
 use axum::{Json, Router};
 use serde_json::json;
 
@@ -164,6 +166,12 @@ pub fn router_with_web(node: Arc<NodeState>, web: WebSource, setup: SetupHandle)
         // keeps that true.
         .route("/stingstream/mesh/{*rest}", any(proxy_to_mesh))
         .route("/stingstream/mesh", any(proxy_to_mesh))
+        // The gateway's own, not Jellyfin's: the node opens a file manager on the machine it runs
+        // on. Literal, so it wins over the catch-all above for the same reason the mesh does.
+        .route(
+            reveal::REVEAL_PATH,
+            get(reveal::capability_handler).merge(post(reveal::reveal_handler)),
+        )
         .route("/stream/{*rest}", any(proxy_to_stream))
         .route("/stream", any(proxy_to_stream))
         .route("/jellyfin/{*rest}", any(proxy_to_jellyfin))
@@ -1625,6 +1633,81 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    }
+
+    /// "Show in Explorer" end to end, as far as it goes without a media server: who is refused
+    /// before anything is asked, and what the capability says to whom.
+    #[tokio::test]
+    async fn reveal_is_for_this_machine_and_a_signed_in_caller_only() {
+        use tower::ServiceExt;
+
+        async fn call(
+            method: &str,
+            peer: &str,
+            headers: &[(&str, &str)],
+        ) -> (StatusCode, serde_json::Value) {
+            let node = Arc::new(NodeState::new(
+                crate::config::Config::default(),
+                sample_runtime(),
+                false,
+            ));
+            let app = router_with_web(node, WebSource::None, SetupHandle::default());
+            let mut builder = Request::builder().method(method).uri(reveal::REVEAL_PATH);
+            for (k, v) in headers {
+                builder = builder.header(*k, *v);
+            }
+            let body = if method == "POST" {
+                Body::from(r#"{"itemId":"0123456789abcdef0123456789abcdef"}"#)
+            } else {
+                Body::empty()
+            };
+            let mut req = builder.body(body).unwrap();
+            req.extensions_mut()
+                .insert(ConnectInfo(peer.parse::<SocketAddr>().unwrap()));
+            let resp = app.oneshot(req).await.unwrap();
+            let status = resp.status();
+            let bytes = axum::body::to_bytes(resp.into_body(), 1 << 16).await.unwrap();
+            (status, serde_json::from_slice(&bytes).unwrap_or_default())
+        }
+
+        const TOKEN: (&str, &str) = ("authorization", r#"MediaBrowser Token="t""#);
+        let windows = cfg!(windows);
+
+        // The capability: yes on loopback (on Windows), no from the LAN or through a tunnel.
+        let (code, body) = call("GET", "127.0.0.1:5000", &[]).await;
+        assert_eq!(code, StatusCode::OK);
+        assert_eq!(body["canReveal"], windows);
+        let (_, body) = call("GET", "192.168.1.20:5000", &[]).await;
+        assert_eq!(body["canReveal"], false);
+        let (_, body) =
+            call("GET", "127.0.0.1:5000", &[("x-forwarded-for", "203.0.113.7")]).await;
+        assert_eq!(body["canReveal"], false, "a tunnel lands on loopback and is not local");
+
+        // The action: a LAN caller or a tunnelled one is refused even with a token.
+        let (code, body) = call("POST", "192.168.1.20:5000", &[TOKEN]).await;
+        assert_eq!(code, StatusCode::FORBIDDEN);
+        assert_eq!(body["error"], "not_local");
+        let (code, _) = call(
+            "POST",
+            "127.0.0.1:5000",
+            &[TOKEN, ("cf-connecting-ip", "203.0.113.7")],
+        )
+        .await;
+        assert_eq!(code, StatusCode::FORBIDDEN);
+
+        if windows {
+            // On loopback with no credentials: 401, before the media server is asked anything.
+            let (code, body) = call("POST", "127.0.0.1:5000", &[]).await;
+            assert_eq!(code, StatusCode::UNAUTHORIZED);
+            assert_eq!(body["error"], "not_signed_in");
+            // With one, but no media server configured: it says so rather than launching.
+            let (code, body) = call("POST", "127.0.0.1:5000", &[TOKEN]).await;
+            assert_eq!(code, StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(body["error"], "media_server_unavailable");
+        } else {
+            let (code, _) = call("POST", "127.0.0.1:5000", &[TOKEN]).await;
+            assert_eq!(code, StatusCode::NOT_IMPLEMENTED);
+        }
     }
 
     /// And the health document a tunnelled caller gets is the redacted one.

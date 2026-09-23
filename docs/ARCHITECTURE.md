@@ -784,6 +784,8 @@ its entire pipeline underneath that — so `StingStream.Core`'s routes really li
 | `/radarr/*`, `/sonarr/*`, `/nzbget/*` | those children — **`--dev` only** |
 | everything else | the web bundle, with SPA fallback; the placeholder page when there is no bundle (M3b) |
 
+**A child that is not ready answers `503`, the same way on every proxied path.** While a child is stopped, restarting or still starting, the gateway answers for it: `503`, `Retry-After: 5`, `Cache-Control: no-store`, `x-stingstream-state: starting` (or `failed`, once the supervisor has given up on it) and a JSON body `{"status":"starting","child":"jellyfin","state":"restarting"}`. `Starting` is routable, so Jellyfin's own start-up answer still gets through once it listens; before it does, a connection the proxy cannot make is turned into the same `503` rather than a bare `502`, which is what a returning browser used to get for most of a cold start. A **healthy** child that refuses a connection keeps its `502`: that is a fault, not a start-up. The app reads the header (and 502/503/504 as a fallback, for older nodes and reverse proxies) in `apps/stingstream/utils/jellyfin/serverReadiness.ts` and shows "Starting your server" instead of "Server unreachable"; see `docs/UI.md`, "Waiting for a server that is starting".
+
 **The gateway sniffs the first byte of each connection** (`0x16` is a TLS ClientHello) rather than
 running two listeners. Loopback plain HTTP keeps working exactly as before; an off-machine plain
 request is answered with a `308` to `https` once a certificate exists; TLS responses carry HSTS. A

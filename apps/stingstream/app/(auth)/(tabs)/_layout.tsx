@@ -14,6 +14,10 @@ import { useTranslation } from "react-i18next";
 import { Platform, View } from "react-native";
 import { SystemBars } from "react-native-edge-to-edge";
 import { toast } from "sonner-native";
+import {
+  ServerStartingScreen,
+  showsServerStarting,
+} from "@/components/login/ServerStartingScreen";
 import { MobileShell } from "@/components/shell/MobileShell";
 import { TAB_LABEL_FONT_SIZE, tabTestID } from "@/components/shell/tabIcons";
 import { WebShellLayout } from "@/components/shell/WebShellLayout";
@@ -32,6 +36,7 @@ import {
 } from "@/hooks/useTVBackHandler";
 import { useTVUserSwitchModal } from "@/hooks/useTVUserSwitchModal";
 import { apiAtom, useJellyfin, userAtom } from "@/providers/JellyfinProvider";
+import { useNetworkStatus } from "@/providers/NetworkStatusProvider";
 import { useSettings } from "@/utils/atoms/settings";
 import { eventBus } from "@/utils/eventBus";
 import {
@@ -261,8 +266,19 @@ export default function TabLayout() {
   // Transfers endpoint requires Jellyfin's RequiresElevation policy; see
   // docs/UI-API-GAPS.md).
 
+  const { serverState, startingUp } = useNetworkStatus();
+
   // Must be called before any conditional return (rules of hooks)
   useTVHomeBackHandler();
+
+  // A returning, signed-in user can land here while the server is still coming up (a browser
+  // reopened by the installer, most often). Until it has been seen ready once, every tab would
+  // only fail on its own, so the whole shell waits behind the starting screen instead, and the
+  // navigator mounts the moment the server answers. After that, an outage is Home's to report,
+  // and the navigator (and whatever is playing) is never torn down for one.
+  if (startingUp && showsServerStarting(serverState)) {
+    return <ServerStartingScreen />;
+  }
 
   if (IS_ANDROID_TV) {
     return <TVTabLayout />;

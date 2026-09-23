@@ -184,6 +184,13 @@ describe("buildItemInfo", () => {
       (row) => row.key === "path",
     );
     expect(path?.copyable).toBe(true);
+    // The file's own path can be shown in its folder; a subtitle's is another file.
+    expect(path?.revealSourceId).toBe("src-1");
+    const subtitlePath = info.versions[0].sections[3].rows.find(
+      (row) => row.key === "path",
+    );
+    expect(subtitlePath?.copyable).toBe(true);
+    expect(subtitlePath?.revealSourceId).toBeUndefined();
   });
 
   test("a member never sees a server path", () => {

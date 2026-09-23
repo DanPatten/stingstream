@@ -32,6 +32,10 @@ import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPr
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations.tv";
 import { TVHeroCarousel } from "@/components/home/TVHeroCarousel";
 import { Loader } from "@/components/Loader";
+import {
+  ServerStartingScreen,
+  showsServerStarting,
+} from "@/components/login/ServerStartingScreen";
 import { TVImageBudget } from "@/constants/TVImageBudget";
 import { TVAnimation, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
@@ -79,6 +83,7 @@ export const Home = () => {
   const {
     isConnected,
     serverConnected,
+    serverState,
     loading: retryLoading,
     retryCheck,
   } = useNetworkStatus();
@@ -596,6 +601,11 @@ export const Home = () => {
     if (heroItems && heroItems.length > 0) return 0;
     return settings.mergeNextUpAndContinueWatching ? 1 : 2;
   }, [showHero, heroItems, settings.mergeNextUpAndContinueWatching]);
+
+  // Answered and coming up is not unreachable: the starting card polls and moves on by itself.
+  if (isConnected && showsServerStarting(serverState)) {
+    return <ServerStartingScreen />;
+  }
 
   if (!isConnected || serverConnected !== true) {
     let title = "";

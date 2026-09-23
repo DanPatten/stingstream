@@ -33,6 +33,10 @@ import { markExpectedError } from "@/utils/errors";
 import { deriveVerifier } from "@/utils/identity/verifier";
 import { createServerApi } from "@/utils/jellyfin/createApi";
 import {
+  isStartingResponse,
+  NODE_STATE_HEADER,
+} from "@/utils/jellyfin/serverReadiness";
+import {
   logAndCaptureError,
   writeErrorLog,
   writeInfoLog,
@@ -930,6 +934,20 @@ export const JellyfinProvider: React.FC<{ children: ReactNode }> = ({
           }
           if (error.response?.status === 403) {
             throw markExpectedError(new Error(t("common.no_permission")));
+          }
+
+          // Answered, and still coming up. The credential is fine and the refusal is temporary,
+          // which is the whole difference from a 401: say so, keep it, and let the caller wait.
+          if (
+            error.response &&
+            isStartingResponse(
+              error.response.status,
+              String(error.response.headers?.[NODE_STATE_HEADER] ?? ""),
+            )
+          ) {
+            throw markExpectedError(
+              new Error(t("login.server_starting_description")),
+            );
           }
 
           // Network error - server not reachable (no response means server didn't respond)

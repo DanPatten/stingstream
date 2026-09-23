@@ -466,6 +466,10 @@ pushed into a child.
 # Supervisor and child states. 200 when everything is healthy, 503 when not.
 curl http://127.0.0.1:8790/healthz
 
+# While the media server is still coming up, every proxied path answers 503 with
+# Retry-After: 5 and x-stingstream-state: starting (or failed). See ARCHITECTURE.md.
+curl -i http://127.0.0.1:8790/jellyfin/System/Info/Public
+
 # The StingStream API needs a token from the media API, because it *is* that auth.
 # Use the account you created on the setup screen. On a node nobody has set up yet,
 # runtime.json still carries the generated bootstrap one -- and only until setup completes,

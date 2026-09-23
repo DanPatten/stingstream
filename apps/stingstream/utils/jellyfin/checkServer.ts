@@ -1,5 +1,6 @@
 import type { PublicSystemInfo } from "@jellyfin/sdk/lib/generated-client";
 import { writeInfoLog, writeToLog } from "@/utils/log";
+import { isStartingResponse, NODE_STATE_HEADER } from "./serverReadiness";
 
 /** Thrown when the server answered but is older than Streamyfin supports. */
 export class ServerTooOldError extends Error {
@@ -62,15 +63,6 @@ export interface CheckedServer {
 /** LAN probes either answer near-instantly or never; don't let one candidate
  * hang the whole check. */
 const PROBE_TIMEOUT_MS = 10_000;
-
-/**
- * Statuses that mean "there, but not ready yet".
- *
- * 503 is the node's own gateway refusing to route to a child that is starting or backing off.
- * 502 and 504 are what a reverse proxy in front of one says about the same state, and a node
- * behind Cloudflare Tunnel or Caddy is a documented setup (`docs/SIDEDOOR.md`).
- */
-const STARTING_STATUSES = new Set([502, 503, 504]);
 
 /** Streamyfin needs 10.10 or newer. Anything unparseable is given the benefit
  * of the doubt — a server that answers but reports an odd version string must
@@ -209,7 +201,11 @@ async function probePublicInfo(
         "WARN",
         `Server check: ${url} answered HTTP ${response.status}`,
       );
-      return STARTING_STATUSES.has(response.status)
+      // One detection for "there, but not ready", shared with the signed-in readiness watch.
+      return isStartingResponse(
+        response.status,
+        response.headers?.get?.(NODE_STATE_HEADER),
+      )
         ? { kind: "starting" }
         : { kind: "answered" };
     }

@@ -1,9 +1,8 @@
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useSegments } from "expo-router";
 import { useAtomValue } from "jotai";
-import { useCallback, useMemo, useState } from "react";
-import { PixelRatio } from "react-native";
-import { ItemActionSheetHost } from "@/components/common/ItemActionSheetHost";
+import { type RefObject, useCallback, useMemo, useRef, useState } from "react";
+import { PixelRatio, Platform, type View } from "react-native";
 import {
   getItemNavigation,
   itemRouter,
@@ -11,6 +10,7 @@ import {
 import useRouter from "@/hooks/useAppRouter";
 import { apiAtom } from "@/providers/JellyfinProvider";
 import { buildItemCards, type CardData, type CardKind } from "./CardData";
+import { ItemCardMenu, type ItemCardMenuContext } from "./ItemCardMenu";
 
 type Options = {
   /** Media items — cards are built here, and presses navigate. */
@@ -29,18 +29,23 @@ type Options = {
   onPressItem?: (item: BaseItemDto) => void;
   /** Press handler for `cards` mode. */
   onPressId?: (id: string) => void;
-  /** Replaces the long-press action sheet (items mode). */
+  /** Replaces the card menu on long press (items mode). */
   onLongPressItem?: (item: BaseItemDto) => void;
   /** Long-press handler for `cards` mode. */
   onLongPressId?: (id: string) => void;
-  /** Long press opens the played/favorite sheet (items mode). Default: off. */
+  /**
+   * The card menu (items mode): a hover "..." on the web and a long press on
+   * touch, with the watched toggle, favorite and "View show". Default: off.
+   */
   enableActionSheet?: boolean;
+  /** Which row the cards sit in, for the rows only that row's menu has. */
+  menuContext?: ItemCardMenuContext;
 };
 
 /**
  * Everything a container of cards needs besides its layout: the cards
- * themselves, what a press means, and the long-press action sheet. Kept apart
- * from `CardRow` so another arrangement of the same cards gets all of it free.
+ * themselves, what a press means, and the card menu. Kept apart from `CardRow`
+ * so another arrangement of the same cards gets all of it free.
  */
 export function useItemCardBehavior({
   items,
@@ -54,13 +59,18 @@ export function useItemCardBehavior({
   onLongPressItem,
   onLongPressId,
   enableActionSheet = false,
+  menuContext,
 }: Options) {
   const api = useAtomValue(apiAtom);
   const router = useRouter();
   const segments = useSegments();
-  const [actionSheetItem, setActionSheetItem] = useState<BaseItemDto | null>(
-    null,
-  );
+  const [menu, setMenu] = useState<{
+    item: BaseItemDto;
+    anchor: RefObject<View | null>;
+  } | null>(null);
+  // A long press on a device has no pointer to open from, and the menu is a
+  // bottom sheet there that ignores its anchor.
+  const noAnchor = useRef<View>(null);
 
   const from = (segments as string[])[2] || "(home)";
 
@@ -105,8 +115,17 @@ export function useItemCardBehavior({
     [from, items, onPressId, onPressItem, router],
   );
 
+  const openMenu = useCallback(
+    (id: string, anchor?: RefObject<View | null>) => {
+      const item = items?.find((i) => i.Id === id);
+      if (!item) return;
+      setMenu({ item, anchor: anchor ?? noAnchor });
+    },
+    [items],
+  );
+
   const handleLongPress = useCallback(
-    (id: string) => {
+    (id: string, anchor?: RefObject<View | null>) => {
       if (onLongPressId) {
         onLongPressId(id);
         return;
@@ -120,12 +139,12 @@ export function useItemCardBehavior({
         return;
       }
 
-      setActionSheetItem(item);
+      openMenu(id, anchor);
     },
-    [items, onLongPressId, onLongPressItem],
+    [items, onLongPressId, onLongPressItem, openMenu],
   );
 
-  const closeActionSheet = useCallback(() => setActionSheetItem(null), []);
+  const closeMenu = useCallback(() => setMenu(null), []);
 
   // Only media items have a played/favorite state to act on — but a screen
   // that handles the long press itself always gets it.
@@ -133,16 +152,32 @@ export function useItemCardBehavior({
     Boolean(onLongPressId) ||
     (Boolean(items) && (Boolean(onLongPressItem) || enableActionSheet));
 
+  // The menu itself, as opposed to a screen's own long press. Never on TV,
+  // whose screens pass their own (`useTVItemActionModal`).
+  const menuEnabled =
+    Boolean(items) &&
+    enableActionSheet &&
+    !onLongPressId &&
+    !onLongPressItem &&
+    !Platform.isTV;
+
   return {
     cards,
     handlePress,
     handleLongPress: allowLongPress ? handleLongPress : undefined,
-    /** Mount alongside the cards; renders nothing until a long press. */
-    actionSheet: actionSheetItem ? (
-      <ItemActionSheetHost
-        key={actionSheetItem.Id}
-        item={actionSheetItem}
-        onClose={closeActionSheet}
+    /**
+     * Opens the card menu from a card's own "..." (`Card`'s `onOpenMenu`).
+     * Absent where the cards have no menu, so no "..." is drawn there.
+     */
+    handleOpenMenu: menuEnabled ? openMenu : undefined,
+    /** Mount alongside the cards; renders nothing until the menu is asked for. */
+    actionSheet: menu ? (
+      <ItemCardMenu
+        key={menu.item.Id}
+        item={menu.item}
+        anchorRef={menu.anchor}
+        context={menuContext}
+        onClose={closeMenu}
       />
     ) : null,
   };

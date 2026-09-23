@@ -2,7 +2,7 @@ import axios from "axios";
 import type { ServerProbe } from "../types";
 
 /** Public, unauthenticated Jellyfin endpoint; `ProductName` confirms the service. */
-const PRODUCT_NAME = "Jellyfin Server";
+export const PRODUCT_NAME = "Jellyfin Server";
 
 export const jellyfinProbe: ServerProbe = async (url, signal) => {
   try {

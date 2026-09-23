@@ -37,6 +37,7 @@ cadence meant knowing both existed, and nothing would have failed if only one ha
 | `constants/Cast.ts` | Casting from a browser: where the Cast Web Sender is loaded from, and how long to wait for it |
 | `constants/Networking.ts` | How the app addresses a node: the gateway's default port, shared by the probe candidates and the setup instructions that name it |
 | `constants/Library.ts` | Following a library scan (how often scan state and the item lists are refetched while one runs) and the `POSTER_REQUEST_WIDTHS` ladder server posters are requested at |
+| `constants/ServerStartup.ts` | Waiting for a node that answered and is still starting: how long "Starting your server" shows before it stalls, the poll backoff, and the web-only grace before "nothing answered" becomes unreachable. Shared by the sign-in auto-connect and the signed-in readiness watch |
 
 Add a new domain file when a group grows its own identity (playback, downloads,
 networking). Do not let `Values.ts` become the place where everything lands.

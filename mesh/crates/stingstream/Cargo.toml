@@ -66,6 +66,11 @@ windows-sys = { version = "0.59", features = [
     "Win32_Security",
     "Win32_System_JobObjects",
     "Win32_System_Threading",
+    # "Show in Explorer" from the service (gateway/reveal.rs): session 0 has no desktop, so
+    # Explorer is started as the signed-in user via WTSQueryUserToken + CreateEnvironmentBlock +
+    # CreateProcessAsUserW.
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Environment",
 ] }
 
 [dev-dependencies]

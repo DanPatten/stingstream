@@ -29,6 +29,11 @@ export interface InfoRow {
   value: string;
   /** Drawn in full, wrapping, with a copy control. A file path. */
   copyable?: boolean;
+  /**
+   * The version whose file this is, when the row is that version's own file: what "Show in
+   * Explorer" asks the node to open. Never on a subtitle's path, which is a different file.
+   */
+  revealSourceId?: string;
 }
 
 export interface InfoSection {
@@ -290,6 +295,19 @@ const subtitleSection = (
   ]),
 });
 
+/** Marks a version's own path row with the version it belongs to. */
+const withRevealSource = (
+  source: MediaSourceInfo,
+  rows: InfoRow[],
+): InfoRow[] =>
+  source.Id
+    ? rows.map((row) =>
+        row.key === "path"
+          ? { ...row, revealSourceId: source.Id ?? undefined }
+          : row,
+      )
+    : rows;
+
 const version = (
   source: MediaSourceInfo,
   index: number,
@@ -304,16 +322,19 @@ const version = (
   const file: InfoSection = {
     key: "file",
     title: t("item_info.file"),
-    rows: rowsOf(t, [
-      ["path", isAdmin ? source.Path : null, true],
-      ["size", formatFileSize(source.Size)],
-      [
-        "duration",
-        source.RunTimeTicks ? formatDuration(source.RunTimeTicks) : null,
-      ],
-      ["container", upper(source.Container)],
-      ["bitrate", formatBitrateOrNull(source.Bitrate)],
-    ]),
+    rows: withRevealSource(
+      source,
+      rowsOf(t, [
+        ["path", isAdmin ? source.Path : null, true],
+        ["size", formatFileSize(source.Size)],
+        [
+          "duration",
+          source.RunTimeTicks ? formatDuration(source.RunTimeTicks) : null,
+        ],
+        ["container", upper(source.Container)],
+        ["bitrate", formatBitrateOrNull(source.Bitrate)],
+      ]),
+    ),
   };
 
   const sections = [

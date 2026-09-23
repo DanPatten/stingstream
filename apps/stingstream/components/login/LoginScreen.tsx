@@ -6,6 +6,11 @@ import { ActivityIndicator, Platform, View } from "react-native";
 import { toast } from "sonner-native";
 import { Text } from "@/components/common/Text";
 import { QuickConnectCodeModal } from "@/components/login/QuickConnectCodeModal";
+import {
+  SERVER_STARTING_BUDGET_MS,
+  SERVER_STARTING_FIRST_DELAY_MS,
+  SERVER_STARTING_MAX_DELAY_MS,
+} from "@/constants/ServerStartup";
 import { jellyfinUrlFor, useNodeContext } from "@/hooks/useNodeContext";
 import { usePasskeySupport } from "@/hooks/usePasskeySupport";
 import { useTheme } from "@/hooks/useTheme";
@@ -44,18 +49,14 @@ import { SignInForm } from "./SignInForm";
 import { WelcomeScreen } from "./WelcomeScreen";
 
 /**
- * How long to keep trying a node that is there but not ready, and how fast to back off.
- *
- * The budget is not a guess: `tools/ui-startup.ps1` allows the node **40 s** to become healthy
- * with the download managers off and **90 s** with them on, so a browser that gives up sooner is
- * giving up on a server that is doing exactly what it is supposed to. It used to allow 1.4 s
- * (three tries, 700 ms apart), which is how a cold node ended up showing an address form.
- *
- * The cap matches the `Retry-After: 5` the gateway sends with its own 503.
+ * How long to keep trying a node that is there but not ready, and how fast to back off. One policy
+ * with the signed-in readiness watch, so it lives in `constants/ServerStartup.ts` with the reasons.
+ * It used to allow 1.4 s (three tries, 700 ms apart), which is how a cold node ended up showing an
+ * address form.
  */
-const AUTO_CONNECT_BUDGET_MS = 90_000;
-const AUTO_CONNECT_FIRST_DELAY_MS = 1_000;
-const AUTO_CONNECT_MAX_DELAY_MS = 5_000;
+const AUTO_CONNECT_BUDGET_MS = SERVER_STARTING_BUDGET_MS;
+const AUTO_CONNECT_FIRST_DELAY_MS = SERVER_STARTING_FIRST_DELAY_MS;
+const AUTO_CONNECT_MAX_DELAY_MS = SERVER_STARTING_MAX_DELAY_MS;
 
 /**
  * How many failed attempts before looking for a linked server instead.

@@ -1,5 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { type RefObject, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
@@ -54,6 +56,12 @@ type CardProps = {
   kindGlyph?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
+  /**
+   * Opens the card menu (`ItemCardMenu`), from the given anchor. With it the card draws a "..."
+   * on hover in a browser, and a long press opens the same menu from the card itself. It takes
+   * precedence over `onLongPress`.
+   */
+  onOpenMenu?: (anchor: RefObject<View | null>) => void;
   /** What the sweep looks for. The library's own name unless a screen says otherwise. */
   testID?: string;
 };
@@ -86,16 +94,25 @@ export const Card: React.FC<CardProps> = ({
   kindGlyph = false,
   onPress,
   onLongPress,
+  onOpenMenu,
   testID = "library-card",
 }) => {
+  const { t } = useTranslation();
   const layout = useCardLayout(kind);
   const { accent, color } = useTheme();
   const states = usePressableStates();
+  const cardRef = useRef<View>(null);
+  const menuRef = useRef<View>(null);
+  // Hover over the card *or* its "...". The "..." is a sibling of the card's own button (a button
+  // cannot hold a button on the web), so the card's own hover ends as the pointer reaches it, and
+  // tracking the pair is what keeps the lift and the "..." from flickering off under the pointer.
+  const [groupHovered, setGroupHovered] = useState(false);
   const cardWidth = width ?? layout.cardWidth;
   const height = cardWidth / (card.aspectRatio ?? layout.aspectRatio);
   const progress = Math.min(Math.max(card.progress ?? 0, 0), 1);
   const isOver = (textPlacement ?? defaultTextPlacement(kind)) === "over";
-  const lifted = isWeb && states.hovered;
+  const lifted = isWeb && (states.hovered || groupHovered);
+  const handleLongPress = onOpenMenu ? () => onOpenMenu(cardRef) : onLongPress;
 
   // The glyph beside the year is furniture, so it takes the same tone as the text it sits with
   // rather than drawing the eye on its own.
@@ -190,6 +207,17 @@ export const Card: React.FC<CardProps> = ({
     ) : null;
 
   return (
+    <View
+      ref={cardRef}
+      collapsable={false}
+      style={{ width: cardWidth }}
+      {...(isWeb
+        ? {
+            onPointerEnter: () => setGroupHovered(true),
+            onPointerLeave: () => setGroupHovered(false),
+          }
+        : null)}
+    >
     <Pressable
       testID={testID}
       accessibilityRole='button'
@@ -198,7 +226,7 @@ export const Card: React.FC<CardProps> = ({
       // and a screen reader should hear the same thing either way.
       accessibilityLabel={card.imageAlt ?? card.title}
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={handleLongPress}
       {...states.handlers}
       style={[
         {
@@ -364,5 +392,88 @@ export const Card: React.FC<CardProps> = ({
 
       {slots?.footer?.(card)}
     </Pressable>
+
+      {/*
+        Plex's hover "..." in the artwork's bottom corner, web only: touch has the long press. Kept
+        mounted and faded rather than mounted on hover, so moving the pointer onto it never unmounts
+        the thing being moved onto; and it shows on keyboard focus too, so a tab reaches it.
+      */}
+      {isWeb && onOpenMenu ? (
+        <CardMenuButton
+          anchorRef={menuRef}
+          visible={lifted}
+          label={t("item.more_actions")}
+          scale={lifted ? tokens.motion.hoverScale : 1}
+          cardWidth={cardWidth}
+          artworkHeight={height}
+          onPress={() => onOpenMenu(menuRef)}
+        />
+      ) : null}
+    </View>
+  );
+};
+
+/** The disc's size. Small enough to leave the poster readable, big enough to hit. */
+const MENU_BUTTON_SIZE = 30;
+/** From the artwork's edges. */
+const MENU_BUTTON_INSET = 6;
+
+const CardMenuButton: React.FC<{
+  anchorRef: RefObject<View | null>;
+  visible: boolean;
+  label: string;
+  /** The card's own hover scale, so the button stays on the corner it belongs to. */
+  scale: number;
+  cardWidth: number;
+  artworkHeight: number;
+  onPress: () => void;
+}> = ({
+  anchorRef,
+  visible,
+  label,
+  scale,
+  cardWidth,
+  artworkHeight,
+  onPress,
+}) => {
+  const states = usePressableStates({ ringColor: "#FFFFFF" });
+  const shown = visible || states.hovered || states.focused;
+  // The card scales about its centre; the corner moves out by half the growth on each axis.
+  const grownX = (cardWidth * (scale - 1)) / 2;
+  const grownY = (artworkHeight * (scale - 1)) / 2;
+  return (
+    <View
+      ref={anchorRef}
+      collapsable={false}
+      pointerEvents='box-none'
+      style={{
+        position: "absolute",
+        right: MENU_BUTTON_INSET - grownX,
+        top: artworkHeight - MENU_BUTTON_SIZE - MENU_BUTTON_INSET + grownY,
+      }}
+    >
+      <Pressable
+        testID='card-menu'
+        accessibilityRole='button'
+        accessibilityLabel={label}
+        onPress={onPress}
+        {...states.handlers}
+        style={[
+          {
+            width: MENU_BUTTON_SIZE,
+            height: MENU_BUTTON_SIZE,
+            borderRadius: MENU_BUTTON_SIZE / 2,
+            alignItems: "center",
+            justifyContent: "center",
+            // A scrim over a photograph, the same as the play disc: the same in every theme.
+            backgroundColor: rgba("#000000", states.hovered ? 0.75 : 0.55),
+            opacity: shown ? 1 : 0,
+          },
+          states.webStyle,
+        ]}
+      >
+        <Icon name='more' size={16} color='#FFFFFF' />
+      </Pressable>
+    </View>
   );
 };

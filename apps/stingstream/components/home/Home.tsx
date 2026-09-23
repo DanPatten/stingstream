@@ -27,6 +27,10 @@ import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrol
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists";
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations";
 import { ScanIndicator } from "@/components/library/ScanStatus";
+import {
+  ServerStartingScreen,
+  showsServerStarting,
+} from "@/components/login/ServerStartingScreen";
 import { MediaListSection } from "@/components/medialists/MediaListSection";
 import { useIsStingStreamAdmin } from "@/components/stingstream/shared/RequiresAdmin";
 import useRouter from "@/hooks/useAppRouter";
@@ -82,6 +86,7 @@ const HomeMobile = () => {
   const {
     isConnected,
     serverConnected,
+    serverState,
     loading: retryLoading,
     retryCheck,
   } = useNetworkStatus();
@@ -569,6 +574,11 @@ const HomeMobile = () => {
     },
     [],
   );
+
+  // Answered and coming up is not unreachable: the starting card polls and moves on by itself.
+  if (isConnected && showsServerStarting(serverState)) {
+    return <ServerStartingScreen />;
+  }
 
   if (!isConnected || serverConnected !== true) {
     let title = "";
