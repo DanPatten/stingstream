@@ -25,15 +25,10 @@
 
 **Your movies and shows, on every screen you own, shared with the people you choose.**
 
-<p align="center">
-  <a href="docs/media/stingstream-explainer.mp4">
-    <img
-      src="docs/media/stingstream-explainer-poster.jpg"
-      alt="Watch the 60-second StingStream intro"
-      width="720"></a>
-  <br>
-  <sub>Watch the 60-second intro</sub>
-</p>
+<!-- The intro video. A bare user-attachments link on its own line is the only form GitHub plays
+     inline; a video committed to the repo only renders as a link. Re-upload through any GitHub
+     comment box (10 MB cap) to replace it. Source: StingStream-Explainer/. -->
+https://github.com/user-attachments/assets/12a12573-586e-45de-8ea0-25bdcfb3bb65
 
 StingStream is a free app that turns a computer in your home into your own private streaming
 service. It organises the films and series you already have and plays them on your phone, your
