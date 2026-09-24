@@ -25,6 +25,16 @@
 
 **Your movies and shows, on every screen you own, shared with the people you choose.**
 
+<p align="center">
+  <a href="docs/media/stingstream-explainer.mp4">
+    <img
+      src="docs/media/stingstream-explainer-poster.jpg"
+      alt="Watch the 60-second StingStream intro"
+      width="720"></a>
+  <br>
+  <sub>Watch the 60-second intro</sub>
+</p>
+
 StingStream is a free app that turns a computer in your home into your own private streaming
 service. It organises the films and series you already have and plays them on your phone, your
 tablet, your TV and in a web browser. It manages the indexers and download clients you add, so the
