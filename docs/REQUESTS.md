@@ -988,6 +988,9 @@ The worker monitors and searches selected missing episodes individually. Withdra
 request only cancels matching queue entries with known episode identity, leaves unidentified season
 packs alone, and keeps the show's library entry. Completed files are never removed.
 
-Home displays the member's own requests and a separate ready-to-watch row. List responses resolve
+Home puts Continue watching first and Ready for you second. The latter includes the member's
+fulfilled requests for three days after availability, newest first, and removes a title once any
+playback is recorded (including an episode of a requested show). My requests remains on the
+Requests page. List responses resolve
 `localItemId` when the library has the requested title, allowing Play to enter playback directly.
 The trending rows use TMDB's weekly movie and TV feeds, preserving provider order.

@@ -27,7 +27,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
 import { Image, prefetchServerImage } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
-import { HomeDiscovery } from "@/components/home/HomeDiscovery.tv";
+import {
+  HomeDiscovery,
+  HomeReadyRequests,
+} from "@/components/home/HomeDiscovery.tv";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList.tv";
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists.tv";
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations.tv";
@@ -567,7 +570,24 @@ export const Home = () => {
     return ss;
   }, [api, user?.Id, settings?.home?.sections, t]);
 
-  const sections = settings?.home?.sections ? customSections : defaultSections;
+  const sections = useMemo(
+    () =>
+      settings?.home?.sections
+        ? [
+            ...defaultSections.slice(
+              0,
+              settings.mergeNextUpAndContinueWatching ? 1 : 2,
+            ),
+            ...customSections,
+          ]
+        : defaultSections,
+    [
+      settings?.home?.sections,
+      settings.mergeNextUpAndContinueWatching,
+      customSections,
+      defaultSections,
+    ],
+  );
 
   // Determine if hero should be shown (separate setting from backdrop)
   // We need this early to calculate which sections will actually be rendered
@@ -802,6 +822,7 @@ export const Home = () => {
             paddingTop: showHero ? SECTION_GAP : 0,
           }}
         >
+          {showHero && <HomeReadyRequests />}
           {/* Skip first section (Continue Watching) when hero is shown since hero displays that content */}
           {renderedSections.map((section, index) => {
             // Render Streamystats sections after Recently Added sections
@@ -862,6 +883,7 @@ export const Home = () => {
                     onItemFocus={handleItemFocus}
                     parentId={section.parentId}
                   />
+                  {!showHero && index === 0 && <HomeReadyRequests />}
                   {streamystatsSections}
                 </View>
               );

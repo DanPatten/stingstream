@@ -22,7 +22,10 @@ import { CardRowSkeleton } from "@/components/cards/CardRowSkeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Skeleton } from "@/components/common/Skeleton";
-import { HomeDiscovery } from "@/components/home/HomeDiscovery";
+import {
+  HomeDiscovery,
+  HomeReadyRequests,
+} from "@/components/home/HomeDiscovery";
 import { HomeHeroCarousel } from "@/components/home/HomeHeroCarousel";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList";
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists";
@@ -555,7 +558,24 @@ const HomeMobile = () => {
     return ss;
   }, [api, user?.Id, settings?.home?.sections, t]);
 
-  const sections = settings?.home?.sections ? customSections : defaultSections;
+  const sections = useMemo(
+    () =>
+      settings?.home?.sections
+        ? [
+            ...defaultSections.slice(
+              0,
+              settings.mergeNextUpAndContinueWatching ? 1 : 2,
+            ),
+            ...customSections,
+          ]
+        : defaultSections,
+    [
+      settings?.home?.sections,
+      settings.mergeNextUpAndContinueWatching,
+      customSections,
+      defaultSections,
+    ],
+  );
 
   // Get all high priority section keys and check if all have loaded
   const highPrioritySectionKeys = useMemo(() => {
@@ -762,8 +782,13 @@ const HomeMobile = () => {
             gap: 24,
           }}
         >
-          <HomeHeroCarousel />
-          {sections.length === 0 && <HomeDiscovery />}
+          {sections.length === 0 && (
+            <>
+              <HomeReadyRequests />
+              <HomeHeroCarousel />
+              <HomeDiscovery />
+            </>
+          )}
           {sections.map((section, index) => {
             // Render Streamystats sections after Recently Added sections
             // For default sections: place after Recently Added, before Suggested Movies (if present)
@@ -846,7 +871,13 @@ const HomeMobile = () => {
                     }
                     onPressSeeAll={handleSeeAll}
                   />
-                  {index === 0 && <HomeDiscovery />}
+                  {index === 0 && (
+                    <>
+                      <HomeReadyRequests />
+                      <HomeHeroCarousel />
+                      <HomeDiscovery />
+                    </>
+                  )}
                   {streamystatsSections}
                 </View>
               );
@@ -858,7 +889,13 @@ const HomeMobile = () => {
                     queryKey={section.queryKey}
                     queryFn={section.queryFn}
                   />
-                  {index === 0 && <HomeDiscovery />}
+                  {index === 0 && (
+                    <>
+                      <HomeReadyRequests />
+                      <HomeHeroCarousel />
+                      <HomeDiscovery />
+                    </>
+                  )}
                   {streamystatsSections}
                 </View>
               );

@@ -547,7 +547,10 @@ so out loud (a one-line message to whoever's waiting) rather than assuming they'
 
 ### Home discovery, trailers and audio libraries (2026-09-27)
 
-Home includes weekly trending movies and TV shows, My requests, and a ready-to-watch row linking
+Home prioritizes Continue watching, followed by Ready for you, then featured and discovery content.
+Ready for you shows fulfilled requests for three days, excluding any title already started (including
+any episode of a show). The full My requests list stays on the Requests page. Home also includes
+weekly trending movies and TV shows, with the ready row linking
 requests to local library items. Continue watching stays ahead of discovery. Empty libraries still
 show discovery. The TV home uses its own focusable rows.
 

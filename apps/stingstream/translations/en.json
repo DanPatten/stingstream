@@ -166,7 +166,7 @@
     "invalid_password": "Invalid password"
   },
   "home": {
-    "requested_ready": "Requested by you. Ready to watch",
+    "requested_ready": "Ready for you",
     "trending_movies": "Trending movies",
     "trending_shows": "Trending TV shows",
     "checking_server_connection": "Checking server connection…",

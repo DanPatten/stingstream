@@ -44,6 +44,7 @@ const USER_DATA_CHANGE_QUERY_KEYS = [
   ["home", "resumeItems"],
   ["home", "nextUp-all"],
   ["home", "heroItems"],
+  ["home", "readyRequests"],
   ["resumeItems"],
   ["nextUp-all"],
   ["nextUp"],
