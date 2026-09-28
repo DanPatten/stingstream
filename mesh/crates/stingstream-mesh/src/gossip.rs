@@ -1256,6 +1256,7 @@ mod tests {
                 provider: "tvdb".into(),
                 provider_id: "73739".into(),
                 seasons: vec![1, 2],
+                episodes: vec!["s03e01".into()],
                 requested_by: "dan".into(),
                 requested_at: "2026-09-05T00:00:00Z".into(),
             },

@@ -882,3 +882,14 @@ has the truth, and every child was configured from it.
 Closed since M3b, for the record: the transcode of a federated source now works (see
 `docs/ARCHITECTURE.md`, "The transcode fix"), and a title held by several nodes now materializes one
 `.strm` version per holder.
+
+### Default audio libraries
+
+Music and Audiobooks are enabled by default alongside Movies and TV Shows. On upgrade, missing
+audio library types are added once; existing folders and disabled choices are preserved. Their
+managed defaults are `Music` and `Audiobooks` alongside the supervisor's Movies folder. Set folders
+or disable a library in Settings > Libraries. Music uses Jellyfin's `music` collection type and
+Audiobooks uses `books`; audiobooks browse as `AudioBook` items and stream through the audio API.
+
+Usernames accept email addresses, including `+` tags, with a maximum of 254 characters. This is an
+account name, not a requirement to verify email ownership.

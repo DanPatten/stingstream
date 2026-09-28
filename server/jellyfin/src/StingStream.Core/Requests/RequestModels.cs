@@ -3,6 +3,19 @@ using System.Collections.Generic;
 
 namespace StingStream.Core.Requests;
 
+/// <summary>One episode offered by the request picker.</summary>
+public sealed class RequestEpisodeOption
+{
+    /// <summary>Canonical episode key.</summary>
+    public string Key { get; set; } = string.Empty;
+
+    /// <summary>Episode title.</summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Number within the season.</summary>
+    public int Number { get; set; }
+}
+
 /// <summary>
 /// The states a request moves through, and the only strings that ever appear in
 /// <c>requests.state</c>.
@@ -207,6 +220,9 @@ public sealed class RequestUser
 /// <summary>One member request, as this node holds it.</summary>
 public sealed class RequestRow
 {
+    /// <summary>The playable library title, resolved when listing requests.</summary>
+    public string? LocalItemId { get; set; }
+
     /// <summary>Opaque id, minted here, stable for the life of the request.</summary>
     public string Id { get; set; } = string.Empty;
 
@@ -255,6 +271,9 @@ public sealed class RequestRow
 
     /// <summary>Season numbers wanted. Empty means every season, which is what Sonarr calls "all".</summary>
     public List<int> Seasons { get; set; } = new();
+
+    /// <summary>Specific episode keys (s01e02). Empty means the selected seasons in full.</summary>
+    public List<string> Episodes { get; set; } = new();
 
     /// <summary>One of <see cref="RequestStates"/>.</summary>
     public string State { get; set; } = RequestStates.Pending;
@@ -387,6 +406,9 @@ public sealed class CreateRequestBody
 
     /// <summary>Seasons wanted. Empty or absent means all of them.</summary>
     public List<int> Seasons { get; set; } = new();
+
+    /// <summary>Specific episode keys (s01e02). Empty means the selected seasons in full.</summary>
+    public List<string> Episodes { get; set; } = new();
 
     /// <summary>
     /// The group to request in. Optional: with one group, which is the common case, it is obvious.

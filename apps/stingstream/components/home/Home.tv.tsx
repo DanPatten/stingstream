@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "@/components/Button";
 import { Image, prefetchServerImage } from "@/components/common/ServerImage";
 import { Text } from "@/components/common/Text";
+import { HomeDiscovery } from "@/components/home/HomeDiscovery.tv";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList.tv";
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists.tv";
 import { StreamystatsRecommendations } from "@/components/home/StreamystatsRecommendations.tv";
@@ -867,6 +868,7 @@ export const Home = () => {
             }
             return null;
           })}
+          <HomeDiscovery />
         </View>
       </ScrollView>
     </View>

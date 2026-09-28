@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using StingStream.Core.Library;
 
 namespace StingStream.Core.Data;
@@ -37,10 +38,10 @@ public static class LibraryMigration
         //
         // Recordings is no longer added here. It is a library an owner adds from Settings →
         // Libraries, like any other (Dan, 2026-09-13: "drop recordings by default"). A node that
-        // already has the row keeps it; a fresh one starts with Movies and TV Shows only.
+        // already has the row keeps it; a fresh one starts with Movies, TV Shows, Music and Audiobooks.
         if (settings.Libraries.Count > 0)
         {
-            return false;
+            return AddAudioLibraries(settings);
         }
 
 #pragma warning disable CS0618 // The one place allowed to read the superseded property.
@@ -50,6 +51,28 @@ public static class LibraryMigration
 
         settings.Libraries.Insert(0, Builtin(LibraryLayoutService.MoviesLibrary, LibraryTypes.Movies, movies));
         settings.Libraries.Insert(1, Builtin(LibraryLayoutService.TvLibrary, LibraryTypes.TvShows, tv));
+        AddAudioLibraries(settings);
+        return true;
+    }
+
+    private static bool AddAudioLibraries(SharedSettings settings)
+    {
+        if (settings.AudioLibrariesInitialized)
+        {
+            return false;
+        }
+
+        foreach (var (name, type) in new[] { ("Music", LibraryTypes.Music), ("Audiobooks", LibraryTypes.Audiobooks) })
+        {
+            if (!settings.Libraries.Any(l => string.Equals(l.Type, type, StringComparison.OrdinalIgnoreCase)))
+            {
+                var library = Builtin(name, type, string.Empty);
+                library.Id = "builtin-" + type;
+                settings.Libraries.Add(library);
+            }
+        }
+
+        settings.AudioLibrariesInitialized = true;
         return true;
     }
 
@@ -73,7 +96,7 @@ public static class LibraryMigration
             Managed = false,
         };
 
-    /// <summary>One of the two libraries every node has.</summary>
+    /// <summary>One of the default libraries every node has.</summary>
     /// <remarks>
     /// <paramref name="path"/> is carried across <b>exactly as it was, empty included</b>. An empty
     /// path means "follow the supervisor's data directory", and that is the property which makes

@@ -165,8 +165,10 @@ public sealed class SettingsStore : IDisposable
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var current = Get(out var migrated);
-            if (migrated)
+            var current = Load();
+            var hadLibraries = current.Libraries.Count > 0;
+            LibraryMigration.Apply(current);
+            if (!hadLibraries)
             {
                 // Nothing has saved the library list yet, so nobody can have pressed a switch
                 // since the pass read it, and the migration's rows carry fresh ids on every read.

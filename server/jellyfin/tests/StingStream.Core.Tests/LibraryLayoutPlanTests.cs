@@ -56,6 +56,20 @@ public class LibraryLayoutPlanTests
     }
 
     [Fact]
+    public void AudioLibrariesUseTheirOwnResolversAndFolders()
+    {
+        var media = Path.Combine(Path.GetTempPath(), "stingstream-audio-layout", "media");
+        var runtime = new PathsRuntime { MediaMovies = Path.Combine(media, "Movies"), MediaTv = Path.Combine(media, "TV") };
+        var plan = LibraryLayoutPlan.Plan(Migrated(), runtime, FederatedRoot);
+        var music = plan.Single(p => p.Name == "Music");
+        Assert.Equal(CollectionTypeOptions.music, music.Type);
+        Assert.Equal(new[] { Path.Combine(media, "Music") }, music.Paths);
+        var books = plan.Single(p => p.Name == "Audiobooks");
+        Assert.Equal(CollectionTypeOptions.books, books.Type);
+        Assert.Equal(new[] { Path.Combine(media, "Audiobooks") }, books.Paths);
+    }
+
+    [Fact]
     public void ABuiltInLibraryHoldsItsOwnFolderAndThePointerTree()
     {
         var plan = LibraryLayoutPlan.Plan(Migrated(), Runtime, FederatedRoot);

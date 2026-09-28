@@ -196,6 +196,7 @@ public sealed class RequestStore
             // exist yet.
             AddColumn(c, "ALTER TABLE requests ADD COLUMN overview TEXT;");
             AddColumn(c, "ALTER TABLE requests ADD COLUMN season_count INTEGER NOT NULL DEFAULT 0;");
+            AddColumn(c, "ALTER TABLE requests ADD COLUMN episodes TEXT NOT NULL DEFAULT '[]';");
 
             // Why somebody asked for a title the group already held, and anything they added in
             // their own words. Null for an ordinary request, which is nearly all of them.
@@ -373,9 +374,9 @@ public sealed class RequestStore
                      overview, season_count,
                      seasons, state, requested_by, requested_by_name, requested_at, decided_by,
                      decided_by_name, decided_at, fulfilling_node, fulfilling_server_name, note, mine,
-                     updated_at, reason, reason_note)
+                     updated_at, reason, reason_note, episodes)
                 VALUES ($id, $g, $k, $ik, $p, $pid, $t, $y, $pu, $ov, $sc, $s, $st, $rb, $rbn, $ra,
-                        $db, $dbn, $da, $fn, $fnn, $n, $m, $u, $rsn, $rsnn)
+                        $db, $dbn, $da, $fn, $fnn, $n, $m, $u, $rsn, $rsnn, $ep)
                 ON CONFLICT(id) DO UPDATE SET
                     group_id = excluded.group_id, kind = excluded.kind,
                     item_key = excluded.item_key, provider = excluded.provider,
@@ -390,7 +391,7 @@ public sealed class RequestStore
                     fulfilling_node = excluded.fulfilling_node,
                     fulfilling_server_name = excluded.fulfilling_server_name,
                     note = excluded.note, mine = excluded.mine, updated_at = excluded.updated_at,
-                    reason = excluded.reason, reason_note = excluded.reason_note;
+                    reason = excluded.reason, reason_note = excluded.reason_note, episodes = excluded.episodes;
                 """,
                 ("$id", row.Id),
                 ("$g", row.Group),
@@ -417,7 +418,8 @@ public sealed class RequestStore
                 ("$m", row.Mine ? 1 : 0),
                 ("$u", row.UpdatedAt),
                 ("$rsn", row.Reason),
-                ("$rsnn", row.ReasonNote)),
+                ("$rsnn", row.ReasonNote),
+                ("$ep", JsonSerializer.Serialize(row.Episodes, _json))),
             cancellationToken).ConfigureAwait(false);
         return row;
     }
@@ -1083,7 +1085,7 @@ public sealed class RequestStore
         "SELECT id, group_id, kind, item_key, provider, provider_id, title, year, poster_url, "
         + "seasons, state, requested_by, requested_by_name, requested_at, decided_by, "
         + "decided_by_name, decided_at, fulfilling_node, fulfilling_server_name, note, mine, "
-        + "updated_at, overview, season_count, reason, reason_note FROM requests";
+        + "updated_at, overview, season_count, reason, reason_note, episodes FROM requests";
 
     private const string PolicySelect =
         "SELECT group_id, auto_approve, weekly_quota, minimum_height, updated_at FROM request_policy";
@@ -1118,6 +1120,7 @@ public sealed class RequestStore
         SeasonCount = (int)r.GetInt64(23),
         Reason = r.IsDBNull(24) ? null : r.GetString(24),
         ReasonNote = r.IsDBNull(25) ? null : r.GetString(25),
+        Episodes = JsonSerializer.Deserialize<List<string>>(r.GetString(26), _json) ?? new(),
     };
 
     private static RequestPolicy MapPolicy(IDataRecord r) => new()

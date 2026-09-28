@@ -35,6 +35,7 @@ import {
 } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
+import { useInstantPlay } from "@/hooks/useInstantPlay";
 import {
   GlassPosterView,
   isGlassEffectAvailable,
@@ -240,6 +241,7 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
   const api = useAtomValue(apiAtom);
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { play } = useInstantPlay();
 
   // Active item for featured display (debounced)
   const [activeItem, setActiveItem] = useState<BaseItemDto | null>(
@@ -357,19 +359,11 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
     [onItemFocus],
   );
 
-  // Handle card press - navigate to item
   const handleCardPress = useCallback(
-    (item: BaseItemDto) => {
-      const navigation = getItemNavigation(item, "(home)");
-      router.push(navigation as any);
-    },
-    [router],
+    (item: BaseItemDto) => void play(item),
+    [play],
   );
 
-  // Both hero buttons land on the pre-play page: it is where resume position,
-  // version, audio and subtitle choices live, and starting playback straight
-  // from a browse row would skip all of them. Play carries `autoPlay` so the
-  // pre-play page starts immediately, which is the behaviour the label promises.
   const handleDetailsPress = useCallback(() => {
     if (!activeItem) return;
     router.push(getItemNavigation(activeItem, "(home)") as any);
@@ -377,15 +371,8 @@ export const TVHeroCarousel: React.FC<TVHeroCarouselProps> = ({
 
   const handlePlayPress = useCallback(() => {
     if (!activeItem) return;
-    const navigation = getItemNavigation(activeItem, "(home)") as {
-      pathname: string;
-      params?: Record<string, unknown>;
-    };
-    router.push({
-      ...navigation,
-      params: { ...(navigation.params ?? {}), autoPlay: "true" },
-    } as any);
-  }, [router, activeItem]);
+    void play(activeItem);
+  }, [play, activeItem]);
 
   // Get metadata for active item
   const year = activeItem?.ProductionYear;

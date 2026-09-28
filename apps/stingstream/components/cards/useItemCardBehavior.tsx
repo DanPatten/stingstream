@@ -63,6 +63,7 @@ export function useItemCardBehavior({
 }: Options) {
   const api = useAtomValue(apiAtom);
   const router = useRouter();
+  const { play, resumeDialog } = useInstantPlay();
   const segments = useSegments();
   const [menu, setMenu] = useState<{
     item: BaseItemDto;
@@ -103,6 +104,11 @@ export function useItemCardBehavior({
         return;
       }
 
+      if (menuContext === "continueWatching" || menuContext === "nextUp") {
+        void play(item);
+        return;
+      }
+
       // Music libraries navigate via the explicit string route so the dynamic
       // [libraryId] param survives the nested navigator.
       if ("CollectionType" in item && item.CollectionType === "music") {
@@ -112,7 +118,7 @@ export function useItemCardBehavior({
 
       router.push(getItemNavigation(item, from) as any);
     },
-    [from, items, onPressId, onPressItem, router],
+    [from, items, onPressId, onPressItem, router, menuContext, play],
   );
 
   const openMenu = useCallback(
@@ -173,14 +179,21 @@ export function useItemCardBehavior({
      */
     handleOpenMenu: menuEnabled ? openMenu : undefined,
     /** Mount alongside the cards; renders nothing until the menu is asked for. */
-    actionSheet: menu ? (
-      <ItemCardMenu
-        key={menu.item.Id}
-        item={menu.item}
-        anchorRef={menu.anchor}
-        context={menuContext}
-        onClose={closeMenu}
-      />
-    ) : null,
+    actionSheet: (
+      <>
+        {resumeDialog}
+        {menu ? (
+          <ItemCardMenu
+            key={menu.item.Id}
+            item={menu.item}
+            anchorRef={menu.anchor}
+            context={menuContext}
+            onClose={closeMenu}
+          />
+        ) : null}
+      </>
+    ),
   };
 }
+
+import { useInstantPlay } from "@/hooks/useInstantPlay";

@@ -246,7 +246,7 @@ public sealed class RequestWithdrawal
                 .ConfigureAwait(false);
 
             var queue = await client.QueueAsync(cancellationToken).ConfigureAwait(false);
-            foreach (var queueRow in Mine(queue, itemId, isMovie, row.Seasons))
+            foreach (var queueRow in Mine(queue, itemId, isMovie, row.Seasons, row.Episodes))
             {
                 if (queueRow["id"]?.GetValue<int?>() is not int queueId)
                 {
@@ -276,7 +276,8 @@ public sealed class RequestWithdrawal
             // finished, which this never does; another open request for the same title would mean
             // pulling the entry out from under a request nobody withdrew, and its own grab would
             // then sit unmonitored until the deadline gave up on it.
-            if (result.CompletedKept == 0 && !HasFile(item, isMovie) && !WantedElsewhere(row))
+            if (result.CompletedKept == 0 && !HasFile(item, isMovie) && !WantedElsewhere(row)
+                && (isMovie || (row.Seasons.Count == 0 && row.Episodes.Count == 0)))
             {
                 await client.DeleteLibraryItemAsync(itemId, false, cancellationToken).ConfigureAwait(false);
                 result.LibraryEntryRemoved = true;
@@ -326,11 +327,12 @@ public sealed class RequestWithdrawal
     /// season each row is for, and a row that does not say is left alone rather than guessed at:
     /// withdrawing a request for season 2 must not cancel season 5.
     /// </remarks>
-    private static IEnumerable<JsonObject> Mine(
+    public static IEnumerable<JsonObject> Mine(
         IReadOnlyList<JsonObject> queue,
         int itemId,
         bool isMovie,
-        IReadOnlyList<int> seasons)
+        IReadOnlyList<int> seasons,
+        IReadOnlyList<string> episodes)
     {
         foreach (var queueRow in queue)
         {
@@ -340,13 +342,16 @@ public sealed class RequestWithdrawal
                 continue;
             }
 
-            if (isMovie || seasons.Count == 0)
+            if (isMovie || (seasons.Count == 0 && episodes.Count == 0))
             {
                 yield return queueRow;
                 continue;
             }
 
-            if (queueRow["seasonNumber"]?.GetValue<int?>() is int season && seasons.Contains(season))
+            var season = queueRow["episode"]?["seasonNumber"]?.GetValue<int?>()
+                ?? queueRow["seasonNumber"]?.GetValue<int?>() ?? -1;
+            var number = queueRow["episode"]?["episodeNumber"]?.GetValue<int?>() ?? -1;
+            if (seasons.Contains(season) || (number > 0 && episodes.Contains(RequestScope.Key(season, number))))
             {
                 yield return queueRow;
             }
@@ -381,7 +386,7 @@ public sealed class RequestWithdrawal
             foreach (var season in list.OfType<JsonObject>())
             {
                 var number = season["seasonNumber"]?.GetValue<int?>() ?? -1;
-                var asked = row.Seasons.Count == 0 ? number > 0 : row.Seasons.Contains(number);
+                var asked = row.Seasons.Count == 0 && row.Episodes.Count == 0 ? number > 0 : row.Seasons.Contains(number);
                 if (asked && season["monitored"]?.GetValue<bool?>() == true)
                 {
                     season["monitored"] = false;
@@ -390,7 +395,7 @@ public sealed class RequestWithdrawal
             }
         }
 
-        if (row.Seasons.Count == 0 && item["monitored"]?.GetValue<bool?>() == true)
+        if (row.Seasons.Count == 0 && row.Episodes.Count == 0 && item["monitored"]?.GetValue<bool?>() == true)
         {
             item["monitored"] = false;
             changed = true;
@@ -399,6 +404,29 @@ public sealed class RequestWithdrawal
         if (changed)
         {
             await client.UpdateLibraryItemAsync(itemId, item, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (row.Episodes.Count > 0)
+        {
+            var response = await client.GetAsync(
+                string.Create(CultureInfo.InvariantCulture, $"episode?seriesId={itemId}"), cancellationToken).ConfigureAwait(false);
+            if (response is JsonArray episodeList)
+            {
+                foreach (var episode in episodeList.OfType<JsonObject>())
+                {
+                    var season = episode["seasonNumber"]?.GetValue<int?>() ?? 0;
+                    var number = episode["episodeNumber"]?.GetValue<int?>() ?? 0;
+                    if (!row.Episodes.Contains(RequestScope.Key(season, number)) || episode["monitored"]?.GetValue<bool?>() != true)
+                    {
+                        continue;
+                    }
+
+                    episode["monitored"] = false;
+                    var id = episode["id"]!.GetValue<int>();
+                    await client.PutAsync(string.Create(CultureInfo.InvariantCulture, $"episode/{id}"), episode, cancellationToken).ConfigureAwait(false);
+                    changed = true;
+                }
+            }
         }
 
         return changed;

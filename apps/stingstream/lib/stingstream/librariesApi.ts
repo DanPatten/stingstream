@@ -33,7 +33,13 @@ const PATH = "/Libraries";
  * `homevideos` is Other videos: a plain local library, with no manager behind it and nothing from
  * other servers merged into it.
  */
-export const LIBRARY_TYPES = ["movies", "tvshows", "homevideos"] as const;
+export const LIBRARY_TYPES = [
+  "movies",
+  "tvshows",
+  "music",
+  "books",
+  "homevideos",
+] as const;
 export type LibraryType = (typeof LIBRARY_TYPES)[number];
 
 /** One library: what it is called, where it lives, and whether this server runs it. */

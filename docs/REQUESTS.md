@@ -968,3 +968,26 @@ reports "the peer never adopted the change" instead of "the list was empty" — 
 hunting a gossip bug that is not there. Both harnesses now carry their own helper;
 `tools/e2e-common.ps1` is where the pair belongs, next time somebody is in that file for another
 reason.
+
+## Episode selection and home recommendations (2026-09-27)
+
+A TV request defaults to the entire show. "Choose seasons" reveals the season picker; "Choose
+episodes" reveals a season selector and individual episodes. Episode metadata is fetched only when
+that picker opens. `POST /requests` and `PUT /requests/{id}/seasons` accept `episodes`, canonical
+`s01e02` keys, alongside `seasons`. Both lists empty means the whole show. Otherwise their union is
+requested: full named seasons plus named episodes. Adding another request merges that union;
+editing replaces it. Malformed episode selections are rejected.
+
+Core and mesh databases persist episode selections and gossip carries them. An episode-only wire
+request includes season `-1` so older workers cannot mistake an empty season list for the whole
+show; upgraded workers strip that sentinel only when an episode list is present. A request whose
+episode list was lost by an older intermediary is ignored rather than broadened. Upgrade fulfilling
+nodes for episode-level requests.
+
+The worker monitors and searches selected missing episodes individually. Withdrawing an episode
+request only cancels matching queue entries with known episode identity, leaves unidentified season
+packs alone, and keeps the show's library entry. Completed files are never removed.
+
+Home displays the member's own requests and a separate ready-to-watch row. List responses resolve
+`localItemId` when the library has the requested title, allowing Play to enter playback directly.
+The trending rows use TMDB's weekly movie and TV feeds, preserving provider order.

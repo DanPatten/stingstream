@@ -493,6 +493,14 @@ public sealed class RequestWorker : BackgroundService
 
         foreach (var view in views)
         {
+            if (!RequestScope.IsValid(view.Episodes)
+                || (view.Seasons?.Contains(-1) == true && (view.Episodes?.Count ?? 0) == 0))
+            {
+                continue;
+            }
+
+            view.Episodes ??= new();
+            view.Seasons = view.Seasons?.Where(s => s > 0).ToList() ?? new();
             if (string.Equals(view.Origin, _nodeId, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
@@ -501,6 +509,19 @@ public sealed class RequestWorker : BackgroundService
             var existing = _store.Get(view.RequestId);
             if (existing is not null)
             {
+                if (!existing.Mine && (!existing.Seasons.SequenceEqual(view.Seasons) || !existing.Episodes.SequenceEqual(view.Episodes)))
+                {
+                    existing.Seasons = view.Seasons;
+                    existing.Episodes = view.Episodes;
+                    if (existing.State == RequestStates.Available)
+                    {
+                        existing.State = RequestStates.Approved;
+                    }
+
+                    _lastSearch.Remove(existing.Id);
+                    await _store.SaveAsync(existing, cancellationToken).ConfigureAwait(false);
+                }
+
                 continue;
             }
 
@@ -516,6 +537,7 @@ public sealed class RequestWorker : BackgroundService
                     : 0,
                 Title = view.Title,
                 Seasons = view.Seasons ?? new List<int>(),
+                Episodes = view.Episodes ?? new List<string>(),
                 State = RequestStates.Approved,
                 RequestedBy = string.Empty,
                 RequestedByName = view.RequestedBy,
@@ -1048,13 +1070,13 @@ public sealed class RequestWorker : BackgroundService
         body["seriesType"] = "standard";
         body["monitorNewItems"] = "all";
         body["tags"] = new JsonArray();
-        ApplySeasons(body, row.Seasons);
+        ApplySeasons(body, row.Episodes.Count > 0 && row.Seasons.Count == 0 ? new[] { -1 } : row.Seasons);
         body["addOptions"] = new JsonObject
         {
             // "all" when no seasons were named, and the per-season flags above when some were.
             // Sonarr applies addOptions.monitor *after* the season list, so naming seasons and
             // asking for "all" would quietly monitor everything.
-            ["monitor"] = row.Seasons.Count == 0 ? "all" : "none",
+            ["monitor"] = row.Seasons.Count == 0 && row.Episodes.Count == 0 ? "all" : "none",
             // No search here. See the remarks above: at this instant the series has no episodes.
             ["searchForMissingEpisodes"] = false,
             ["searchForCutoffUnmetEpisodes"] = false,
@@ -1114,7 +1136,8 @@ public sealed class RequestWorker : BackgroundService
             }
 
             var before = MonitoredSeasons(series);
-            ApplySeasons(series, row.Seasons);
+            ApplySeasons(series, row.Episodes.Count > 0 && row.Seasons.Count == 0 ? new[] { -1 } : row.Seasons);
+
             var after = MonitoredSeasons(series);
             if (!before.SetEquals(after))
             {
@@ -1129,6 +1152,25 @@ public sealed class RequestWorker : BackgroundService
             }
 
             // Anything already queued for this series means a release was found and is coming.
+            if (row.Episodes.Count > 0)
+            {
+                foreach (var episode in episodes)
+                {
+                    var wantedEpisode = RequestScope.Contains(
+                        row.Seasons,
+                        row.Episodes,
+                        episode["seasonNumber"]?.GetValue<int>() ?? 0,
+                        episode["episodeNumber"]?.GetValue<int>() ?? 0);
+                    if (episode["monitored"]?.GetValue<bool>() == wantedEpisode)
+                    {
+                        continue;
+                    }
+
+                    episode["monitored"] = wantedEpisode;
+                    await client.PutAsync("episode/" + episode["id"]!.GetValue<int>().ToString(CultureInfo.InvariantCulture), episode, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
             var queued = await client.QueueAsync(cancellationToken).ConfigureAwait(false);
             if (queued.Any(q => q["seriesId"]?.GetValue<int?>() == seriesId))
             {
@@ -1140,7 +1182,7 @@ public sealed class RequestWorker : BackgroundService
                 return;
             }
 
-            var wanted = MissingEpisodeIds(episodes, row.Seasons);
+            var wanted = MissingEpisodeIds(episodes, row.Seasons, row.Episodes);
             if (wanted.Count == 0)
             {
                 // Everything asked for is already on disk. The watch step will notice on this same
@@ -1192,7 +1234,7 @@ public sealed class RequestWorker : BackgroundService
     /// pressing search on an episode does, and it is what the request actually wants: the episodes
     /// that are not here yet.
     /// </remarks>
-    public static List<int> MissingEpisodeIds(IReadOnlyList<JsonObject> episodes, IReadOnlyList<int> seasons)
+    public static List<int> MissingEpisodeIds(IReadOnlyList<JsonObject> episodes, IReadOnlyList<int> seasons, IReadOnlyList<string>? selectedEpisodes = null)
     {
         ArgumentNullException.ThrowIfNull(episodes);
         ArgumentNullException.ThrowIfNull(seasons);
@@ -1207,7 +1249,7 @@ public sealed class RequestWorker : BackgroundService
             }
 
             // Season 0 is the specials folder, and "the whole show" does not include it.
-            if (seasons.Count == 0 ? season == 0 : !seasons.Contains(season))
+            if (!RequestScope.Contains(seasons, selectedEpisodes ?? Array.Empty<string>(), season, episode["episodeNumber"]?.GetValue<int>() ?? 0))
             {
                 continue;
             }
@@ -1504,6 +1546,11 @@ public sealed class RequestWorker : BackgroundService
         // counts. Otherwise a show whose season 1 the group already had would mark a request for
         // season 2 available the moment it was made.
         var wanted = row.Seasons;
+        if (row.Episodes.Count > 0 && row.Episodes.Any(e => !candidates.Any(c => c.Online && c.ItemKey.EndsWith(":" + e, StringComparison.OrdinalIgnoreCase))))
+        {
+            return new List<HolderInfo>();
+        }
+
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var holders = new List<HolderInfo>();
         foreach (var c in candidates)
@@ -1513,7 +1560,9 @@ public sealed class RequestWorker : BackgroundService
                 continue;
             }
 
-            if (!isMovie && wanted.Count > 0 && !(SeasonOf(c.ItemKey) is int s && wanted.Contains(s)))
+            if (!isMovie && (wanted.Count > 0 || row.Episodes.Count > 0)
+                && !(SeasonOf(c.ItemKey) is int s && wanted.Contains(s))
+                && !row.Episodes.Any(e => c.ItemKey.EndsWith(":" + e, StringComparison.OrdinalIgnoreCase)))
             {
                 continue;
             }

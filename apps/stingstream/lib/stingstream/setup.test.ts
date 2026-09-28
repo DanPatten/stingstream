@@ -65,10 +65,17 @@ describe("validateSetupForm", () => {
   });
 
   test("letters, digits, dots, underscores and dashes are the username alphabet", () => {
-    for (const username of ["dan", "d.an_1", "a-b", "0"]) {
+    for (const username of [
+      "dan",
+      "d.an_1",
+      "a-b",
+      "0",
+      "dan@example.com",
+      "dan+tv@example.com",
+    ]) {
       expect(validateSetupForm({ ...good, username }).username).toBeUndefined();
     }
-    for (const username of ["dan patten", "dan@home", "réal", "d/n"]) {
+    for (const username of ["dan patten", "réal", "d/n"]) {
       expect(validateSetupForm({ ...good, username }).username).toBeTruthy();
     }
   });

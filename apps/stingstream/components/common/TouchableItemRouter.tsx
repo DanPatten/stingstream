@@ -22,6 +22,10 @@ export const itemRouter = (item: BaseItemDto, from: string) => {
     return `/(auth)/(tabs)/(libraries)/music/${item.Id}`;
   }
 
+  if (item.CollectionType === "books") {
+    return `/(auth)/(tabs)/(libraries)/${item.Id}`;
+  }
+
   if (item.Type === "Series") {
     return `/(auth)/(tabs)/${from}/series/${item.Id}`;
   }
@@ -59,6 +63,13 @@ export const getItemNavigation = (item: BaseItemDto, _from: string) => {
   if ("CollectionType" in item && item.CollectionType === "music") {
     return {
       pathname: "/music/[libraryId]" as const,
+      params: { libraryId: item.Id! },
+    };
+  }
+
+  if (item.CollectionType === "books") {
+    return {
+      pathname: "/[libraryId]" as const,
       params: { libraryId: item.Id! },
     };
   }

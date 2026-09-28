@@ -40,3 +40,5 @@ export const BITRATES: Bitrate[] = [
     (b.value || Number.POSITIVE_INFINITY) -
     (a.value || Number.POSITIVE_INFINITY),
 );
+/** Ask about an unfinished title only after more than two weeks away. */
+export const RESUME_PROMPT_AFTER_MS = 14 * 24 * 60 * 60 * 1000;

@@ -22,6 +22,7 @@ import { CardRowSkeleton } from "@/components/cards/CardRowSkeleton";
 import { EmptyState } from "@/components/common/EmptyState";
 import { PageContainer } from "@/components/common/PageContainer";
 import { Skeleton } from "@/components/common/Skeleton";
+import { HomeDiscovery } from "@/components/home/HomeDiscovery";
 import { HomeHeroCarousel } from "@/components/home/HomeHeroCarousel";
 import { InfiniteScrollingCollectionList } from "@/components/home/InfiniteScrollingCollectionList";
 import { StreamystatsPromotedWatchlists } from "@/components/home/StreamystatsPromotedWatchlists";
@@ -653,71 +654,74 @@ const HomeMobile = () => {
   // whose library is fine.
   if (itemCount === 0)
     return (
-      <PageContainer width='settings'>
-        <EmptyState
-          icon='library'
-          title={t("home.empty_title")}
-          detail={
-            isAdmin ? t("home.empty_detail") : t("home.empty_detail_guest")
-          }
-          // Both actions are drawn below as one row, so the state itself stops
-          // at its last line and the gap under it is set here.
-          style={{ paddingBottom: 0 }}
-        />
-        {/*
+      <ScrollView>
+        <PageContainer width='media'>
+          <EmptyState
+            icon='library'
+            title={t("home.empty_title")}
+            detail={
+              isAdmin ? t("home.empty_detail") : t("home.empty_detail_guest")
+            }
+            // Both actions are drawn below as one row, so the state itself stops
+            // at its last line and the gap under it is set here.
+            style={{ paddingBottom: 0 }}
+          />
+          {/*
           Two halves of the same decision, so they sit side by side rather than
           one under the other: fill the library yourself, or ask for something.
           Somebody who cannot add a library gets only the second, as the lone
           call to action. Wrapping, because two buttons and a phone's gutter do
           not always fit on one line.
         */}
-        <View
-          style={{
-            flexDirection: "row",
-            flexWrap: "wrap",
-            justifyContent: "center",
-            alignItems: "center",
-            gap: 12,
-            marginTop: 16,
-          }}
-        >
-          {isAdmin ? (
+          <View
+            style={{
+              flexDirection: "row",
+              flexWrap: "wrap",
+              justifyContent: "center",
+              alignItems: "center",
+              gap: 12,
+              marginTop: 16,
+            }}
+          >
+            {isAdmin ? (
+              <Button
+                variant='secondary'
+                size='sm'
+                icon='manage'
+                justify='center'
+                // Named rather than left to the default, so this keeps landing on Libraries
+                // whatever that screen's first tab becomes.
+                onPress={() =>
+                  router.push({
+                    pathname: "/settings/admin",
+                    params: { section: "libraries" },
+                  })
+                }
+              >
+                {t("home.empty_add_media")}
+              </Button>
+            ) : null}
             <Button
-              variant='secondary'
-              size='sm'
-              icon='manage'
+              variant={isAdmin ? "secondary" : "primary"}
+              size={isAdmin ? "sm" : "lg"}
+              icon='requests'
               justify='center'
-              // Named rather than left to the default, so this keeps landing on Libraries
-              // whatever that screen's first tab becomes.
+              // Find, named rather than left to the default. A bare `/requests`
+              // opens My requests, which for somebody whose library is empty is
+              // a second empty screen: they pressed "Request something", so put
+              // them where something can actually be requested.
               onPress={() =>
-                router.push({
-                  pathname: "/settings/admin",
-                  params: { section: "libraries" },
-                })
+                router.push({ pathname: "/requests", params: { tab: "find" } })
               }
             >
-              {t("home.empty_add_media")}
+              {t("home.empty_request")}
             </Button>
-          ) : null}
-          <Button
-            variant={isAdmin ? "secondary" : "primary"}
-            size={isAdmin ? "sm" : "lg"}
-            icon='requests'
-            justify='center'
-            // Find, named rather than left to the default. A bare `/requests`
-            // opens My requests, which for somebody whose library is empty is
-            // a second empty screen: they pressed "Request something", so put
-            // them where something can actually be requested.
-            onPress={() =>
-              router.push({ pathname: "/requests", params: { tab: "find" } })
-            }
-          >
-            {t("home.empty_request")}
-          </Button>
-        </View>
-        {/* The first scan of a new library lands here, before anything has been found. */}
-        <ScanIndicator inline />
-      </PageContainer>
+          </View>
+          {/* The first scan of a new library lands here, before anything has been found. */}
+          <ScanIndicator inline />
+          <HomeDiscovery />
+        </PageContainer>
+      </ScrollView>
     );
 
   // The scan pill floats over the rows, so it needs a box that fills the page to sit in.
@@ -759,6 +763,7 @@ const HomeMobile = () => {
           }}
         >
           <HomeHeroCarousel />
+          {sections.length === 0 && <HomeDiscovery />}
           {sections.map((section, index) => {
             // Render Streamystats sections after Recently Added sections
             // For default sections: place after Recently Added, before Suggested Movies (if present)
@@ -841,6 +846,7 @@ const HomeMobile = () => {
                     }
                     onPressSeeAll={handleSeeAll}
                   />
+                  {index === 0 && <HomeDiscovery />}
                   {streamystatsSections}
                 </View>
               );
@@ -852,6 +858,7 @@ const HomeMobile = () => {
                     queryKey={section.queryKey}
                     queryFn={section.queryFn}
                   />
+                  {index === 0 && <HomeDiscovery />}
                   {streamystatsSections}
                 </View>
               );

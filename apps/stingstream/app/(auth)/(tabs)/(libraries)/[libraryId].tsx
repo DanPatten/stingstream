@@ -485,6 +485,8 @@ const Page = () => {
         itemType = "BoxSet";
       } else if (library.CollectionType === "homevideos") {
         itemType = "Video";
+      } else if (library.CollectionType === "books") {
+        itemType = "AudioBook";
       } else if (library.CollectionType === "musicvideos") {
         itemType = "MusicVideo";
       } else if (library.CollectionType === "playlists") {

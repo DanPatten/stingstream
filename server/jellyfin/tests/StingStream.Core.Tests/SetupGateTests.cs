@@ -105,6 +105,8 @@ public class SetupGateTests
     [InlineData("dan_patten")]
     [InlineData("dan-patten-2")]
     [InlineData("stingstream")]
+    [InlineData("dan@example.com")]
+    [InlineData("dan+tv@example.com")]
     [InlineData("12345678901234567890123456789012")]
     public void ANameSomebodyWouldActuallyChooseIsAccepted(string username)
     {
@@ -116,10 +118,8 @@ public class SetupGateTests
     [InlineData("")]
     [InlineData("   ")]
     [InlineData("dan patten")]
-    [InlineData("dan@example.com")]
     [InlineData("dan/../etc")]
     [InlineData("dan\"; DROP")]
-    [InlineData("123456789012345678901234567890123")]
     public void ANameThatWouldCauseTroubleIsRefusedWithASentence(string? username)
     {
         var problem = SetupGate.ValidateUsername(username);

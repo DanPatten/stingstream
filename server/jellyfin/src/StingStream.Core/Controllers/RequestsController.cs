@@ -50,6 +50,23 @@ public sealed class RequestsController : StingStreamControllerBase
 
     // --- reading -----------------------------------------------------------
 
+    /// <summary>Read the episodes for a season in the request picker.</summary>
+    [HttpGet("episodes")]
+    public async Task<ActionResult<IReadOnlyList<RequestEpisodeOption>>> Episodes(
+        [FromServices] TmdbCatalog catalogue,
+        [FromQuery] int tmdbId,
+        [FromQuery] int tvdbId,
+        [FromQuery] int season,
+        CancellationToken cancellationToken)
+    {
+        if (tmdbId <= 0)
+        {
+            tmdbId = await catalogue.TmdbShowIdAsync(tvdbId, cancellationToken).ConfigureAwait(false) ?? 0;
+        }
+
+        return Ok(await catalogue.EpisodesAsync(tmdbId, season, cancellationToken).ConfigureAwait(false));
+    }
+
     /// <summary>
     /// Requests, filtered.
     /// </summary>
@@ -85,7 +102,13 @@ public sealed class RequestsController : StingStreamControllerBase
             rows = rows.Where(r => string.Equals(r.State, state, StringComparison.OrdinalIgnoreCase));
         }
 
-        return Ok(rows.ToList());
+        var result = rows.ToList();
+        foreach (var row in result)
+        {
+            row.LocalItemId = _requests.ResolveLibraryItemId(row.Kind == "movie", row.ProviderId);
+        }
+
+        return Ok(result);
     }
 
     /// <summary>One request, with its trail.</summary>
@@ -408,6 +431,12 @@ public sealed class RequestsController : StingStreamControllerBase
 
         // Sorted and deduplicated, and season 0 dropped: the specials folder is never what "the
         // whole show" means to a person, and the app does not offer it either.
+        if (!RequestScope.IsValid(body.Episodes))
+        {
+            return BadRequest(new { error = "Choose valid TV show episodes." });
+        }
+
+        row.Episodes = body.Episodes?.Distinct().ToList() ?? new();
         row.Seasons = body.Seasons is null
             ? new List<int>()
             : body.Seasons.Where(s => s > 0).Distinct().OrderBy(s => s).ToList();
@@ -688,6 +717,8 @@ public sealed class RequestDetail
 /// <summary>Body of <c>PUT /requests/{id}/seasons</c>.</summary>
 public sealed class RequestSeasonsBody
 {
+    /// <summary>Specific episode keys, or empty for whole seasons.</summary>
+    public List<string>? Episodes { get; set; }
     /// <summary>Season numbers wanted. Empty, or absent, means every season.</summary>
     public List<int>? Seasons { get; set; }
 }

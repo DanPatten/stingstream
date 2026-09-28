@@ -102,13 +102,17 @@ export function LibrariesSection() {
 
 /** The same glyph Add library shows for the type. Recordings, added before it left that list, keeps its own. */
 const iconFor = (library: Library): IconName =>
-  isRecordings(library)
-    ? "radioOn"
-    : library.type === "tvshows"
-      ? "tvShows"
-      : library.type === "homevideos"
-        ? "otherVideos"
-        : "movies";
+  library.type === "music"
+    ? "music"
+    : library.type === "books"
+      ? "audiobook"
+      : isRecordings(library)
+        ? "radioOn"
+        : library.type === "tvshows"
+          ? "tvShows"
+          : library.type === "homevideos"
+            ? "otherVideos"
+            : "movies";
 
 /**
  * Ask the media server to look at every library's folders again.

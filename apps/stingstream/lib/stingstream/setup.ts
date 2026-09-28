@@ -15,9 +15,9 @@ const SETUP_STATE_PATH = "/stingstream/api/v1/setup/state";
 const SETUP_ADMIN_PATH = "/stingstream/api/v1/setup/admin";
 
 /** Core's own rules, mirrored so a typo is caught before a round trip. */
-export const USERNAME_MAX_LENGTH = 32;
+export const USERNAME_MAX_LENGTH = 254;
 export const PASSWORD_MIN_LENGTH = 8;
-const USERNAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+const USERNAME_PATTERN = /^[A-Za-z0-9.@+_-]+$/;
 
 /** How long one setup request gets before it is called unreachable. */
 const REQUEST_TIMEOUT_MS = 10_000;

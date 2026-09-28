@@ -52,9 +52,7 @@ export const Libraries: React.FC = () => {
 
   const libraries = useMemo(
     () =>
-      data
-        ?.filter((l) => !settings?.hiddenLibraries?.includes(l.Id!))
-        .filter((l) => l.CollectionType !== "books") || [],
+      data?.filter((l) => !settings?.hiddenLibraries?.includes(l.Id!)) || [],
     [data, settings?.hiddenLibraries],
   );
 

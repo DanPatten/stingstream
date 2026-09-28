@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Animated, Pressable } from "react-native";
+import { Animated, Platform, Pressable } from "react-native";
 import { Text } from "@/components/common/Text";
 import { USE_NATIVE_DRIVER } from "@/constants/animation";
 import { useHaptic } from "@/hooks/useHaptic";
@@ -341,7 +341,7 @@ export const GestureOverlay = ({
             position: "absolute",
             width: screenWidth,
             height: screenHeight,
-            backgroundColor: "black",
+            backgroundColor: Platform.OS === "web" ? "transparent" : "black",
             left: 0,
             right: 0,
             top: 0,

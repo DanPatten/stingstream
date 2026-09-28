@@ -517,3 +517,10 @@ all in `mesh/crates/**`, which is entirely ours and not a subtree at all.
   (Jellyswarrm's crates need their own full `workspace.dependencies` table, ~40 entries, inherited
   via `field.workspace = true`). This is a repository-layout decision, not a code change to either
   side.
+
+### Skip disabled splash-screen generation after scans (2026-09-27)
+
+`Emby.Server.Implementations/Library/SplashscreenPostScanTask.cs` checks
+`BrandingOptions.SplashscreenEnabled` before reading artwork and generating the collage. This
+removed an unused post-scan job that took about 15 seconds in the pinned-node logs. Enabled splash
+screens retain upstream generation. Metadata, artwork and media probing remain enabled.

@@ -35,7 +35,7 @@ public class LibraryMigrationTests
         Assert.True(LibraryMigration.Apply(settings));
 
         Assert.Collection(
-            settings.Libraries,
+            settings.Libraries.Take(2),
             movies =>
             {
                 Assert.Equal(LibraryLayoutService.MoviesLibrary, movies.Name);
@@ -111,6 +111,8 @@ public class LibraryMigrationTests
             {
                 LibraryLayoutService.MoviesLibrary,
                 LibraryLayoutService.TvLibrary,
+                "Music",
+                "Audiobooks",
             },
             settings.Libraries.Select(l => l.FolderName));
     }
@@ -125,7 +127,7 @@ public class LibraryMigrationTests
         settings.Libraries[0].Paths.Add(@"D:\second-drive\Movies");
 
         Assert.False(LibraryMigration.Apply(settings));
-        Assert.Equal(2, settings.Libraries.Count);
+        Assert.Equal(4, settings.Libraries.Count);
         Assert.Contains(@"D:\second-drive\Movies", settings.Libraries[0].Paths);
     }
 
@@ -137,7 +139,7 @@ public class LibraryMigrationTests
         LibraryMigration.Apply(settings);
 
         Assert.All(settings.Libraries, library => Assert.NotEmpty(library.Id));
-        Assert.Equal(2, settings.Libraries.Select(l => l.Id).Distinct().Count());
+        Assert.Equal(4, settings.Libraries.Select(l => l.Id).Distinct().Count());
     }
 
     [Fact]
@@ -152,7 +154,21 @@ public class LibraryMigrationTests
 
         SharedSettings.PreserveServerOwned(incoming, stored);
 
-        Assert.Equal(2, incoming.Libraries.Count);
+        Assert.Equal(4, incoming.Libraries.Count);
+        Assert.True(incoming.AudioLibrariesInitialized);
         Assert.Equal("HD-1080p", incoming.DefaultQualityProfileName);
+    }
+
+    [Fact]
+    public void AudioLibrariesStartEnabledAndKeepTheirOwnersChanges()
+    {
+        var settings = new SharedSettings();
+        LibraryMigration.Apply(settings);
+        var music = settings.Libraries.Single(l => l.Type == LibraryTypes.Music);
+        Assert.True(music.Enabled);
+        Assert.True(settings.Libraries.Single(l => l.Type == LibraryTypes.Audiobooks).Enabled);
+        music.Enabled = false;
+        Assert.False(LibraryMigration.Apply(settings));
+        Assert.False(music.Enabled);
     }
 }

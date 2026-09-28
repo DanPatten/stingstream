@@ -1,5 +1,3 @@
-import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { useSegments } from "expo-router";
 import { Fragment, useCallback, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,9 +10,7 @@ import { CardRow } from "@/components/cards/CardRow";
 import { useCardGrid } from "@/components/cards/useCardGrid";
 import { SectionHeader } from "@/components/common/SectionHeader";
 import { SkeletonGrid } from "@/components/common/Skeleton";
-import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { maxWidth as MAX_WIDTHS } from "@/constants/theme";
-import useRouter from "@/hooks/useAppRouter";
 import { useBreakpoint } from "@/hooks/useBreakpoint";
 import {
   type RequestSearchResult,
@@ -40,10 +36,8 @@ import { RequestSheet } from "./RequestSheet";
  * already has this", names the holder, and offers Play the moment an id resolves.
  */
 function useRequestableCards(results: RequestSearchResult[] | undefined) {
+  const { play, resumeDialog } = useInstantPlay();
   const { t } = useTranslation();
-  const router = useRouter();
-  const segments = useSegments();
-  const from = (segments as string[])[2] || "(home)";
   const [picking, setPicking] = useState<RequestSearchResult | null>(null);
 
   const notInLibrary = t("item_card.not_in_library");
@@ -66,22 +60,16 @@ function useRequestableCards(results: RequestSearchResult[] | undefined) {
       if (!result) return;
 
       if (result.localItemId) {
-        // Through the app's own router rather than a path written here, so a title opened from a
-        // related row lands exactly where one opened from the library does.
-        const target = getItemNavigation(
-          {
-            Id: result.localItemId,
-            Type: result.kind === "series" ? "Series" : "Movie",
-          } as BaseItemDto,
-          from,
-        );
-        router.push(target as never);
+        void play({
+          Id: result.localItemId,
+          Type: result.kind === "series" ? "Series" : "Movie",
+        });
         return;
       }
 
       setPicking(result);
     },
-    [byId, from, router],
+    [byId, play],
   );
 
   const close = useCallback(() => setPicking(null), []);
@@ -90,7 +78,12 @@ function useRequestableCards(results: RequestSearchResult[] | undefined) {
     cards,
     onPressId,
     /** Mount alongside the cards; renders nothing until one is pressed. */
-    sheet: <RequestSheet result={picking} onClose={close} />,
+    sheet: (
+      <>
+        {resumeDialog}
+        <RequestSheet result={picking} onClose={close} />
+      </>
+    ),
   };
 }
 
@@ -205,3 +198,5 @@ export const RequestableGrid: React.FC<GridProps> = ({
     </View>
   );
 };
+
+import { useInstantPlay } from "@/hooks/useInstantPlay";

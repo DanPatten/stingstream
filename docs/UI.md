@@ -357,13 +357,12 @@ audio and subtitle chips, `ItemTechnicalDetails`) was removed on 2026-09-23, sin
 shows every one of them. The TV details page keeps its inline technical section
 (`TVTechnicalDetails`), because TV has no Get info.
 
-**Play on a title already begun asks first**, the way Plex does: "Resume from 1:02:33" (on top,
-focused) or "Play from beginning", and dismissing plays nothing (`components/item/ResumeChooser.tsx`
-on phone and web, the navigation-based option modal on TV; the rules are `utils/resume.ts`). The
-button says "Resume", never the time; "1h 32m left" is a caption under the progress rule. The home
-hero's Play opens the title page with `autoPlay`, which presses that page's Play once, so the same
-question comes first. The question is the Playback setting "resume dialog", on by default since
-2026-09-22 (storage migration 3). The position itself is the server's, per user, from the players'
+**Recent viewing resumes immediately.** Continue watching cards and explicit Play actions use
+`useInstantPlay` to load the account's latest progress and enter the player directly. Series resolve
+the next episode first. After more than fourteen days since `UserData.LastPlayedDate`, Play offers
+"Resume from 1:02:33" or "Play from beginning"; dismissing plays nothing. The Playback setting
+"Ask to resume after two weeks" can disable that question. Missing last-played dates resume without
+asking. The details button still opens the title page. The position itself is the server's, per user, from the players'
 start, 10-second, pause, seek and stop reports; a report never carries 0 before playback has
 started (`utils/nativePlayer/reportablePosition.ts`), a closing browser tab sends its last report
 with `fetch` keepalive, and backgrounding the app reports at once.
@@ -545,3 +544,19 @@ so out loud (a one-line message to whoever's waiting) rather than assuming they'
 7. Run `bun run typecheck` and `./node_modules/.bin/biome check --write --unsafe <paths>` before
    committing — both are fast and catch real bugs (an earlier pass of this exact work caught two
    `possibly undefined` errors this way).
+
+### Home discovery, trailers and audio libraries (2026-09-27)
+
+Home includes weekly trending movies and TV shows, My requests, and a ready-to-watch row linking
+requests to local library items. Continue watching stays ahead of discovery. Empty libraries still
+show discovery. The TV home uses its own focusable rows.
+
+YouTube trailers open inside a dismissible embedded player. Closing it unmounts playback. Web sends
+an origin referrer; native WebView sends the app's bundle identity as YouTube requires. Other trailer
+hosts retain their external-link behavior. On web, hovering or scrubbing no longer adds a scrim over
+the entire video.
+
+The browser uses a separate playback profile: H.264/AAC MP4 and supported WebM can play directly;
+MKV and unsupported surround audio use HLS with AAC stereo. The server can copy compatible H.264
+instead of re-encoding it. Native players retain their codec capabilities. Audiobooks use the audio
+stream endpoint, and Music and Audiobooks are visible library types.

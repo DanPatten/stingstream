@@ -1,15 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
-import { useSegments } from "expo-router";
 import { useCallback } from "react";
 import { FlatList, View } from "react-native";
 import { Text } from "@/components/common/Text";
-import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { useAskForTitle } from "@/components/stingstream/requests/useAskForTitle";
 import { TVPosterCard } from "@/components/tv/TVPosterCard";
 import { useScaledTVPosterSizes, useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
-import useRouter from "@/hooks/useAppRouter";
+import { useInstantPlay } from "@/hooks/useInstantPlay";
 import {
   type RequestSearchResult,
   requestCardId,
@@ -19,7 +17,7 @@ import { scaleSize } from "@/utils/scaleSize";
 /**
  * What pressing a title on a television does.
  *
- * A held title opens its own page. Everything else is asked for outright, with no picker and a
+ * A held title plays immediately. Everything else is asked for outright, with no picker and a
  * toast — `useAskForTitle`, the same contract `TVRequestButton` already makes and documents: a
  * D-pad is a bad instrument for a multi-select, so "all of it" is the honest default for a control
  * with no way to say otherwise, and everything it cannot do is a phone away.
@@ -27,23 +25,16 @@ import { scaleSize } from "@/utils/scaleSize";
  * Shared by the row and by the filmography page, so a press means one thing on a television.
  */
 export function useRequestablePress() {
-  const router = useRouter();
-  const segments = useSegments();
-  const from = (segments as string[])[2] || "(home)";
+  const { play } = useInstantPlay();
   const { ask } = useAskForTitle();
 
   return useCallback(
     (result: RequestSearchResult) => {
       if (result.localItemId) {
-        router.push(
-          getItemNavigation(
-            {
-              Id: result.localItemId,
-              Type: result.kind === "series" ? "Series" : "Movie",
-            } as BaseItemDto,
-            from,
-          ) as never,
-        );
+        void play({
+          Id: result.localItemId,
+          Type: result.kind === "series" ? "Series" : "Movie",
+        });
         return;
       }
 
@@ -57,7 +48,7 @@ export function useRequestablePress() {
         seasonCount: result.seasonCount,
       });
     },
-    [ask, from, router],
+    [ask, play],
   );
 }
 

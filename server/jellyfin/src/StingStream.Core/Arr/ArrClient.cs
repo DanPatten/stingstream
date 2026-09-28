@@ -704,7 +704,7 @@ public sealed class ArrClient
     /// <summary>The app's queue, used to watch a grab progress.</summary>
     public async Task<List<JsonObject>> QueueAsync(CancellationToken ct = default)
     {
-        var node = await GetAsync("queue?pageSize=200&includeUnknownMovieItems=true&includeUnknownSeriesItems=true", ct)
+        var node = await GetAsync("queue?pageSize=200&includeUnknownMovieItems=true&includeUnknownSeriesItems=true&includeEpisode=true", ct)
             .ConfigureAwait(false);
         if (node is JsonObject page && page["records"] is JsonArray records)
         {

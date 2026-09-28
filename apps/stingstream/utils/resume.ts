@@ -1,9 +1,8 @@
 /**
  * Where a person left off, and whether Play should ask about it.
  *
- * Dan, 2026-09-22: "ALWAYS maintain unfinished movie/TV show's position, tied to a user's
- * profile. When clicking Play, show a dialog to resume (top option) or play from beginning.
- * Mimic Plex here." The position itself is the server's: `UserData.PlaybackPositionTicks`, kept
+ * Recent viewing resumes immediately; after two weeks Play offers a choice.
+ * The position is the server's `UserData.PlaybackPositionTicks`, kept
  * per user from the progress the players report. The server also owns the thresholds, and the
  * defaults stand (`MinResumePct` 5, `MaxResumePct` 90): under 5 % nothing is kept, past 90 % the
  * title is marked played and the position cleared. So this module never second-guesses a
@@ -13,6 +12,7 @@
  */
 
 import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
+import { RESUME_PROMPT_AFTER_MS } from "@/constants/Playback";
 import { formatDuration, formatRuntimeTicks } from "@/utils/time";
 
 type Resumable = Pick<BaseItemDto, "UserData" | "RunTimeTicks"> | null;
@@ -35,8 +35,15 @@ export const resumePositionTicks = (item: Resumable | undefined): number => {
 export const shouldAskToResume = (
   item: Resumable | undefined,
   settings: { showResumeDialog?: boolean },
-): boolean =>
-  resumePositionTicks(item) > 0 && settings.showResumeDialog !== false;
+  now = Date.now(),
+): boolean => {
+  if (resumePositionTicks(item) <= 0 || settings.showResumeDialog === false)
+    return false;
+  const lastPlayed = Date.parse(item?.UserData?.LastPlayedDate ?? "");
+  return (
+    Number.isFinite(lastPlayed) && now - lastPlayed > RESUME_PROMPT_AFTER_MS
+  );
+};
 
 /** `1:02:33`, `12:04`: the clock a player's own scrubber shows. */
 export const formatResumePosition = (ticks: number): string =>

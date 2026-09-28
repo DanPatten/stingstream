@@ -23,6 +23,8 @@ import { FolderList } from "./FolderList";
 const TYPES: { key: LibraryType; labelKey: string; icon: IconName }[] = [
   { key: "movies", labelKey: "libraries.type_movies", icon: "movies" },
   { key: "tvshows", labelKey: "libraries.type_tvshows", icon: "tvShows" },
+  { key: "music", labelKey: "libraries.type_music", icon: "music" },
+  { key: "books", labelKey: "libraries.type_books", icon: "audiobook" },
   {
     key: "homevideos",
     labelKey: "libraries.type_homevideos",

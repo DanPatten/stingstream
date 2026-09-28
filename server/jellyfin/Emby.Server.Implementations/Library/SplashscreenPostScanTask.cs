@@ -5,11 +5,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Persistence;
+using MediaBrowser.Model.Branding;
 using MediaBrowser.Model.Entities;
 using Microsoft.Extensions.Logging;
 
@@ -23,6 +26,7 @@ public class SplashscreenPostScanTask : ILibraryPostScanTask
     private readonly IItemRepository _itemRepository;
     private readonly IImageEncoder _imageEncoder;
     private readonly ILogger<SplashscreenPostScanTask> _logger;
+    private readonly IServerConfigurationManager _configuration;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SplashscreenPostScanTask"/> class.
@@ -30,19 +34,29 @@ public class SplashscreenPostScanTask : ILibraryPostScanTask
     /// <param name="itemRepository">Instance of the <see cref="IItemRepository"/> interface.</param>
     /// <param name="imageEncoder">Instance of the <see cref="IImageEncoder"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger{SplashscreenPostScanTask}"/> interface.</param>
+    /// <param name="configuration">Server branding settings.</param>
     public SplashscreenPostScanTask(
         IItemRepository itemRepository,
         IImageEncoder imageEncoder,
-        ILogger<SplashscreenPostScanTask> logger)
+        ILogger<SplashscreenPostScanTask> logger,
+        IServerConfigurationManager configuration)
     {
         _itemRepository = itemRepository;
         _imageEncoder = imageEncoder;
         _logger = logger;
+        _configuration = configuration;
     }
 
     /// <inheritdoc />
     public Task Run(IProgress<double> progress, CancellationToken cancellationToken)
     {
+        // Generating an unused collage delayed a pinned-node scan by 15 seconds.
+        if (!_configuration.GetConfiguration<BrandingOptions>("branding").SplashscreenEnabled)
+        {
+            progress.Report(100);
+            return Task.CompletedTask;
+        }
+
         var posters = GetItemsWithImageType(ImageType.Primary)
             .Select(x => x.GetImages(ImageType.Primary).FirstOrDefault()?.Path)
             .Where(path => !string.IsNullOrEmpty(path))

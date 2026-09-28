@@ -40,7 +40,7 @@ const REQUEST_TIMEOUT_MS = 10_000;
  * here becomes an account name on this server. `InviteGate.MaxLabelLength` is defined as
  * `SetupGate.MaxUsernameLength` for exactly that reason.
  */
-export const INVITE_USERNAME_MAX_LENGTH = 32;
+export const INVITE_USERNAME_MAX_LENGTH = 254;
 
 /** A library an invite grants, or could. */
 export interface InviteLibrary {

@@ -118,6 +118,15 @@ public static class RootFolderResolver
         // Video named after its file with a frame grab for a poster.
         if (!IsMoviesOrTv(library.Type))
         {
+            if (Is(library, LibraryTypes.Music) || Is(library, LibraryTypes.Audiobooks))
+            {
+                var media = MediaFolder(paths, null);
+                return media is null ? Array.Empty<string>() : new[]
+                {
+                    System.IO.Path.Combine(media, Is(library, LibraryTypes.Music) ? "Music" : "Audiobooks"),
+                };
+            }
+
             return Array.Empty<string>();
         }
 

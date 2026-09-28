@@ -25,9 +25,11 @@ import {
 import { useScaledTVSizes } from "@/constants/TVSizes";
 import { useScaledTVTypography } from "@/constants/TVTypography";
 import useRouter from "@/hooks/useAppRouter";
+import { useInstantPlay } from "@/hooks/useInstantPlay";
 import { useTVItemActionModal } from "@/hooks/useTVItemActionModal";
 import { SortByOption, SortOrderOption } from "@/utils/atoms/filters";
 import { useSettings } from "@/utils/atoms/settings";
+import { homeRowMenuContext } from "@/utils/continueWatching";
 import { scaleSize } from "@/utils/scaleSize";
 
 interface Props extends ViewProps {
@@ -127,6 +129,7 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
   const ITEM_GAP = card.spacing;
   const effectivePageSize = Math.max(1, pageSize);
   const router = useRouter();
+  const { play } = useInstantPlay();
   const { showItemActions } = useTVItemActionModal();
   const segments = useSegments();
   const from = (segments as string[])[2] || "(home)";
@@ -183,10 +186,15 @@ export const InfiniteScrollingCollectionList: React.FC<Props> = ({
 
   const handleItemPress = useCallback(
     (item: BaseItemDto) => {
+      const context = homeRowMenuContext(queryKey);
+      if (context === "continueWatching" || context === "nextUp") {
+        void play(item);
+        return;
+      }
       const navigation = getItemNavigation(item, from);
       router.push(navigation as any);
     },
-    [from, router],
+    [from, router, queryKey, play],
   );
 
   const handleEndReached = useCallback(() => {

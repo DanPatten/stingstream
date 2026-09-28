@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import type { BaseItemDto } from "@jellyfin/sdk/lib/generated-client/models";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
@@ -10,10 +9,9 @@ import { Dialog } from "@/components/common/Dialog";
 import { FormError } from "@/components/common/FormError";
 import { Icon } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
-import { getItemNavigation } from "@/components/common/TouchableItemRouter";
 import { RatingChips } from "@/components/ratings/RatingChips";
 import { radius } from "@/constants/theme";
-import useRouter from "@/hooks/useAppRouter";
+import { useInstantPlay } from "@/hooks/useInstantPlay";
 import { useTheme } from "@/hooks/useTheme";
 import { useArrTitle } from "@/lib/stingstream/hooks";
 import {
@@ -37,6 +35,7 @@ import {
 } from "@/lib/stingstream/requests";
 import { QualityProfileRow } from "../arr/QualityProfileRow";
 import { confirmDestructive } from "../shared/confirm";
+import { EpisodePicker } from "./EpisodePicker";
 import { ReasonPicker } from "./ReasonPicker";
 import { requestMadeToast } from "./requestMadeToast";
 import {
@@ -96,9 +95,11 @@ export function RequestSheet({
 }) {
   const { color } = useTheme();
   const { t } = useTranslation();
-  const router = useRouter();
+  const { play, resumeDialog } = useInstantPlay();
   const [shown, setShown] = useState<RequestSearchResult | null>(null);
   const [seasons, setSeasons] = useState<number[]>([]);
+  const [scope, setScope] = useState<"all" | "seasons" | "episodes">("all");
+  const [episodes, setEpisodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState<RequestReason | null>(null);
   const [reasonNote, setReasonNote] = useState("");
@@ -142,17 +143,34 @@ export function RequestSheet({
   // is the same thing a fresh sheet starts on.
   const openedExisting = editing?.id;
   const openedExistingSeasons = editing?.seasons?.join(",");
+  const openedEpisodes = editing?.episodes?.join(",");
   useEffect(() => {
     const total = seasonTotal({ seasonCount: openedSeasons });
     const current = openedExistingSeasons
       ? openedExistingSeasons.split(",").map(Number)
       : [];
-    setSeasons(current.length > 0 ? current : allSeasons(total));
+    setSeasons(
+      openedEpisodes
+        ? current
+        : current.length > 0
+          ? current
+          : allSeasons(total),
+    );
+    setEpisodes(openedEpisodes ? openedEpisodes.split(",") : []);
+    setScope(
+      openedEpisodes ? "episodes" : current.length > 0 ? "seasons" : "all",
+    );
     setError(null);
     setReason(null);
     setReasonNote("");
     setHeldByNode(null);
-  }, [openedFor, openedSeasons, openedExisting, openedExistingSeasons]);
+  }, [
+    openedFor,
+    openedSeasons,
+    openedExisting,
+    openedExistingSeasons,
+    openedEpisodes,
+  ]);
 
   // Before the early return: hooks cannot be called conditionally, and `useArrTitle` switches its
   // own queries off when it has nothing to ask about.
@@ -205,7 +223,11 @@ export function RequestSheet({
   // Only a series can have nothing chosen. A film has no seasons, so its list is empty by
   // definition, and testing it without this guard disabled the button permanently: Edit on a film
   // opened a sheet whose only enabled control was Delete, with a dead Save beside it.
-  const nothingChosen = isSeries && seasons.length === 0;
+  const nothingChosen =
+    isSeries &&
+    (scope === "episodes"
+      ? episodes.length === 0 && seasons.length === 0
+      : scope === "seasons" && seasons.length === 0);
   // Editing a film has nothing to submit either. Seasons are the only thing this sheet can change
   // about an existing request, so a film being edited gets Delete and the close control, rather
   // than a Save that would send a season list to a request that cannot have one.
@@ -232,6 +254,10 @@ export function RequestSheet({
     // A movie has no seasons, so it has only ever meant one thing. Below the editing case on
     // purpose: a movie whose request is open is being changed, not asked for again.
     if (!isSeries) return t("requests.request_button");
+    if (scope === "episodes")
+      return seasons.length > 0
+        ? t("requests.request_selection")
+        : t("requests.request_n_episodes", { count: episodes.length });
     if (seasons.length === total) return t("requests.request_all_seasons");
     return t("requests.request_n_seasons", { count: seasons.length });
   };
@@ -244,15 +270,7 @@ export function RequestSheet({
    */
   const playExisting = (itemId: string) => {
     onClose();
-    // Through the app's own router rather than a path written here, so a title opened from a
-    // request lands exactly where one opened from search or the library does.
-    const target = getItemNavigation(
-      { Id: itemId, Type: isSeries ? "Series" : "Movie" } as BaseItemDto,
-      "",
-    );
-    // The cast every caller of this helper uses: its return is a union of every route shape in the
-    // app, which expo-router's own overloads cannot narrow back down.
-    router.push(target as never);
+    void play({ Id: itemId, Type: isSeries ? "Series" : "Movie" });
   };
 
   const submit = async () => {
@@ -261,10 +279,20 @@ export function RequestSheet({
       // Replacing, not asking again. `useCreateRequest` on an open request *grows* its season list,
       // because a second person asking for season 4 means "and season 4" -- which is the wrong verb
       // for somebody editing their own request down to fewer seasons.
-      const wanted = seasonsForRequest(seasons, total);
+      const wanted =
+        scope === "seasons"
+          ? seasonsForRequest(seasons, total)
+          : scope === "episodes"
+            ? seasons
+            : [];
+      const wantedEpisodes = scope === "episodes" ? episodes : [];
       if (editingNow && editing) {
         try {
-          await setSeasonsOn.mutateAsync({ id: editing.id, seasons: wanted });
+          await setSeasonsOn.mutateAsync({
+            id: editing.id,
+            seasons: wanted,
+            episodes: wantedEpisodes,
+          });
           toast.success(t("requests.toast_saved", { title: shown.title }));
           onClose();
           return;
@@ -279,6 +307,7 @@ export function RequestSheet({
         tmdbId: shown.tmdbId || undefined,
         tvdbId: shown.tvdbId || undefined,
         seasons: wanted,
+        episodes: wantedEpisodes,
         title: shown.title,
         year: shown.year,
         posterUrl: shown.posterUrl,
@@ -332,186 +361,253 @@ export function RequestSheet({
   const busy = create.isPending || setSeasonsOn.isPending || remove.isPending;
 
   return (
-    <Dialog
-      visible={!!result}
-      onClose={onClose}
-      title={requestTitle(shown)}
-      dismissible={!busy}
-      actions={[
-        // Delete sits at the far end from the submit: it is the way *out* of the request, not a
-        // second way to confirm it, and a destructive control next to the one everybody means to
-        // press is how people press the wrong one.
-        //
-        // Offered for any request that exists, not only one still open — the other half of the
-        // inconsistency the row had. A failed request could be deleted from its row and not from
-        // its own sheet, so the two disagreed about what could be done to the same thing.
-        ...(editing
-          ? [
-              {
-                // Named for what it deletes. On a dialog that is already about one title a bare
-                // "Delete" is the shortest label that still leaves the reader checking what it
-                // means, and the thing it deletes is the request, not the movie.
-                label: t("requests.delete_action"),
-                // `danger`, like the same button on My requests. It was ghost, on the idea that
-                // playing it down keeps it away from the one everybody means to press -- but a
-                // destructive control that looks ordinary is the one people press by accident, and
-                // it is the distance from the submit rather than the colour that keeps it clear.
-                variant: "danger" as const,
-                icon: "delete" as const,
-                testID: "requests-delete",
-                onPress: withdraw,
-                disabled: busy,
-                loading: remove.isPending,
-              },
-            ]
-          : []),
-        // No Cancel. The dialog closes on its own dismiss — the X, the scrim, Escape — so a button
-        // for it is a third control competing with the two that actually do something.
-        ...(nothingToSave
-          ? []
-          : [
-              {
-                label: submitLabel(),
-                testID: "requests-submit",
-                onPress: submit,
-                // A reason is required rather than optional. Without one the node cannot tell this
-                // from asking for something the group already has, which it would answer by doing
-                // nothing.
-                disabled:
-                  action.disabled ||
-                  nothingChosen ||
-                  busy ||
-                  (needsReason && !reason),
-                loading: create.isPending || setSeasonsOn.isPending,
-              },
-            ]),
-      ]}
-    >
-      <View testID='requests-sheet'>
-        <View style={{ flexDirection: "row", gap: 16, marginBottom: 16 }}>
-          <CardArtwork
-            card={toRequestCard(shown)}
-            width={POSTER_WIDTH}
-            height={POSTER_HEIGHT}
-            cornerRadius={radius.md}
-          />
-          {/* No year here: the dialog's own title is `requestTitle`, which already ends in it. */}
-          <View style={{ flex: 1, gap: 8 }}>
-            {/*
+    <>
+      {resumeDialog}
+      <Dialog
+        visible={!!result}
+        onClose={onClose}
+        title={requestTitle(shown)}
+        dismissible={!busy}
+        actions={[
+          // Delete sits at the far end from the submit: it is the way *out* of the request, not a
+          // second way to confirm it, and a destructive control next to the one everybody means to
+          // press is how people press the wrong one.
+          //
+          // Offered for any request that exists, not only one still open — the other half of the
+          // inconsistency the row had. A failed request could be deleted from its row and not from
+          // its own sheet, so the two disagreed about what could be done to the same thing.
+          ...(editing
+            ? [
+                {
+                  // Named for what it deletes. On a dialog that is already about one title a bare
+                  // "Delete" is the shortest label that still leaves the reader checking what it
+                  // means, and the thing it deletes is the request, not the movie.
+                  label: t("requests.delete_action"),
+                  // `danger`, like the same button on My requests. It was ghost, on the idea that
+                  // playing it down keeps it away from the one everybody means to press -- but a
+                  // destructive control that looks ordinary is the one people press by accident, and
+                  // it is the distance from the submit rather than the colour that keeps it clear.
+                  variant: "danger" as const,
+                  icon: "delete" as const,
+                  testID: "requests-delete",
+                  onPress: withdraw,
+                  disabled: busy,
+                  loading: remove.isPending,
+                },
+              ]
+            : []),
+          // No Cancel. The dialog closes on its own dismiss — the X, the scrim, Escape — so a button
+          // for it is a third control competing with the two that actually do something.
+          ...(nothingToSave
+            ? []
+            : [
+                {
+                  label: submitLabel(),
+                  testID: "requests-submit",
+                  onPress: submit,
+                  // A reason is required rather than optional. Without one the node cannot tell this
+                  // from asking for something the group already has, which it would answer by doing
+                  // nothing.
+                  disabled:
+                    action.disabled ||
+                    nothingChosen ||
+                    busy ||
+                    (needsReason && !reason),
+                  loading: create.isPending || setSeasonsOn.isPending,
+                },
+              ]),
+        ]}
+      >
+        <View testID='requests-sheet'>
+          <View style={{ flexDirection: "row", gap: 16, marginBottom: 16 }}>
+            <CardArtwork
+              card={toRequestCard(shown)}
+              width={POSTER_WIDTH}
+              height={POSTER_HEIGHT}
+              cornerRadius={radius.md}
+            />
+            {/* No year here: the dialog's own title is `requestTitle`, which already ends in it. */}
+            <View style={{ flex: 1, gap: 8 }}>
+              {/*
               The same facts the tile carries, in the same order: what it is, how long it is, and
               what it scored. Here the scores are links out to IMDb and Rotten Tomatoes, and on the
               tile they are not: a reader who has opened the sheet to decide is the one most likely
               to want them. Dan: *"Linkable on modal only."*
             */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  gap: 10,
+                }}
+              >
+                <View
+                  style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
+                >
+                  <Ionicons
+                    name={
+                      shown.kind === "series" ? "tv-outline" : "film-outline"
+                    }
+                    size={13}
+                    color={color.text.tertiary}
+                  />
+                  <Text variant='caption' tone='tertiary'>
+                    {shown.kind === "series"
+                      ? total > 0
+                        ? t("requests.season_count", { count: total })
+                        : t("requests.kind_series")
+                      : t("requests.kind_movie")}
+                  </Text>
+                </View>
+
+                <RatingChips
+                  {...cardScores(shownScores)}
+                  links={{
+                    community: imdbUrl({
+                      ...shown,
+                      imdbId: shown.imdbId ?? shownScores?.imdbId,
+                    }),
+                    critics: rottenTomatoesUrl({
+                      title: shown.title,
+                      rottenTomatoesUrl: shownScores?.rottenTomatoesUrl,
+                    }),
+                  }}
+                />
+              </View>
+
+              {shown.overview ? (
+                <Text variant='body' tone='secondary' numberOfLines={7}>
+                  {shown.overview}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+
+          {heldAlready ? (
             <View
               style={{
-                flexDirection: "row",
-                alignItems: "center",
-                flexWrap: "wrap",
                 gap: 10,
+                padding: 12,
+                borderRadius: radius.md,
+                backgroundColor: color.bg["2"],
               }}
             >
               <View
-                style={{ flexDirection: "row", alignItems: "center", gap: 5 }}
-              >
-                <Ionicons
-                  name={shown.kind === "series" ? "tv-outline" : "film-outline"}
-                  size={13}
-                  color={color.text.tertiary}
-                />
-                <Text variant='caption' tone='tertiary'>
-                  {shown.kind === "series"
-                    ? total > 0
-                      ? t("requests.season_count", { count: total })
-                      : t("requests.kind_series")
-                    : t("requests.kind_movie")}
-                </Text>
-              </View>
-
-              <RatingChips
-                {...cardScores(shownScores)}
-                links={{
-                  community: imdbUrl({
-                    ...shown,
-                    imdbId: shown.imdbId ?? shownScores?.imdbId,
-                  }),
-                  critics: rottenTomatoesUrl({
-                    title: shown.title,
-                    rottenTomatoesUrl: shownScores?.rottenTomatoesUrl,
-                  }),
+                style={{
+                  flexDirection: "row",
+                  alignItems: "flex-start",
+                  gap: 8,
                 }}
-              />
-            </View>
-
-            {shown.overview ? (
-              <Text variant='body' tone='secondary' numberOfLines={7}>
-                {shown.overview}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-
-        {heldAlready ? (
-          <View
-            style={{
-              gap: 10,
-              padding: 12,
-              borderRadius: radius.md,
-              backgroundColor: color.bg["2"],
-            }}
-          >
-            <View
-              style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}
-            >
-              <Icon
-                name='info'
-                tone='accent'
-                size={16}
-                style={{ marginTop: 1 }}
-              />
-              {/*
+              >
+                <Icon
+                  name='info'
+                  tone='accent'
+                  size={16}
+                  style={{ marginTop: 1 }}
+                />
+                {/*
                 One sentence, and no node names in it. This used to read "Held by StingStream." on
                 the ordinary one-server setup, which names the machine rather than answering the
                 question, and in a group it asked the reader to care which box the file is on. It
                 is their library either way, and the button below it is what plays it.
               */}
-              <Text variant='caption' tone='secondary' style={{ flex: 1 }}>
-                {t("requests.duplicate_intro")}
-              </Text>
-            </View>
-            {/*
+                <Text variant='caption' tone='secondary' style={{ flex: 1 }}>
+                  {t("requests.duplicate_intro")}
+                </Text>
+              </View>
+              {/*
               Somebody told they already have something should be one press from watching it.
               Absent when the copy has not resolved to an item here yet, which happens for a few
               seconds after a peer first announces one: naming the holder with no link is still
               better than a button that goes nowhere.
             */}
-            {playableItemId ? (
-              <Button
-                variant='secondary'
-                size='sm'
-                onPress={() => playExisting(playableItemId)}
-              >
-                {t("requests.play_existing")}
-              </Button>
-            ) : null}
-          </View>
-        ) : null}
+              {playableItemId ? (
+                <Button
+                  variant='secondary'
+                  size='sm'
+                  onPress={() => playExisting(playableItemId)}
+                >
+                  {t("requests.play_existing")}
+                </Button>
+              ) : null}
+            </View>
+          ) : null}
 
-        {needsReason ? (
-          <ReasonPicker
-            kind={shown.kind}
-            value={reason}
-            onChange={setReason}
-            note={reasonNote}
-            onNoteChange={setReasonNote}
-          />
-        ) : null}
+          {needsReason ? (
+            <ReasonPicker
+              kind={shown.kind}
+              value={reason}
+              onChange={setReason}
+              note={reasonNote}
+              onNoteChange={setReasonNote}
+            />
+          ) : null}
 
-        {isSeries ? (
-          <SeasonPicker value={seasons} onChange={setSeasons} total={total} />
-        ) : null}
+          {isSeries ? (
+            <View style={{ gap: 12 }}>
+              {scope === "all" ? (
+                <Button variant='ghost' onPress={() => setScope("seasons")}>
+                  {t("requests.choose_seasons")}
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    variant='ghost'
+                    onPress={() => {
+                      setScope("all");
+                      setSeasons(allSeasons(total));
+                    }}
+                  >
+                    {t("requests.all_seasons")}
+                  </Button>
+                  {scope === "seasons" ? (
+                    <>
+                      <SeasonPicker
+                        value={seasons}
+                        onChange={setSeasons}
+                        total={total}
+                      />
+                      <Button
+                        variant='ghost'
+                        onPress={() => {
+                          setSeasons([]);
+                          setScope("episodes");
+                        }}
+                      >
+                        {t("requests.choose_episodes")}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        variant='ghost'
+                        onPress={() => setScope("seasons")}
+                      >
+                        {t("requests.choose_seasons")}
+                      </Button>
+                      {seasons.length > 0 && (
+                        <SeasonPicker
+                          value={seasons}
+                          onChange={setSeasons}
+                          total={total}
+                        />
+                      )}
+                      <EpisodePicker
+                        tmdbId={shown.tmdbId}
+                        tvdbId={shown.tvdbId}
+                        total={total}
+                        value={episodes}
+                        onChange={setEpisodes}
+                      />
+                    </>
+                  )}
+                </>
+              )}
+            </View>
+          ) : null}
 
-        {/*
+          {/*
           Quality is the one thing here that is about the *request*: how good a copy has to be
           before it counts as answered. Monitoring and the two removals were on this sheet for a
           while, merged in from "Manage on this server", and they are things done to a library item
@@ -521,27 +617,28 @@ export function RequestSheet({
           Only when this node's manager tracks it: there is no profile to set on a movie no manager
           here has heard of.
         */}
-        {managed.row ? (
-          <View
-            style={{
-              borderTopWidth: 1,
-              borderTopColor: color.border.subtle,
-              marginTop: 16,
-              paddingTop: 4,
-            }}
-          >
-            <QualityProfileRow
-              kind={shown.kind === "series" ? "series" : "movie"}
-              providerId={providerId}
-              title={requestTitle(shown)}
-              profileName={managed.profileName}
-              active={!!result}
-            />
-          </View>
-        ) : null}
+          {managed.row ? (
+            <View
+              style={{
+                borderTopWidth: 1,
+                borderTopColor: color.border.subtle,
+                marginTop: 16,
+                paddingTop: 4,
+              }}
+            >
+              <QualityProfileRow
+                kind={shown.kind === "series" ? "series" : "movie"}
+                providerId={providerId}
+                title={requestTitle(shown)}
+                profileName={managed.profileName}
+                active={!!result}
+              />
+            </View>
+          ) : null}
 
-        <FormError message={error} />
-      </View>
-    </Dialog>
+          <FormError message={error} />
+        </View>
+      </Dialog>
+    </>
   );
 }

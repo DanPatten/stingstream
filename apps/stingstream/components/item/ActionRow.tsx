@@ -10,6 +10,7 @@ import {
   type ViewStyle,
 } from "react-native";
 import { Button } from "@/components/Button";
+import { Dialog } from "@/components/common/Dialog";
 import { Icon, type IconName } from "@/components/common/Icon";
 import { Text } from "@/components/common/Text";
 import { PlayButton } from "@/components/PlayButton";
@@ -27,9 +28,11 @@ import {
   useStreamystatsEnabled,
 } from "@/hooks/useWatchlists";
 import { useSettings } from "@/utils/atoms/settings";
+import { trailerEmbedUrl } from "@/utils/trailer";
 import { canMarkWatched, watchedToggleLabelKey } from "@/utils/watched";
 import type { SelectedOptions } from "../ItemContent";
 import { MoreMenu, type MoreMenuAction } from "./MoreMenu";
+import { TrailerPlayer } from "./TrailerPlayer";
 
 interface Props {
   item: BaseItemDto;
@@ -116,12 +119,28 @@ export const ActionRow: React.FC<Props> = ({
   const showWatchlist = streamystatsEnabled && !settings.hideWatchlistsTab;
 
   const trailerUrl = item.RemoteTrailers?.[0]?.Url;
+  const embedUrl = trailerUrl ? trailerEmbedUrl(trailerUrl) : null;
+  const [trailerOpen, setTrailerOpen] = useState(false);
   const openTrailer = useCallback(() => {
-    if (trailerUrl) void Linking.openURL(trailerUrl);
-  }, [trailerUrl]);
+    if (embedUrl) setTrailerOpen(true);
+    else if (trailerUrl) void Linking.openURL(trailerUrl);
+  }, [trailerUrl, embedUrl]);
 
   return (
     <View style={style}>
+      <Dialog
+        maxWidth={960}
+        visible={trailerOpen}
+        onClose={() => setTrailerOpen(false)}
+        title={t("item.trailer")}
+      >
+        {trailerOpen && embedUrl ? (
+          <TrailerPlayer
+            url={embedUrl}
+            title={item.Name ?? t("item.trailer")}
+          />
+        ) : null}
+      </Dialog>
       <View
         style={{
           flexDirection: isCompact ? "column" : "row",

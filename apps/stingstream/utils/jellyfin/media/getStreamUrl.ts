@@ -90,6 +90,7 @@ const getPlaybackUrl = (
     maxStreamingBitrate?: number;
     userId: string;
     playSessionId?: string | null;
+    isAudio?: boolean;
   },
 ): string => {
   let transcodeUrl = mediaSource?.TranscodingUrl;
@@ -159,7 +160,7 @@ const getPlaybackUrl = (
     streamParams.append("playSessionId", params.playSessionId);
   }
 
-  const directPlayUrl = `${api.basePath}/Videos/${itemId}/stream?${streamParams.toString()}`;
+  const directPlayUrl = `${api.basePath}/${params.isAudio ? "Audio" : "Videos"}/${itemId}/stream?${streamParams.toString()}`;
 
   // Redacted: this URL carries the caller's own Jellyfin access token in `ApiKey`, and
   // `console.log` goes to logcat on Android and to the browser console on web. See
@@ -389,6 +390,10 @@ export const getStreamUrl = async ({
     maxStreamingBitrate,
     userId,
     playSessionId: playSessionId || undefined,
+    isAudio:
+      item.MediaType === "Audio" ||
+      item.Type === "Audio" ||
+      item.Type === "AudioBook",
   });
 
   return {

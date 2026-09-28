@@ -55,7 +55,7 @@ public static class SetupGate
     /// <c>+</c>, with no length limit. This is the deliberately narrower set the first-run screen
     /// offers, chosen so that a name accepted here is always one the rename underneath accepts too.
     /// </remarks>
-    public const int MaxUsernameLength = 32;
+    public const int MaxUsernameLength = 254;
 
     /// <summary>Shortest password this endpoint accepts.</summary>
     public const int MinPasswordLength = 8;
@@ -167,9 +167,9 @@ public static class SetupGate
 
         foreach (var c in username)
         {
-            if (!char.IsLetterOrDigit(c) && c != '.' && c != '_' && c != '-')
+            if (!char.IsLetterOrDigit(c) && c != '.' && c != '_' && c != '-' && c != '@' && c != '+')
             {
-                return "A name can only use letters, digits, dots, underscores and dashes.";
+                return "Use letters, digits, dots, underscores, dashes, @ or +.";
             }
         }
 

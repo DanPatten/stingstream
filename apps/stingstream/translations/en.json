@@ -121,7 +121,7 @@
     "password_hint": "At least {{min}} characters.",
     "create_account": "Create account",
     "username_required": "Choose a username.",
-    "username_invalid": "Use letters, digits, dots, underscores or dashes.",
+    "username_invalid": "Use letters, digits, dots, underscores, dashes, @ or +.",
     "username_too_long": "Use at most {{max}} characters.",
     "password_too_short": "Use at least {{min}} characters.",
     "error_invalid": "That username or password cannot be used. Try another.",
@@ -166,6 +166,9 @@
     "invalid_password": "Invalid password"
   },
   "home": {
+    "requested_ready": "Requested by you. Ready to watch",
+    "trending_movies": "Trending movies",
+    "trending_shows": "Trending TV shows",
     "checking_server_connection": "Checking server connection…",
     "empty_title": "Nothing to watch yet",
     "empty_detail": "Add movies and shows to your media folders, then scan.",
@@ -490,7 +493,7 @@
         "hide_libraries": "Hide libraries",
         "select_libraries_you_want_to_hide": "Hidden libraries do not appear on the home screen or anywhere you browse.",
         "disable_haptic_feedback": "Disable haptic feedback",
-        "resume_dialog": "Ask to resume or start over",
+        "resume_dialog": "Ask to resume after two weeks",
         "default_quality": "Default quality",
         "default_playback_speed": "Default playback speed",
         "auto_play_next_episode": "Auto-play next episode",
@@ -1237,6 +1240,7 @@
     }
   },
   "item": {
+    "playback_start_failed": "Playback could not start. Try again.",
     "play": "Play",
     "resume": "Resume",
     "resume_from": "Resume from {{time}}",
@@ -1721,6 +1725,13 @@
     "critics": "{{score}}% on Rotten Tomatoes"
   },
   "requests": {
+    "request_selection": "Request selection",
+    "choose_seasons": "Choose seasons",
+    "choose_episodes": "Choose episodes",
+    "all_seasons": "All seasons",
+    "season_number": "Season {{number}}",
+    "request_n_episodes": "Request episodes ({{count}})",
+    "episodes_unavailable": "Episodes are unavailable. Try again.",
     "tab_mine": "My requests",
     "tab_alerts": "Alerts",
     "tab_approvals": "Approvals",
@@ -1906,8 +1917,7 @@
     "transcoding_temp_path_title": "Transcoding temporary path",
     "transcoding_thread_count_detail": "-1 lets the server decide.",
     "transcoding_thread_count_title": "Encoding thread count",
-    "transcoding_throttle_title": "Throttle transcoding",
-    "transcoding_title": "Transcoding"
+    "transcoding_throttle_title": "Throttle transcoding"
   },
   "manage": {
     "activity_days_ago": "{{count}} days ago",
@@ -2070,7 +2080,6 @@
     "naming_season_folder_format_title": "Season folder format",
     "naming_series_folder_format_title": "Show folder format",
     "naming_series_group_title": "TV shows",
-    "naming_title": "Naming",
     "notifications_add_webhook_action": "Add webhook",
     "notifications_disabled_label": "Disabled",
     "notifications_enabled_label": "Enabled",
@@ -2370,6 +2379,8 @@
     "type_movies": "Movies",
     "type_tvshows": "TV shows",
     "type_homevideos": "Other videos",
+    "type_music": "Music",
+    "type_books": "Audiobooks",
     "folders_title": "Folders",
     "add_folder": "Add folder",
     "change_folder": "Change folder",

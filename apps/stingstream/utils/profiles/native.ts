@@ -6,13 +6,14 @@
 import type { DeviceProfile } from "@jellyfin/sdk/lib/generated-client/models";
 import { Platform } from "react-native";
 import MediaTypes from "../../constants/MediaTypes";
+import { browserProfile } from "./browser";
 import {
   supportsAv1HardwareDecode,
   supportsDolbyVisionHardwareDecode,
 } from "./codecSupport";
 import { getSubtitleProfiles } from "./subtitles";
 
-export type PlatformType = "ios" | "android";
+export type PlatformType = "ios" | "android" | "web";
 export type PlayerType = "mpv" | "exoplayer";
 export type AudioTranscodeModeType = "auto" | "stereo" | "5.1" | "passthrough";
 
@@ -238,6 +239,7 @@ const getMpvVideoCodecs = (supportsAv1: boolean) => {
  */
 export const generateDeviceProfile = (options: ProfileOptions = {}) => {
   const platform = (options.platform || Platform.OS) as PlatformType;
+  if (platform === "web") return browserProfile;
   const audioMode = options.audioMode || "auto";
   const player = options.player || "mpv";
   const supportsAv1 = options.supportsAv1 ?? supportsAv1HardwareDecode();

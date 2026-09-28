@@ -113,6 +113,7 @@ export const HeroSpotlight: React.FC = () => {
     isWebWide,
   } = useBreakpoint();
   const router = useRouter();
+  const { play, resumeDialog } = useInstantPlay();
   const segments = useSegments();
   const from = (segments as string[])[2] || "(home)";
   const reduceMotion = useReduceMotion();
@@ -149,24 +150,17 @@ export const HeroSpotlight: React.FC = () => {
 
   const openItem = useCallback(
     (slide: HeroSlideData, autoPlay: boolean) => {
+      if (autoPlay) {
+        void play(slide.item);
+        return;
+      }
       const navigation = getItemNavigation(slide.item, from) as {
         pathname: string;
         params?: Record<string, unknown>;
       };
-      // Both buttons land on the pre-play page: it is where the resume
-      // position, version, audio and subtitle choices live, and starting
-      // playback straight from the hero would skip every one of them. Play
-      // carries `autoPlay`, which is what makes the label honest.
-      router.push(
-        (autoPlay
-          ? {
-              ...navigation,
-              params: { ...(navigation.params ?? {}), autoPlay: "true" },
-            }
-          : navigation) as never,
-      );
+      router.push(navigation as never);
     },
-    [from, router],
+    [from, router, play],
   );
 
   if (!isEnabled) return null;
@@ -263,6 +257,7 @@ export const HeroSpotlight: React.FC = () => {
           bottom: breakpoint === "compact" ? 12 : 20,
         }}
       />
+      {resumeDialog}
     </Pressable>
   );
 };
@@ -332,3 +327,5 @@ const HeroArrow: React.FC<{
     </Pressable>
   );
 };
+
+import { useInstantPlay } from "@/hooks/useInstantPlay";

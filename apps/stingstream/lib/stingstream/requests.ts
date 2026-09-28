@@ -436,8 +436,11 @@ export function useSetRequestSeasons() {
   const { base, token } = useConnection();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: string; seasons: number[] }) =>
-      setRequestSeasons(base!, args.id, args.seasons, token),
+    mutationFn: (args: {
+      id: string;
+      seasons: number[];
+      episodes?: string[];
+    }) => setRequestSeasons(base!, args.id, args.seasons, token, args.episodes),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.all }),
   });
 }

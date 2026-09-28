@@ -39,6 +39,59 @@ describe("getStreamUrl", () => {
   });
 });
 
+describe("browser and audiobook playback", () => {
+  test("uses the audio endpoint for an audiobook", async () => {
+    const api = makeApi();
+    api.mock
+      .onPost("https://jellyfin.example.com/Items/book-1/PlaybackInfo")
+      .reply(200, {
+        MediaSources: [{ Id: "source-1", Container: "m4b" }],
+      });
+    const result = await getStreamUrl({
+      api,
+      item: { Id: "book-1", Type: "AudioBook" },
+      userId: "user-1",
+      startTimeTicks: 0,
+      deviceProfile: {},
+    });
+    expect(new URL(result!.url!).pathname).toBe("/Audio/book-1/stream");
+  });
+  test("browser negotiation requests compatible audio and honors the server's HLS result", async () => {
+    const { generateDeviceProfile } = await import("@/utils/profiles/native");
+    const profile = generateDeviceProfile({
+      platform: "web",
+      audioMode: "auto",
+    });
+    const videos = profile.DirectPlayProfiles.filter((p) => p.Type === "Video");
+    expect(videos.some((p) => p.Container.includes("mkv"))).toBe(false);
+    expect(videos.some((p) => /ac3|dts|truehd/.test(p.AudioCodec))).toBe(false);
+    const api = makeApi();
+    api.mock
+      .onPost(
+        "https://jellyfin.example.com/Items/item-1/PlaybackInfo",
+        bodyContaining({ deviceProfile: { Name: "StingStream browser" } }),
+      )
+      .reply(200, {
+        MediaSources: [
+          {
+            Id: "media-1",
+            Container: "mkv",
+            TranscodingUrl:
+              "/Videos/item-1/master.m3u8?VideoCodec=copy&AudioCodec=aac",
+          },
+        ],
+      });
+    const result = await getStreamUrl({
+      api,
+      item: { Id: "item-1", Type: "Movie" },
+      userId: "user-1",
+      startTimeTicks: 0,
+      deviceProfile: profile,
+    });
+    expect(result!.url).toContain("master.m3u8?VideoCodec=copy&AudioCodec=aac");
+  });
+});
+
 describe("getDownloadStreamUrl", () => {
   const MAX = { key: "Max", value: undefined };
   const LIMITED = { key: "4mbps", value: 4_000_000 };

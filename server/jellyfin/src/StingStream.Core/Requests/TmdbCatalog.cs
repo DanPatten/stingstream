@@ -564,6 +564,27 @@ public sealed class TmdbCatalog
         return field + "." + direction;
     }
 
+    /// <summary>Episodes in one season, fetched only when the detailed picker is expanded.</summary>
+    public async Task<IReadOnlyList<RequestEpisodeOption>> EpisodesAsync(int tmdbId, int season, CancellationToken cancellationToken)
+    {
+        if (tmdbId <= 0 || season <= 0 || season > 999)
+        {
+            return Array.Empty<RequestEpisodeOption>();
+        }
+
+        var body = await GetAsync($"/tv/{tmdbId.ToString(CultureInfo.InvariantCulture)}/season/{season.ToString(CultureInfo.InvariantCulture)}?language=en-US", _feedTtl, cancellationToken).ConfigureAwait(false);
+        return body?["episodes"] is JsonArray episodes
+            ? episodes.OfType<JsonObject>()
+                .Where(e => e["episode_number"]?.GetValue<int>() is > 0 and <= 999)
+                .Select(e => new RequestEpisodeOption
+                {
+                    Key = RequestScope.Key(season, e["episode_number"]!.GetValue<int>()),
+                    Name = e["name"]?.GetValue<string>() ?? string.Empty,
+                    Number = e["episode_number"]!.GetValue<int>(),
+                }).ToList()
+            : Array.Empty<RequestEpisodeOption>();
+    }
+
     // --- fetching -----------------------------------------------------------
 
     /// <summary>
@@ -1164,6 +1185,11 @@ public sealed class TmdbCatalog
         ArgumentNullException.ThrowIfNull(genreIds);
 
         var pageParam = "page=" + page.ToString(CultureInfo.InvariantCulture);
+        if (string.Equals(query.Sort, "trending", StringComparison.OrdinalIgnoreCase))
+        {
+            return (isMovie ? "/trending/movie/week?" : "/trending/tv/week?") + "language=en-US&" + pageParam;
+        }
+
         var allTime = string.Equals(query.Sort, "top_rated", StringComparison.OrdinalIgnoreCase);
         var path = isMovie ? "/discover/movie" : "/discover/tv";
         var parts = new List<string>

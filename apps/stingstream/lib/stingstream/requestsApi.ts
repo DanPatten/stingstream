@@ -122,6 +122,8 @@ export type AutoApproveMode = "everyone" | "trusted" | "admins_only";
 
 /** One member request, as `RequestsController` shapes it. */
 export interface MemberRequest {
+  episodes?: string[];
+  localItemId?: string | null;
   id: string;
   group: string;
   /** `movie` or `series`. */
@@ -286,6 +288,7 @@ export interface RequestNotification {
 
 /** What is being asked for. */
 export interface CreateRequestInput {
+  episodes?: string[];
   tmdbId?: number;
   tvdbId?: number;
   /** The blurb and season count off the search result, so the request keeps them. */
@@ -320,6 +323,8 @@ export interface AlreadyHeldAnswer {
 // --- shaping ------------------------------------------------------------------------------------
 
 export const toRequest = (raw: unknown): MemberRequest => ({
+  episodes: field<string[]>(raw, ...both("episodes")) ?? [],
+  localItemId: field<string>(raw, ...both("localItemId")),
   id: field<string>(raw, ...both("id"), "Id") ?? "",
   group: field<string>(raw, ...both("group")) ?? "",
   kind: (field<string>(raw, ...both("kind")) ??
@@ -654,6 +659,7 @@ const isSearchResult = (
 export const requestAsSearchResult = (
   request: MemberRequest,
 ): RequestSearchResult => ({
+  localItemId: request.localItemId,
   kind: request.kind,
   title: request.title,
   year: request.year,
@@ -663,7 +669,7 @@ export const requestAsSearchResult = (
   tvdbId: request.provider === "tvdb" ? request.providerId : 0,
   itemKey: request.itemKey,
   seasonCount: request.seasonCount ?? 0,
-  availableInGroup: false,
+  availableInGroup: !!request.localItemId || request.state === "available",
   holders: [],
   requestState: request.state,
   requestId: request.id,
@@ -1262,6 +1268,7 @@ export async function setRequestSeasons(
   id: string,
   seasons: number[],
   accessToken?: string | null,
+  episodes: string[] = [],
 ): Promise<MemberRequest> {
   const res = await fetch(
     `${apiBaseUrl}/requests/${encodeURIComponent(id)}/seasons`,
@@ -1271,7 +1278,7 @@ export async function setRequestSeasons(
         ...authHeaders(accessToken),
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ seasons }),
+      body: JSON.stringify({ seasons, episodes }),
     },
   );
   if (res.status === 409) {
@@ -1402,7 +1409,12 @@ export const toDiscoverPage = (raw: unknown): RequestDiscoverPage => ({
 export type RequestKind = "all" | "movie" | "series";
 
 /** How the catalogue is ordered. `popular` is the default on both screens. */
-export type RequestSort = "popular" | "top_rated" | "newest" | "title";
+export type RequestSort =
+  | "popular"
+  | "top_rated"
+  | "newest"
+  | "title"
+  | "trending";
 
 /** Which way round. */
 export type RequestOrder = "asc" | "desc";
@@ -1505,7 +1517,7 @@ export const applyRequestFilters = (
   });
 
   const sort = state.sortBy[0] ?? "popular";
-  if (sort === "popular") return kept;
+  if (sort === "popular" || sort === "trending") return kept;
 
   const descending = (state.sortOrder[0] ?? "desc") === "desc";
   const sorted = [...kept].sort((a, b) => {

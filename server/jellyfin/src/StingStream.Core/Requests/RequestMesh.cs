@@ -67,6 +67,8 @@ public sealed class MeshRequestView
 
     public List<int> Seasons { get; set; } = new();
 
+    public List<string> Episodes { get; set; } = new();
+
     public string RequestedBy { get; set; } = string.Empty;
 
     public string RequestedAt { get; set; } = string.Empty;
@@ -222,7 +224,9 @@ public sealed class RequestMesh : IRequestMesh
                 title = row.Describe(),
                 provider = row.Provider,
                 provider_id = row.ProviderId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                seasons = row.Seasons,
+                // Older workers must not interpret an episode-only request as every season.
+                seasons = row.Episodes.Count > 0 && row.Seasons.Count == 0 ? new List<int> { -1 } : row.Seasons,
+                episodes = row.Episodes,
                 requested_by = row.RequestedByName,
                 requested_at = row.RequestedAt,
             },

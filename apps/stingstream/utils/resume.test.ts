@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { RESUME_PROMPT_AFTER_MS } from "@/constants/Playback";
 import {
   formatResumePosition,
   remainingAfterResume,
@@ -46,11 +47,30 @@ describe("resumePositionTicks", () => {
 });
 
 describe("shouldAskToResume", () => {
-  test("asks when there is a position and the setting is on or unset", () => {
+  test("asks only after more than two weeks away", () => {
+    const saved = item(minutes(10));
+    const lastPlayed = Date.parse("2026-09-01T12:00:00Z");
+    const resumable = {
+      ...saved,
+      UserData: {
+        ...saved.UserData,
+        LastPlayedDate: new Date(lastPlayed).toISOString(),
+      },
+    };
     expect(
-      shouldAskToResume(item(minutes(10)), { showResumeDialog: true }),
+      shouldAskToResume(resumable, {}, lastPlayed + RESUME_PROMPT_AFTER_MS),
+    ).toBe(false);
+    expect(
+      shouldAskToResume(resumable, {}, lastPlayed + RESUME_PROMPT_AFTER_MS + 1),
     ).toBe(true);
-    expect(shouldAskToResume(item(minutes(10)), {})).toBe(true);
+    expect(
+      shouldAskToResume(
+        resumable,
+        { showResumeDialog: false },
+        lastPlayed + RESUME_PROMPT_AFTER_MS + 1,
+      ),
+    ).toBe(false);
+    expect(shouldAskToResume(saved, {})).toBe(false);
   });
 
   test("never asks with nothing to resume", () => {

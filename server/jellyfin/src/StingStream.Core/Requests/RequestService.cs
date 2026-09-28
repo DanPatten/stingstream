@@ -317,6 +317,13 @@ public sealed class RequestService
         }
 
         var kind = isMovie ? "movie" : "series";
+        body.Episodes ??= new();
+        body.Seasons ??= new();
+        if (!RequestScope.IsValid(body.Episodes) || (isMovie && body.Episodes.Count > 0))
+        {
+            return new CreateRequestResult { Refused = "Choose valid TV show episodes.", Status = 400 };
+        }
+
         var itemKey = isMovie
             ? InventoryKeys.Movie(body.TmdbId)
             : InventoryKeys.SeriesPrefix(body.TvdbId);
@@ -336,10 +343,10 @@ public sealed class RequestService
         var existing = _store.OpenForItem(itemKey) ?? _store.LatestMineForItem(itemKey);
         if (existing is not null && RequestStates.IsOpen(existing.State))
         {
-            var merged = MergeSeasons(existing.Seasons, body.Seasons);
-            if (merged.Count != existing.Seasons.Count)
+            var previousScope = string.Join(",", existing.Seasons) + ";" + string.Join(",", existing.Episodes);
+            RequestScope.Merge(existing, body.Seasons, body.Episodes);
+            if (previousScope != string.Join(",", existing.Seasons) + ";" + string.Join(",", existing.Episodes))
             {
-                existing.Seasons = merged;
                 existing.Note = "Seasons added by a second request.";
                 await _store.SaveAsync(existing, cancellationToken).ConfigureAwait(false);
                 await _store.SetPublishedAsync(existing.Id, false, cancellationToken).ConfigureAwait(false);
@@ -393,7 +400,8 @@ public sealed class RequestService
         }
 
         row.Group = group ?? string.Empty;
-        row.Seasons = MergeSeasons(reopening ? row.Seasons : new List<int>(), body.Seasons);
+        row.Seasons = body.Seasons.Where(s => s > 0).Distinct().OrderBy(s => s).ToList();
+        row.Episodes = body.Episodes.Distinct().ToList();
 
         // The claim race is timed from this, so it has to be the moment of *this* ask: leaving an
         // hour-old timestamp on a reopened request would put every volunteer's 20 second delay in
@@ -426,7 +434,7 @@ public sealed class RequestService
         // not a silent no-op, so the first ask is refused with the holders and something to play,
         // and the answer comes back on the second.
         var reason = RequestReasons.Parse(body.Reason);
-        var holders = await HoldersAsync(itemKey, isMovie, policy.MinimumHeight, row.Seasons, cancellationToken)
+        var holders = await HoldersAsync(itemKey, isMovie, policy.MinimumHeight, row.Seasons, cancellationToken, row.Episodes)
             .ConfigureAwait(false);
         if (holders.Count > 0 && reason is null)
         {
@@ -1412,7 +1420,8 @@ public sealed class RequestService
         bool isMovie,
         int minimumHeight,
         IReadOnlyList<int> seasons,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlyList<string>? episodes = null)
     {
         var group = isMovie
             ? await _sources.CandidatesEverywhereAsync(itemKey, cancellationToken).ConfigureAwait(false)
@@ -1428,6 +1437,17 @@ public sealed class RequestService
             !isMovie,
             string.Empty,
             _runtime.Current?.ServerName ?? string.Empty));
+
+        if (episodes is { Count: > 0 })
+        {
+            if (episodes.Any(e => !candidates.Any(c => c.Online && c.ItemKey.EndsWith(":" + e, StringComparison.OrdinalIgnoreCase))))
+            {
+                return new List<string>();
+            }
+
+            candidates = candidates.Where(c => episodes.Any(e => c.ItemKey.EndsWith(":" + e, StringComparison.OrdinalIgnoreCase))).ToList();
+            return Holders(candidates, minimumHeight, Array.Empty<int>(), isMovie);
+        }
 
         return Holders(candidates, minimumHeight, seasons, isMovie);
     }
@@ -1452,7 +1472,7 @@ public sealed class RequestService
     /// ordinary rather than as a failure.
     /// </para>
     /// </remarks>
-    private string? ResolveLibraryItemId(bool isMovie, int providerId)
+    public string? ResolveLibraryItemId(bool isMovie, int providerId)
     {
         if (providerId <= 0)
         {

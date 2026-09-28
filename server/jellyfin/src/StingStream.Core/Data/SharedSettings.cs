@@ -88,6 +88,9 @@ public sealed class SharedSettings
     /// </remarks>
     public List<LibrarySettings> Libraries { get; set; } = new();
 
+    /// <summary>One-time installation of the default audio libraries. Server-owned.</summary>
+    public bool AudioLibrariesInitialized { get; set; }
+
     public NamingSettings Naming { get; set; } = new();
 
     public NotificationSettings Notifications { get; set; } = new();
@@ -165,6 +168,7 @@ public sealed class SharedSettings
         ArgumentNullException.ThrowIfNull(stored);
 
         incoming.Libraries = stored.Libraries;
+        incoming.AudioLibrariesInitialized = stored.AudioLibrariesInitialized;
 
         // Edited one at a time through QualityProfilesController. A settings screen that read the
         // document before a profile was saved would otherwise put the old list back.
@@ -423,13 +427,21 @@ public static class LibraryTypes
     /// <summary>Other videos. No manager and no federation; Jellyfin's <c>homevideos</c> collection type.</summary>
     public const string HomeVideos = "homevideos";
 
+    /// <summary>Music albums and tracks.</summary>
+    public const string Music = "music";
+
+    /// <summary>Audiobooks, using the media server's books collection.</summary>
+    public const string Audiobooks = "books";
+
     /// <summary>Whether a submitted type is one this node can actually run.</summary>
     /// <param name="type">The candidate.</param>
     /// <returns><c>true</c> when it is supported.</returns>
     public static bool IsSupported(string? type)
         => string.Equals(type, Movies, StringComparison.OrdinalIgnoreCase)
            || string.Equals(type, TvShows, StringComparison.OrdinalIgnoreCase)
-           || string.Equals(type, HomeVideos, StringComparison.OrdinalIgnoreCase);
+           || string.Equals(type, HomeVideos, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(type, Music, StringComparison.OrdinalIgnoreCase)
+           || string.Equals(type, Audiobooks, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>One library: a name, a type, and the folders on this node that hold it.</summary>

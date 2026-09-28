@@ -64,6 +64,9 @@ pub struct RequestRecord {
     /// Season numbers wanted, for a series. Empty means "every season".
     #[serde(default)]
     pub seasons: Vec<i32>,
+    /// Specific episode keys (s01e02); empty means the requested seasons in full.
+    #[serde(default)]
+    pub episodes: Vec<String>,
     /// The requester's display name, so an admin on another node can see who is waiting.
     #[serde(default)]
     pub requested_by: String,

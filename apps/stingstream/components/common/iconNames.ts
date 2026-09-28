@@ -50,6 +50,8 @@ export const ICONS = {
   movies: "film",
   tvShows: "tv",
   otherVideos: "videocam",
+  music: "musical-notes",
+  audiobook: "headset",
 
   // Actions
   info: "information-circle",

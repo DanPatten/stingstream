@@ -263,10 +263,8 @@ export const TVLibraries: React.FC = () => {
 
   const libraries = useMemo(
     () =>
-      userViews
-        ?.filter((l) => !settings?.hiddenLibraries?.includes(l.Id!))
-        .filter((l) => l.CollectionType !== "books")
-        .filter((l) => l.CollectionType !== "music") || [],
+      userViews?.filter((l) => !settings?.hiddenLibraries?.includes(l.Id!)) ||
+      [],
     [userViews, settings?.hiddenLibraries],
   );
 

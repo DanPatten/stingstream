@@ -239,6 +239,7 @@ impl Db {
         )
         .context("migrating mesh.db: pending_unlinks")?;
         for statement in [
+            "ALTER TABLE requests ADD COLUMN episodes TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE inventory ADD COLUMN local_images TEXT",
             "ALTER TABLE inventory ADD COLUMN local_subtitles TEXT",
             "ALTER TABLE peers ADD COLUMN throughput_bps INTEGER",
@@ -1500,13 +1501,14 @@ impl Db {
     /// other member already agreed on is the one to keep.
     pub fn record_request(&self, group: &GroupId, origin: &str, req: &RequestRecord) -> Result<bool> {
         let seasons = serde_json::to_string(&req.seasons).unwrap_or_else(|_| "[]".to_string());
+        let episodes = serde_json::to_string(&req.episodes).unwrap_or_else(|_| "[]".to_string());
         let n = self
             .lock()
             .execute(
                 "INSERT INTO requests
                      (group_id, request_id, origin_node, kind, item_key, title, provider,
-                      provider_id, seasons, requested_by, requested_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                      provider_id, seasons, requested_by, requested_at, updated_at, episodes)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
                  ON CONFLICT(group_id, request_id) DO UPDATE SET
                      kind = excluded.kind,
                      item_key = excluded.item_key,
@@ -1514,6 +1516,7 @@ impl Db {
                      provider = excluded.provider,
                      provider_id = excluded.provider_id,
                      seasons = excluded.seasons,
+                     episodes = excluded.episodes,
                      requested_by = excluded.requested_by,
                      requested_at = excluded.requested_at,
                      updated_at = excluded.updated_at
@@ -1531,6 +1534,7 @@ impl Db {
                     req.requested_by,
                     req.requested_at,
                     now_rfc3339(),
+                    episodes,
                 ],
             )
             .context("recording a group request")?;
@@ -1634,7 +1638,7 @@ impl Db {
             let mut stmt = conn
                 .prepare(
                     "SELECT request_id, origin_node, kind, item_key, title, provider, provider_id,
-                            seasons, requested_by, requested_at
+                            seasons, requested_by, requested_at, episodes
                      FROM requests WHERE group_id = ?1 ORDER BY requested_at DESC",
                 )
                 .context("listing group requests")?;
@@ -1650,6 +1654,7 @@ impl Db {
                             provider: r.get(5)?,
                             provider_id: r.get(6)?,
                             seasons: serde_json::from_str(&seasons).unwrap_or_default(),
+                            episodes: serde_json::from_str(&r.get::<_, String>(10)?).unwrap_or_default(),
                             requested_by: r.get(8)?,
                             requested_at: r.get(9)?,
                         },
@@ -2072,6 +2077,7 @@ mod tests {
             provider: "tvdb".into(),
             provider_id: "73739".into(),
             seasons: vec![1],
+            episodes: vec!["s02e03".into()],
             requested_by: "dan".into(),
             requested_at: "2026-09-05T00:00:00Z".into(),
         }
@@ -2100,6 +2106,7 @@ mod tests {
         assert_eq!(views.len(), 1);
         assert_eq!(views[0].origin, "origin");
         assert_eq!(views[0].request.seasons, vec![1]);
+        assert_eq!(views[0].request.episodes, vec!["s02e03"]);
         assert_eq!(views[0].request.title, "Lost");
         assert!(views[0].winner.is_none(), "nobody has claimed yet");
     }

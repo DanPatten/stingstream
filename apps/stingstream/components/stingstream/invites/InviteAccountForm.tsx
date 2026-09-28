@@ -176,7 +176,7 @@ export const InviteAccountForm: React.FC<InviteAccountFormProps> = ({
           autoComplete='username-new'
           textContentType='username'
           returnKeyType='next'
-          maxLength={64}
+          maxLength={254}
           editable={!busy}
         />
         <View>

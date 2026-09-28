@@ -35,6 +35,17 @@ public sealed class RequestWantedStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Episode_selection_survives_save_and_update()
+    {
+        var row = new RequestRow { Kind = "series", ItemKey = "episode:tvdb:10:", Episodes = new() { "s01e02" } };
+        await _store.SaveAsync(row, TestContext.Current.CancellationToken);
+        Assert.Equal(row.Episodes, _store.Get(row.Id)!.Episodes);
+        row.Episodes.Add("s02e03");
+        await _store.SaveAsync(row, TestContext.Current.CancellationToken);
+        Assert.Equal(row.Episodes, _store.Get(row.Id)!.Episodes);
+    }
+
+    [Fact]
     public async Task AWantedRequestAbsorbsTheNextPersonWhoAsks()
     {
         // The state most likely to be asked for twice, because it is the one that waits longest: a

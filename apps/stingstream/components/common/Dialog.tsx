@@ -36,6 +36,7 @@ export interface DialogProps {
   actions?: DialogAction[];
   /** Suppress the corner close button — a dialog that must be answered. */
   dismissible?: boolean;
+  maxWidth?: number;
 }
 
 /**
@@ -74,6 +75,7 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
   description,
   actions,
   dismissible = true,
+  maxWidth = 560,
   children,
 }) => {
   const { color } = useTheme();
@@ -150,7 +152,7 @@ export const Dialog: React.FC<PropsWithChildren<DialogProps>> = ({
           style={[
             {
               width: "100%",
-              maxWidth: Math.min(560, width - 48),
+              maxWidth: Math.min(maxWidth, width - 48),
               maxHeight: "85%",
               borderRadius: radius.lg,
               borderWidth: 1,

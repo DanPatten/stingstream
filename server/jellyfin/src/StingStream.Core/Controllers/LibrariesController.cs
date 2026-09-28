@@ -213,7 +213,7 @@ public sealed class LibrariesController : StingStreamControllerBase
         else
         {
             return BadRequest(new LibraryProblem(
-                "Choose Movies, TV shows or Other videos.", "type_invalid", "type"));
+                "Choose Movies, TV shows, Music, Audiobooks or Other videos.", "type_invalid", "type"));
         }
 
         await CommitAsync(settings, cancellationToken).ConfigureAwait(false);
