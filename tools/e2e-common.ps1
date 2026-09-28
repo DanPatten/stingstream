@@ -878,8 +878,8 @@ function Start-Qbittorrent {
         collapse into one; whenever qBittorrent's own port won, it discarded the entry as itself
         and never saw the seeder at all.
     .PARAMETER ProfileDir
-        Where the profile lives. The ini is written to <ProfileDir>/qBittorrent/config, which is
-        where `--profile` makes qBittorrent look.
+        Where the profile lives. The settings file is written to <ProfileDir>/qBittorrent/config,
+        as qBittorrent.ini on Windows and qBittorrent.conf on Linux.
     #>
     param(
         [Parameter(Mandatory)][string]$ProfileDir,
@@ -972,7 +972,8 @@ WebUI\HostHeaderValidation=false
 WebUI\SecureCookie=false
 WebUI\MaxAuthenticationFailCount=0
 "@
-    Set-Content -Path (Join-Path $configDir 'qBittorrent.ini') -Value $ini -Encoding utf8
+    $configName = if ($script:IsWindowsHost) { 'qBittorrent.ini' } else { 'qBittorrent.conf' }
+    Set-Content -Path (Join-Path $configDir $configName) -Value $ini -Encoding utf8
 
     $arguments = @("--profile=$profileFull", "--webui-port=$webPort")
     if ($script:IsWindowsHost) {

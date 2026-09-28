@@ -25,6 +25,27 @@ on:
   pull_request:
 
 jobs:
+  download-client-smoke:
+    name: download client startup and authentication
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install the runner's download client
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends qbittorrent-nox
+      - name: Start and authenticate with the generated profile
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          . ./tools/e2e-common.ps1
+          try {
+            $client = Start-Qbittorrent -ProfileDir (Join-Path $PWD '.local/e2e/qbt/smoke')
+            if (@(Get-QbittorrentTorrents).Count -ne 0) { throw 'Expected an empty private download client.' }
+            Write-Host 'Download client started and authenticated successfully.'
+          } finally {
+            Stop-Qbittorrent
+          }
+
   dotnet:
     name: dotnet (${{ matrix.os }})
     strategy:
