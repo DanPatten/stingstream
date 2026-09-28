@@ -782,10 +782,10 @@ const HomeMobile = () => {
             gap: 24,
           }}
         >
+          <HomeHeroCarousel />
           {sections.length === 0 && (
             <>
               <HomeReadyRequests />
-              <HomeHeroCarousel />
               <HomeDiscovery />
             </>
           )}
@@ -874,7 +874,6 @@ const HomeMobile = () => {
                   {index === 0 && (
                     <>
                       <HomeReadyRequests />
-                      <HomeHeroCarousel />
                       <HomeDiscovery />
                     </>
                   )}
@@ -892,7 +891,6 @@ const HomeMobile = () => {
                   {index === 0 && (
                     <>
                       <HomeReadyRequests />
-                      <HomeHeroCarousel />
                       <HomeDiscovery />
                     </>
                   )}

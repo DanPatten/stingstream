@@ -988,7 +988,7 @@ The worker monitors and searches selected missing episodes individually. Withdra
 request only cancels matching queue entries with known episode identity, leaves unidentified season
 packs alone, and keeps the show's library entry. Completed files are never removed.
 
-Home puts Continue watching first and Ready for you second. The latter includes the member's
+Below Home's featured banner, Continue watching is the first row and Ready for you is second. The latter includes the member's
 fulfilled requests for three days after availability, newest first, and removes a title once any
 playback is recorded (including an episode of a requested show). My requests remains on the
 Requests page. List responses resolve
