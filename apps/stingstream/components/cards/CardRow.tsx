@@ -321,6 +321,12 @@ export const CardRow: React.FC<Props> = ({
             renderItem={renderCard}
             keyExtractor={(card) => card.id}
             horizontal
+            // FlashList also anchors items itself, independently of CSS scroll
+            // anchoring. Reordered recommendations can otherwise move a web
+            // row away from its leading gutter after its initial measurement.
+            maintainVisibleContentPosition={
+              isWeb ? { disabled: true } : undefined
+            }
             // The browser's own scroll anchoring can re-adjust an off-screen
             // horizontal scroller's position as its images load in and shift
             // its layout — observed pinning a below-the-fold row at its
