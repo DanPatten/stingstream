@@ -982,7 +982,8 @@ WebUI\MaxAuthenticationFailCount=0
         # what keeps an agent's pipe from being held open by it (see Start-DetachedTool).
         $p = Start-Process -FilePath $exe -ArgumentList $arguments -WindowStyle Minimized -PassThru
     } else {
-        $arguments += '--confirm-legal-notice'
+        # LegalNotice/Accepted in the private profile works on both 4.x and 5.x.
+        # --confirm-legal-notice is not recognized by Ubuntu's 4.6.3 package.
         $stdout = Join-Path $profileFull 'qbittorrent.out.log'
         $stderr = Join-Path $profileFull 'qbittorrent.err.log'
         $p = Start-Process -FilePath $exe -ArgumentList $arguments -PassThru `
@@ -1008,7 +1009,13 @@ WebUI\MaxAuthenticationFailCount=0
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $last = 'no answer'
     while ((Get-Date) -lt $deadline) {
-        if ($p.HasExited) { throw "qBittorrent exited with code $($p.ExitCode) before its Web UI came up." }
+        if ($p.HasExited) {
+            $detail = ''
+            if (-not $script:IsWindowsHost -and (Test-Path -LiteralPath $stderr)) {
+                $detail = (@(Get-Content -LiteralPath $stderr -Tail 12) -join "`n").Trim()
+            }
+            throw "qBittorrent exited with code $($p.ExitCode) before its Web UI came up. $detail"
+        }
         try {
             $session = $null
             $login = Invoke-WebRequest -Uri "$($qbt.Url)/api/v2/auth/login" -Method POST -UseBasicParsing -TimeoutSec 5 `

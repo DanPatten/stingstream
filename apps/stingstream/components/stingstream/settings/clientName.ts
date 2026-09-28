@@ -37,7 +37,7 @@ export function isAutomaticClientName(
   const trimmed = name.trim();
   if (trimmed === "") return true;
   return labels.some((label) =>
-    new RegExp(`^${escape(label)}( \\d+)?$`, "i").test(trimmed),
+    new RegExp(`^${escapeRegex(label)}( \\d+)?$`, "i").test(trimmed),
   );
 }
 
@@ -60,4 +60,4 @@ export function nameForType(
     : current;
 }
 
-const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

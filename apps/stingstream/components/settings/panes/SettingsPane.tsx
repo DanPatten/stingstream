@@ -49,7 +49,9 @@ export const SettingsPane: React.FC<
         accessory || detail ? (
           <View style={{ marginBottom: space["5"], gap: space["3"] }}>
             {accessory ? (
-              <View style={{ flexDirection: "row", justifyContent: "flex-end" }}>
+              <View
+                style={{ flexDirection: "row", justifyContent: "flex-end" }}
+              >
                 {accessory}
               </View>
             ) : null}
